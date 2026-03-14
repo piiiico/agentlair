@@ -311,7 +311,7 @@ async function handleMcp(req) {
   }
 
   // Notifications — no response
-  if (method === "notifications/initialized" || method === "notifications/cancelled") {
+  if (method?.startsWith?.("notifications/")) {
     return new Response(null, { status: 202, headers: CORS_HEADERS });
   }
 
@@ -321,6 +321,8 @@ async function handleMcp(req) {
         protocolVersion: PROTOCOL_VERSION,
         capabilities: {
           tools: { listChanged: false },
+          resources: { listChanged: false },
+          prompts: { listChanged: false },
         },
         serverInfo: {
           name: SERVER_NAME,
@@ -330,8 +332,20 @@ async function handleMcp(req) {
       });
     }
 
+    case "ping": {
+      return jsonRpcOk(id, {});
+    }
+
     case "tools/list": {
       return jsonRpcOk(id, { tools: TOOLS });
+    }
+
+    case "resources/list": {
+      return jsonRpcOk(id, { resources: [] });
+    }
+
+    case "prompts/list": {
+      return jsonRpcOk(id, { prompts: [] });
     }
 
     case "tools/call": {
