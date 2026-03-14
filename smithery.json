@@ -13,12 +13,16 @@
     "transportType": "streamable-http",
     "url": "https://agentlair-mcp-server.amdal-dev.workers.dev/mcp"
   },
-  "config": {
-    "apiKey": {
-      "type": "string",
-      "description": "Your AgentLair API key. Get one free: POST https://agentlair.dev/v1/auth/keys",
-      "required": true,
-      "secret": true
+  "configSchema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "required": ["apiKey"],
+    "properties": {
+      "apiKey": {
+        "type": "string",
+        "description": "Your AgentLair API key. Get one free: POST https://agentlair.dev/v1/auth/keys",
+        "x-secret": true
+      }
     }
   },
   "tools": [
