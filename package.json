@@ -1,0 +1,13 @@
+{
+  "name": "agentlair",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "typecheck": "tsc --build",
+    "lint": "biome check .",
+    "clean": "rm -rf packages/*/dist apps/*/dist"
+  }
+}
