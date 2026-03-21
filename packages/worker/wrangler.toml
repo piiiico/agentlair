@@ -1,0 +1,38 @@
+name = "agentlair-api"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+account_id = "1e3b03e4a8d2514f89998dbdda7d5140"
+
+[[kv_namespaces]]
+binding = "KEYS"
+id = "e7125ab59c3e44e68e9b6496d47ac83d"
+
+[[kv_namespaces]]
+binding = "EMAILS"
+id = "0c16b7fe8a09430fb3e7c21c70f9544f"
+
+[[kv_namespaces]]
+binding = "VAULT"
+id = "5eb916dd7125415da51c15cd85c3b761"
+
+# Secrets (set via wrangler secret put — NOT stored here):
+#   PLATFORM_ENCRYPTION_KEY  — base64-encoded 32-byte AES-256 key for email body encryption at rest
+#                              Generate: openssl rand -base64 32
+#                              Set:      wrangler secret put PLATFORM_ENCRYPTION_KEY
+#   RESEND_API_KEY           — Resend API key for outbound email delivery
+
+[[analytics_engine_datasets]]
+binding = "AE_ANALYTICS"
+dataset = "agentlair_events"
+
+[[durable_objects.bindings]]
+name = "INBOX_NOTIFIER"
+class_name = "InboxNotifier"
+
+# DEPLOYED 2026-03-18: This DO migration was applied — InboxNotifier namespace now
+# exists permanently on Cloudflare. Changed new_classes → new_sqlite_classes at deploy
+# time (CF free plan requires new_sqlite_classes; InboxNotifier uses no storage so
+# functionally identical).
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["InboxNotifier"]

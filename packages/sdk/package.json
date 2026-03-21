@@ -1,11 +1,46 @@
 {
   "name": "@agentlair/sdk",
-  "version": "0.0.1",
+  "version": "0.3.0",
+  "description": "Official TypeScript/JavaScript SDK for AgentLair — email, vault, and account management for AI agents. Zero dependencies. Works in Node, Bun, Deno, and browsers.",
   "type": "module",
   "main": "./dist/index.js",
+  "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
-    "build": "bun build ./src/index.ts --outdir ./dist",
-    "typecheck": "tsc --noEmit"
+    "build": "tsc",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "bun run build"
+  },
+  "keywords": [
+    "agentlair",
+    "ai-agent",
+    "email",
+    "vault",
+    "sdk",
+    "typescript"
+  ],
+  "author": "AgentLair",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/piiiico/agentlair"
+  },
+  "homepage": "https://agentlair.dev",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
   }
 }
