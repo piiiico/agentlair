@@ -14,7 +14,7 @@
 //   DELETE /v1/vault/{key}            — delete blob
 
 import { nanoid, sha256hex, json, err } from '../utils.js';
-import type { Env, RouteContext } from '../types.js';
+import type { Env, RouteContext, VaultIndexEntry } from '../types.js';
 import { sendVaultRecoveryEmail } from '../middleware/auth.js';
 
 const VAULT_LIMITS = {
@@ -37,10 +37,10 @@ export async function handleVaultRoutes(
   if (!account) {
     // POST /v1/vault/store — store an encrypted seed blob
     if (path === '/v1/vault/store' && method === 'POST') {
-      let body: any = {};
+      let body: Record<string, unknown> = {};
       try { body = await request.json(); } catch {}
       const encryptedSeed = body.encrypted_seed;
-      const recoveryEmail = (body.recovery_email || '').toLowerCase().trim();
+      const recoveryEmail = (typeof body.recovery_email === 'string' ? body.recovery_email : '').toLowerCase().trim();
 
       if (!encryptedSeed || typeof encryptedSeed !== 'string') {
         return err('encrypted_seed required (base64 or hex encoded ciphertext)', 400, 'invalid_encrypted_seed');
@@ -84,9 +84,9 @@ export async function handleVaultRoutes(
 
     // POST /v1/vault/recover — request a magic link to recover encrypted seed(s)
     if (path === '/v1/vault/recover' && method === 'POST') {
-      let body: any = {};
+      let body: Record<string, unknown> = {};
       try { body = await request.json(); } catch {}
-      const email = (body.email || '').toLowerCase().trim();
+      const email = (typeof body.email === 'string' ? body.email : '').toLowerCase().trim();
       if (!email || !email.includes('@')) return err('email required', 400, 'invalid_email');
 
       const emailHash = await sha256hex(email);
@@ -119,8 +119,8 @@ export async function handleVaultRoutes(
       const baseUrl = new URL(request.url).origin;
       try {
         await sendVaultRecoveryEmail(email, token, baseUrl, env);
-      } catch (e: any) {
-        return err('Failed to send recovery email: ' + e.message, 502, 'email_error');
+      } catch (e: unknown) {
+        return err('Failed to send recovery email: ' + (e instanceof Error ? e.message : String(e)), 502, 'email_error');
       }
 
       return json({ sent: true, message: 'Recovery link sent. Check your inbox — expires in 15 minutes.' });
@@ -143,20 +143,20 @@ export async function handleVaultRoutes(
 
       await env.KEYS.delete('vault-magic:' + tokenHash);
 
-      const legacyEntries: any[] = [];
+      const legacyEntries: Array<{ vault_id: string; encrypted_seed: string; created_at: string }> = [];
       for (const vaultId of (magic.vault_ids || [])) {
         const entryJson = await env.KEYS.get('vault:' + vaultId);
         if (entryJson) {
-          const entry = JSON.parse(entryJson);
+          const entry = JSON.parse(entryJson) as Record<string, unknown>;
           legacyEntries.push({
-            vault_id: vaultId,
-            encrypted_seed: entry.encrypted_seed,
-            created_at: entry.created_at,
+            vault_id: vaultId as string,
+            encrypted_seed: entry.encrypted_seed as string,
+            created_at: entry.created_at as string,
           });
         }
       }
 
-      const v2Entries: any[] = [];
+      const v2Entries: Array<{ account_id: string; key: string; ciphertext: string; metadata: unknown; version: number; created_at: string }> = [];
       for (const accountId of (magic.account_ids || [])) {
         const indexRaw = await env.VAULT.get('vault-index:' + accountId);
         if (!indexRaw) continue;
@@ -195,9 +195,9 @@ export async function handleVaultRoutes(
 
   // POST /v1/vault/recovery-email — register recovery email + encrypted seed for this account
   if (path === '/v1/vault/recovery-email' && method === 'POST') {
-    let body: any = {};
+    let body: Record<string, unknown> = {};
     try { body = await request.json(); } catch {}
-    const recoveryEmail = (body.email || '').toLowerCase().trim();
+    const recoveryEmail = (typeof body.email === 'string' ? body.email : '').toLowerCase().trim();
     const encryptedSeed = body.encrypted_seed;
 
     if (!recoveryEmail || !recoveryEmail.includes('@')) {
@@ -257,18 +257,18 @@ export async function handleVaultRoutes(
     const indexKey = 'vault-index:' + account.id;
     const latestKey = 'vault:' + account.id + ':' + vaultKey + ':latest';
 
-    async function getVaultIndex() {
+    async function getVaultIndex(): Promise<VaultIndexEntry[]> {
       const raw = await env.VAULT.get(indexKey);
       return raw ? JSON.parse(raw) : [];
     }
 
-    async function saveVaultIndex(idx: any[]) {
+    async function saveVaultIndex(idx: VaultIndexEntry[]) {
       await env.VAULT.put(indexKey, JSON.stringify(idx));
     }
 
     // PUT /v1/vault/{key} — store an encrypted blob (versioned)
     if (method === 'PUT') {
-      let body: any = {};
+      let body: Record<string, unknown> = {};
       try { body = await request.json(); } catch {}
 
       const ciphertext = body.ciphertext || body.value;
@@ -322,7 +322,7 @@ export async function handleVaultRoutes(
       }
 
       const index = await getVaultIndex();
-      const existingIdx = index.findIndex((e: any) => e.key === vaultKey);
+      const existingIdx = index.findIndex((e: VaultIndexEntry) => e.key === vaultKey);
       const createdAt = isNew ? now : (existingIdx >= 0 ? index[existingIdx].created_at : now);
       const indexEntry = {
         key: vaultKey,
@@ -366,7 +366,7 @@ export async function handleVaultRoutes(
         const entry = JSON.parse(raw);
 
         const index = await getVaultIndex();
-        const idxEntry = index.find((e: any) => e.key === vaultKey);
+        const idxEntry = index.find((e: VaultIndexEntry) => e.key === vaultKey);
 
         return json({
           key: vaultKey,
@@ -433,7 +433,7 @@ export async function handleVaultRoutes(
             if (newLatest > 0) {
               await env.VAULT.put(latestKey, String(newLatest));
               const index = await getVaultIndex();
-              const idx = index.findIndex((e: any) => e.key === vaultKey);
+              const idx = index.findIndex((e: VaultIndexEntry) => e.key === vaultKey);
               if (idx >= 0) {
                 index[idx].version = newLatest;
                 index[idx].updated_at = new Date().toISOString();
@@ -442,7 +442,7 @@ export async function handleVaultRoutes(
             } else {
               await env.VAULT.delete(latestKey);
               const index = await getVaultIndex();
-              await saveVaultIndex(index.filter((e: any) => e.key !== vaultKey));
+              await saveVaultIndex(index.filter((e: VaultIndexEntry) => e.key !== vaultKey));
             }
           }
 
@@ -458,7 +458,7 @@ export async function handleVaultRoutes(
         await Promise.all(deletePromises);
 
         const index = await getVaultIndex();
-        await saveVaultIndex(index.filter((e: any) => e.key !== vaultKey));
+        await saveVaultIndex(index.filter((e: VaultIndexEntry) => e.key !== vaultKey));
 
         return json({ key: vaultKey, deleted: true, versions_removed: latestVersion });
       }

@@ -10,6 +10,7 @@ import { CALENDAR_HTML } from './templates/calendar.js';
 import { GETTING_STARTED_HTML } from './templates/getting-started.js';
 import { INTEGRATIONS_HTML } from './templates/integrations.js';
 import { PLATFORM_LOCKDOWN_HTML } from './templates/platform-lockdown.js';
+import { HUMAN_VERIFIED_AGENT_EMAIL_HTML } from './templates/blog-human-verified-agent-email.js';
 import { API_DISCOVERY, OPENAPI_SPEC, SCALAR_DOCS_HTML } from './openapi.js';
 import { AGENT_CARD } from './a2a.js';
 import { authenticateAny } from './middleware/auth.js';
@@ -91,6 +92,17 @@ const _agentlairHandler = {
         return agentManifestResponse(detection);
       }
       return new Response(AGENT_FIRST_BLOG_HTML, {
+        status: 200,
+        headers: { 'Content-Type': 'text/html; charset=utf-8', 'X-Powered-By': 'AgentLair', 'Cache-Control': 'public, max-age=3600' },
+      });
+    }
+
+    if (path === '/blog/human-verified-agent-email' && method === 'GET') {
+      const detection = detectAgent(request.headers);
+      if (detection.isAgent && (detection.confidence === 'high' || detection.confidence === 'medium')) {
+        return agentManifestResponse(detection);
+      }
+      return new Response(HUMAN_VERIFIED_AGENT_EMAIL_HTML, {
         status: 200,
         headers: { 'Content-Type': 'text/html; charset=utf-8', 'X-Powered-By': 'AgentLair', 'Cache-Control': 'public, max-age=3600' },
       });

@@ -9,5 +9,9 @@
     "typecheck": "tsc --build",
     "lint": "biome check .",
     "clean": "rm -rf packages/*/dist apps/*/dist"
+  },
+  "devDependencies": {
+    "@agentlair/mcp": "workspace:*",
+    "@types/node": "^25.5.0"
   }
 }

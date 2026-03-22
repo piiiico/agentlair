@@ -8,7 +8,7 @@
 // Protected routes (account !== null): account info, key rotation, backup, e2e
 
 import { nanoid, sha256hex, json, err, html } from '../utils.js';
-import type { Env, RouteContext } from '../types.js';
+import type { Env, RouteContext, KeyEntry, KeyHistoryEntry } from '../types.js';
 import { sendMagicLinkEmail } from '../middleware/auth.js';
 import { checkIpRateLimit } from '../middleware/ratelimit.js';
 import { saveKeysList, ensureKeysList } from '../platform-crypto.js';
@@ -26,9 +26,9 @@ export async function handleAuthRoutes(
   if (!account) {
     // POST /v1/auth/login — request magic link by recovery email
     if (path === '/v1/auth/login' && method === 'POST') {
-      let body: any = {};
+      let body: Record<string, unknown> = {};
       try { body = await request.json(); } catch {}
-      const email = (body.email || '').toLowerCase().trim();
+      const email = (typeof body.email === 'string' ? body.email : '').toLowerCase().trim();
       if (!email || !email.includes('@')) return err('email required', 400, 'invalid_email');
 
       // Look up account by recovery email index
@@ -50,8 +50,8 @@ export async function handleAuthRoutes(
       const baseUrl = new URL(request.url).origin;
       try {
         await sendMagicLinkEmail(email, token, baseUrl, env);
-      } catch (e: any) {
-        return err('Failed to send magic link: ' + e.message, 502, 'email_error');
+      } catch (e: unknown) {
+        return err('Failed to send magic link: ' + (e instanceof Error ? e.message : String(e)), 502, 'email_error');
       }
 
       return json({ sent: true, message: 'Magic link sent. Check your inbox — expires in 15 minutes.' });
@@ -113,9 +113,9 @@ export async function handleAuthRoutes(
         });
       }
 
-      let body: any = {};
+      let body: Record<string, unknown> = {};
       try { body = await request.json(); } catch {}
-      const name = body.name || 'default';
+      const name = typeof body.name === 'string' ? body.name : 'default';
 
       const keyValue = 'al_live_' + nanoid(32);
       const keyHash = await sha256hex(keyValue);
@@ -141,8 +141,8 @@ export async function handleAuthRoutes(
         if (newAccount.email) {
           await env.KEYS.put('recovery-email:' + newAccount.email.toLowerCase(), accountId);
         }
-      } catch (kvErr: any) {
-        const msg = kvErr?.message || '';
+      } catch (kvErr: unknown) {
+        const msg = kvErr instanceof Error ? kvErr.message : '';
         if (msg.includes('free usage limit') || msg.includes('KV') || msg.includes('quota')) {
           return err('Key creation temporarily unavailable — KV write quota exceeded. Try again later.', 503, 'kv_quota_exceeded');
         }
@@ -189,9 +189,9 @@ export async function handleAuthRoutes(
       const keyPrefix = keyValue.slice(0, 12);
       const accountId = 'acc_' + nanoid(16);
       const now = new Date().toISOString();
-      let body: any = {};
+      let body: Record<string, unknown> = {};
       try { body = await request.json(); } catch {}
-      const acc = { id: accountId, key_prefix: keyPrefix, name: body.name || 'default', tier: 'free', email: body.email || null, created_at: now, stacks: [] };
+      const acc = { id: accountId, key_prefix: keyPrefix, name: typeof body.name === 'string' ? body.name : 'default', tier: 'free', email: typeof body.email === 'string' ? body.email : null, created_at: now, stacks: [] as string[] };
       await env.KEYS.put('key:' + keyHash, JSON.stringify(acc));
       await env.KEYS.put('account:' + accountId, keyHash);
       return json({ key: keyValue, account_id: accountId, created_at: now, note: 'Save this key — not shown again.' }, 201);
@@ -215,9 +215,12 @@ export async function handleAuthRoutes(
         });
       }
 
-      let body: any = {};
+      let body: Record<string, unknown> = {};
       try { body = await request.json(); } catch {}
-      const { name, address, public_key, recovery_email } = body;
+      const name = typeof body.name === 'string' ? body.name : undefined;
+      const address = typeof body.address === 'string' ? body.address : undefined;
+      const public_key = typeof body.public_key === 'string' ? body.public_key : undefined;
+      const recovery_email = typeof body.recovery_email === 'string' ? body.recovery_email : undefined;
 
       let emailAddress = '';
 
@@ -284,7 +287,7 @@ export async function handleAuthRoutes(
         tier: 'free',
         email: recovery_email || null,
         created_at: now,
-        stacks: [],
+        stacks: [] as string[],
       };
 
       // KV writes — wrapped in try/catch to handle quota limits gracefully.
@@ -306,8 +309,8 @@ export async function handleAuthRoutes(
         if (recovery_email) {
           await env.KEYS.put('recovery-email:' + recovery_email.toLowerCase(), accountId);
         }
-      } catch (kvErr: any) {
-        const msg = kvErr?.message || '';
+      } catch (kvErr: unknown) {
+        const msg = kvErr instanceof Error ? kvErr.message : '';
         if (msg.includes('free usage limit') || msg.includes('KV') || msg.includes('quota')) {
           return err('Registration temporarily unavailable — KV write quota exceeded. Try again later.', 503, 'kv_quota_exceeded');
         }
@@ -362,7 +365,7 @@ export async function handleAuthRoutes(
 
   // POST /v1/account/recovery-email — set or update recovery email
   if (path === '/v1/account/recovery-email' && method === 'POST') {
-    let body: any = {};
+    let body: Record<string, unknown> = {};
     try { body = await request.json(); } catch {}
     const newEmail = (body.email || '').toLowerCase().trim();
     if (!newEmail || !newEmail.includes('@')) return err('email required', 400, 'invalid_email');
@@ -417,7 +420,7 @@ export async function handleAuthRoutes(
 
   // POST /v1/auth/keys/generate-backup — create a backup key (dormant until activated)
   if (path === '/v1/auth/keys/generate-backup' && method === 'POST') {
-    let body: any = {};
+    let body: Record<string, unknown> = {};
     try { body = await request.json(); } catch {}
     const label = body.label || 'backup';
 
@@ -507,7 +510,7 @@ export async function handleAuthRoutes(
 
   // POST /v1/e2e/rotate-key — register or rotate E2E public key for this account
   if (path === '/v1/e2e/rotate-key' && method === 'POST') {
-    let body: any = {};
+    let body: Record<string, unknown> = {};
     try { body = await request.json(); } catch {}
     const { master_seed, new_public_key } = body;
 

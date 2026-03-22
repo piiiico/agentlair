@@ -107,6 +107,35 @@ export interface KeyEntry {
   prefix: string;
   created_at: string;
   label?: string;
+  activated_at?: string;
+}
+
+// ─── Vault Index Entry ──────────────────────────────────────────────────────
+
+export interface VaultIndexEntry {
+  key: string;
+  version: number;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// ─── Key History Entry (E2E rotation) ───────────────────────────────────────
+
+export interface KeyHistoryEntry {
+  public_key: string;
+  rotated_at: string;
+}
+
+// ─── Webhook Entry ──────────────────────────────────────────────────────────
+
+export interface WebhookListEntry {
+  id: string;
+  address: string;
+  url: string;
+  has_secret: boolean;
+  events: string[];
+  created_at: string;
 }
 
 // ─── Route Handler Context ─────────────────────────────────────────────────────
