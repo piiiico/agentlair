@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AgentLair Dashboard</title>
+  <style>
+    :root {
+      --bg: #0a0a14;
+      --bg2: #12121e;
+      --border: #1e1e30;
+      --accent: #7b6cf6;
+      --accent-dim: #3d3680;
+      --green: #22c55e;
+      --red: #ef4444;
+      --amber: #f59e0b;
+      --text: #e2e2f0;
+      --muted: #8888a0;
+      --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 14px; min-height: 100vh; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* Nav */
+    nav { display: flex; align-items: center; justify-content: space-between; padding: 0 1.5rem; height: 52px; border-bottom: 1px solid var(--border); background: var(--bg2); position: sticky; top: 0; z-index: 10; }
+    .logo { display: flex; align-items: center; gap: 0.5rem; font-weight: 700; font-size: 1rem; color: var(--text); }
+    .logo-mark { background: var(--accent); color: white; font-size: 0.7rem; font-weight: 800; padding: 2px 5px; border-radius: 4px; letter-spacing: 0.05em; }
+    #nav-right { display: flex; align-items: center; gap: 0.75rem; }
+
+    /* Layout */
+    .container { max-width: 900px; margin: 0 auto; padding: 2rem 1.5rem; }
+    .card { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 1.25rem; margin-bottom: 1.25rem; }
+    .card h3 { font-size: 0.9rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 1rem; }
+
+    /* Form elements */
+    label { display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 0.3rem; font-weight: 500; }
+    input[type="text"], input[type="email"], input[type="password"] {
+      width: 100%; padding: 0.55rem 0.75rem; background: var(--bg); border: 1px solid var(--border);
+      border-radius: 6px; color: var(--text); font-size: 0.9rem; font-family: var(--font); outline: none;
+    }
+    input:focus { border-color: var(--accent); }
+    input::placeholder { color: var(--muted); }
+
+    button {
+      padding: 0.55rem 1.1rem; background: var(--accent); color: white; border: none; border-radius: 6px;
+      font-size: 0.88rem; font-weight: 600; cursor: pointer; transition: opacity 0.15s;
+    }
+    button:hover { opacity: 0.85; }
+    button.secondary { background: transparent; border: 1px solid var(--border); color: var(--text); }
+    button.secondary:hover { border-color: var(--accent); color: var(--accent); }
+    button.danger { border-color: var(--red); color: var(--red); }
+    button.danger:hover { background: rgba(239,68,68,0.1); }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .row { display: flex; gap: 0.6rem; align-items: flex-start; }
+    .row input { flex: 1; }
+
+    /* Notices */
+    .notice { padding: 0.65rem 1rem; border-radius: 6px; font-size: 0.85rem; margin-bottom: 1rem; }
+    .notice.info { background: rgba(123,108,246,0.12); border: 1px solid var(--accent-dim); color: #c0b8f8; }
+    .notice.ok { background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.3); color: #86efac; }
+    .notice.err { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); color: #fca5a5; }
+    .notice.warn { background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.3); color: #fcd34d; }
+
+    /* Badges */
+    .badge { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 0.75rem; font-weight: 600;
+      background: rgba(123,108,246,0.15); color: var(--accent); border: 1px solid var(--accent-dim); }
+    .badge.green { background: rgba(34,197,94,0.1); color: var(--green); border-color: rgba(34,197,94,0.3); }
+
+    /* Code / key boxes */
+    .key-box { font-family: monospace; font-size: 0.85rem; background: var(--bg); border: 1px solid var(--border);
+      border-radius: 6px; padding: 0.65rem 0.85rem; word-break: break-all; color: var(--accent); }
+
+    /* Meta text */
+    .meta { color: var(--muted); font-size: 0.82rem; }
+
+    /* Address block */
+    .addr-block { border: 1px solid var(--border); border-radius: 8px; padding: 1rem; margin-bottom: 0.75rem; }
+    .addr-label { font-family: monospace; font-size: 0.88rem; color: var(--accent); margin-bottom: 0.6rem; font-weight: 600; }
+    .addr-actions { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; }
+    .addr-actions button { font-size: 0.78rem; padding: 0.3rem 0.7rem; }
+
+    /* Messages */
+    .msg { padding: 0.6rem 0; border-bottom: 1px solid var(--border); display: flex; gap: 0.75rem; align-items: baseline; }
+    .msg:last-child { border-bottom: none; }
+    .msg .from { font-weight: 600; font-size: 0.85rem; min-width: 160px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+    .msg .subj { flex: 1; color: var(--muted); font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .msg .time { font-size: 0.75rem; color: var(--muted); white-space: nowrap; }
+    .msg-section-title { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 600; margin: 0.75rem 0 0.5rem; }
+
+    /* Login page */
+    #login-view { display: none; }
+    #dashboard-view { display: none; }
+    .login-wrap { max-width: 420px; margin: 4rem auto; }
+    .login-wrap h2 { font-size: 1.4rem; font-weight: 700; margin-bottom: 0.4rem; }
+    .login-wrap .subtitle { color: var(--muted); font-size: 0.9rem; margin-bottom: 2rem; }
+
+    /* Grid for account info */
+    .info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0.75rem 1.25rem; margin-bottom: 1rem; }
+    .info-item label { margin-bottom: 0.2rem; }
+    .info-value { font-family: monospace; font-size: 0.85rem; color: var(--text); word-break: break-all; }
+
+    /* Spinner */
+    .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.2); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: middle; margin-right: 5px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Tabs */
+    .tab-bar { display: flex; gap: 0.25rem; border-bottom: 1px solid var(--border); margin-bottom: 1rem; }
+    .tab-btn { background: none; border: none; border-bottom: 2px solid transparent; padding: 0.5rem 0.75rem; color: var(--muted); font-size: 0.85rem; font-weight: 500; cursor: pointer; margin-bottom: -1px; border-radius: 0; }
+    .tab-btn:hover { color: var(--text); }
+    .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    /* Responsive */
+    @media (max-width: 600px) {
+      .info-grid { grid-template-columns: 1fr 1fr; }
+      .msg .from { min-width: 100px; max-width: 130px; }
+    }
+  </style>
+</head>
+<body>
+
+<nav>
+  <a href="https://agentlair.dev" class="logo" style="text-decoration:none;">
+    <span class="logo-mark">AL</span> AgentLair
+  </a>
+  <div id="nav-right"></div>
+</nav>
+
+<!-- LOGIN VIEW -->
+<div id="login-view" class="container">
+  <div class="login-wrap">
+    <h2>Dashboard</h2>
+    <p class="subtitle">Paste your API key to view your account, addresses, and email activity.</p>
+    <div id="login-notice"></div>
+    <div class="card">
+      <label>API Key</label>
+      <div class="row" style="margin-bottom:0.75rem;">
+        <input type="password" id="api-key-input" placeholder="al_live_..." autocomplete="off" spellcheck="false" />
+        <button onclick="loginWithKey()" id="login-btn">Sign in</button>
+      </div>
+      <p class="meta">Don't have a key yet? Run: <code style="background:var(--bg);padding:2px 5px;border-radius:3px;font-size:0.8rem;">curl -X POST https://agentlair.dev/v1/auth/keys</code></p>
+    </div>
+    <div id="remember-option" style="margin-top:-0.5rem; margin-bottom:1rem; padding: 0 0.25rem;">
+      <label style="display:flex; align-items:center; gap:0.5rem; cursor:pointer; color:var(--muted);">
+        <input type="checkbox" id="remember-me" style="width:auto;" />
+        Remember me (store key in localStorage)
+      </label>
+    </div>
+  </div>
+</div>
+
+<!-- DASHBOARD VIEW -->
+<div id="dashboard-view" class="container">
+  <div id="dashboard-notice"></div>
+
+  <!-- Account Card -->
+  <div class="card">
+    <h3>Account</h3>
+    <div class="info-grid">
+      <div class="info-item"><label>Account ID</label><div class="info-value" id="d-account-id">—</div></div>
+      <div class="info-item"><label>Tier</label><div id="d-tier"><span class="badge">free</span></div></div>
+      <div class="info-item"><label>API Key</label><div class="info-value" id="d-key-prefix">—</div></div>
+      <div class="info-item"><label>Recovery Email</label><div class="info-value" id="d-recovery-email">—</div></div>
+    </div>
+    <div style="display:flex; gap:0.6rem; flex-wrap:wrap;">
+      <button class="secondary" onclick="togglePanel('rotate-panel')">Rotate key</button>
+      <button class="secondary" onclick="togglePanel('recovery-panel')">Set recovery email</button>
+      <button class="secondary danger" onclick="logout()">Sign out</button>
+    </div>
+
+    <div id="rotate-panel" style="display:none; margin-top:1rem;">
+      <div class="notice warn" style="margin-bottom:0.75rem;">⚠ Rotating your key invalidates the current one immediately. Update all agents before or after.</div>
+      <button onclick="rotateKey()">Confirm: rotate key now</button>
+    </div>
+
+    <div id="recovery-panel" style="display:none; margin-top:1rem;">
+      <label>Recovery email (lets you log in via magic link if you lose your key)</label>
+      <div class="row">
+        <input type="email" id="recovery-email-input" placeholder="you@example.com" />
+        <button onclick="setRecoveryEmail()">Save</button>
+      </div>
+    </div>
+
+    <div id="new-key-box" style="display:none; margin-top:1rem;">
+      <div class="notice ok">New key generated. Save it — not shown again.</div>
+      <div class="key-box" id="new-key-value" onclick="copyText(this.textContent, 'Copied!')" title="Click to copy" style="cursor:pointer;"></div>
+    </div>
+  </div>
+
+  <!-- API Keys -->
+  <div class="card">
+    <h3>API Keys</h3>
+    <div id="d-keys"><p class="meta"><span class="spinner"></span>Loading...</p></div>
+    <div id="generate-backup-panel" style="margin-top:0.75rem;">
+      <button class="secondary" onclick="generateBackupKey()">Generate backup key</button>
+    </div>
+    <div id="backup-key-box" style="display:none; margin-top:0.75rem;">
+      <div class="notice ok">Backup key generated. Save it securely — not shown again.</div>
+      <div class="key-box" id="backup-key-value" onclick="copyText(this.textContent, 'Copied!')" title="Click to copy" style="cursor:pointer;"></div>
+    </div>
+  </div>
+
+  <!-- Addresses + Inbox -->
+  <div class="card">
+    <h3>Email Addresses</h3>
+    <div id="d-addresses"><p class="meta"><span class="spinner"></span>Loading...</p></div>
+  </div>
+
+  <!-- Outbox -->
+  <div class="card">
+    <h3>Outbox <span class="meta" style="font-size:0.75rem; text-transform:none; letter-spacing:0;">(last 20 sent)</span></h3>
+    <div id="d-outbox"><p class="meta"><span class="spinner"></span>Loading...</p></div>
+  </div>
+</div>
+
+<script>
+const BASE = 'https://agentlair.dev';
+const COOKIE_NAME = 'al_key';
+let API_KEY = null;
+
+// ── Utilities ──────────────────────────────────────────────────────────────
+
+function esc(s) { return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function showNotice(id, type, msg) {
+  const el = document.getElementById(id);
+  if (el) el.innerHTML = '<div class="notice ' + type + '">' + msg + '</div>';
+}
+
+function clearNotice(id) {
+  const el = document.getElementById(id);
+  if (el) el.innerHTML = '';
+}
+
+function copyText(text, msg) {
+  navigator.clipboard.writeText(text).catch(() => {});
+}
+
+function togglePanel(id) {
+  const el = document.getElementById(id);
+  if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+function fmtDate(iso) {
+  if (!iso) return '';
+  try {
+    const d = new Date(iso);
+    const now = new Date();
+    const diff = now - d;
+    if (diff < 60000) return 'just now';
+    if (diff < 3600000) return Math.floor(diff/60000) + 'm ago';
+    if (diff < 86400000) return Math.floor(diff/3600000) + 'h ago';
+    return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  } catch(e) { return iso.slice(0, 10); }
+}
+
+// ── Cookie / session storage ──────────────────────────────────────────────
+
+function saveKey(key, remember) {
+  // Session cookie (no expiry = expires when browser closes) or localStorage
+  if (remember) {
+    localStorage.setItem(COOKIE_NAME, key);
+  } else {
+    // Session cookie
+    document.cookie = COOKIE_NAME + '=' + encodeURIComponent(key) + '; SameSite=Strict; path=/';
+  }
+}
+
+function loadKey() {
+  // Check localStorage first, then session cookie
+  const ls = localStorage.getItem(COOKIE_NAME);
+  if (ls) return ls;
+  const match = document.cookie.match(new RegExp('(?:^|; )' + COOKIE_NAME + '=([^;]*)'));
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+function clearKey() {
+  localStorage.removeItem(COOKIE_NAME);
+  document.cookie = COOKIE_NAME + '=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; SameSite=Strict';
+}
+
+// ── API ────────────────────────────────────────────────────────────────────
+
+async function api(path, opts) {
+  const headers = { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + API_KEY };
+  try {
+    const res = await fetch(BASE + path, { ...opts, headers: { ...headers, ...(opts && opts.headers) } });
+    const data = await res.json().catch(() => ({}));
+    return { ok: res.ok, status: res.status, data };
+  } catch (e) {
+    return { ok: false, status: 0, data: { message: e.message } };
+  }
+}
+
+// ── Auth ───────────────────────────────────────────────────────────────────
+
+async function loginWithKey() {
+  const raw = document.getElementById('api-key-input').value.trim();
+  if (!raw) return showNotice('login-notice', 'err', 'Enter your API key.');
+  if (!raw.startsWith('al_live_') && !raw.startsWith('al_test_')) {
+    showNotice('login-notice', 'warn', 'Key should start with <code>al_live_</code>. Trying anyway...');
+  }
+
+  const btn = document.getElementById('login-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Verifying...';
+
+  API_KEY = raw;
+  const { ok, data } = await api('/v1/account/me');
+
+  if (!ok) {
+    API_KEY = null;
+    btn.disabled = false;
+    btn.textContent = 'Sign in';
+    showNotice('login-notice', 'err', data.message || 'Invalid key or API error.');
+    return;
+  }
+
+  const remember = document.getElementById('remember-me').checked;
+  saveKey(raw, remember);
+  showDashboard(data);
+}
+
+function logout() {
+  API_KEY = null;
+  clearKey();
+  showLogin();
+}
+
+// ── View switching ─────────────────────────────────────────────────────────
+
+function showLogin() {
+  document.getElementById('login-view').style.display = 'block';
+  document.getElementById('dashboard-view').style.display = 'none';
+  document.getElementById('nav-right').innerHTML = '<a href="https://agentlair.dev" class="meta">Back to site</a>';
+  document.getElementById('api-key-input').value = '';
+  const btn = document.getElementById('login-btn');
+  btn.disabled = false;
+  btn.textContent = 'Sign in';
+}
+
+function showDashboard(accountData) {
+  document.getElementById('login-view').style.display = 'none';
+  document.getElementById('dashboard-view').style.display = 'block';
+  document.getElementById('nav-right').innerHTML =
+    '<span class="meta" id="d-key-nav"></span>' +
+    '<button class="secondary" style="font-size:0.78rem;padding:0.3rem 0.7rem;" onclick="logout()">Sign out</button>';
+
+  if (accountData) renderAccount(accountData);
+  loadKeys();
+  loadAddresses();
+  loadOutbox();
+}
+
+// ── Dashboard loaders ──────────────────────────────────────────────────────
+
+function renderAccount(data) {
+  document.getElementById('d-account-id').textContent = data.id || '—';
+  document.getElementById('d-key-prefix').textContent = (data.key_prefix || API_KEY.slice(0,12)) + '...';
+  document.getElementById('d-recovery-email').textContent = data.recovery_email || data.email || '(not set)';
+  const tier = data.tier || 'free';
+  document.getElementById('d-tier').innerHTML = '<span class="badge' + (tier === 'paid' ? ' green' : '') + '">' + esc(tier) + '</span>';
+  const nav = document.getElementById('d-key-nav');
+  if (nav) nav.textContent = (data.key_prefix || API_KEY.slice(0,12)) + '...';
+}
+
+async function loadAddresses() {
+  const container = document.getElementById('d-addresses');
+  const { ok, data } = await api('/v1/email/addresses');
+  if (!ok || !Array.isArray(data.addresses) || data.addresses.length === 0) {
+    container.innerHTML = '<p class="meta">No addresses claimed yet. Use your key to claim one: <code style="background:var(--bg);padding:2px 5px;border-radius:3px;">POST /v1/email/claim</code></p>';
+    return;
+  }
+
+  let html = '';
+  for (const addr of data.addresses) {
+    const safeId = btoa(addr).replace(/[^a-zA-Z0-9]/g, '');
+    html += `
+      <div class="addr-block">
+        <div class="addr-label">${esc(addr)}</div>
+        <div id="inbox-${safeId}"><span class="meta"><span class="spinner"></span>Loading inbox...</span></div>
+      </div>`;
+  }
+  container.innerHTML = html;
+
+  for (const addr of data.addresses) {
+    loadInbox(addr);
+  }
+}
+
+async function loadInbox(addr) {
+  const safeId = btoa(addr).replace(/[^a-zA-Z0-9]/g, '');
+  const el = document.getElementById('inbox-' + safeId);
+  if (!el) return;
+
+  const { ok, data } = await api('/v1/email/inbox?address=' + encodeURIComponent(addr) + '&limit=10');
+  if (!ok || !Array.isArray(data.messages) || data.messages.length === 0) {
+    el.innerHTML = '<p class="meta">Empty inbox</p>';
+    return;
+  }
+
+  el.innerHTML = '<div class="msg-section-title">Inbox (last ' + data.messages.length + ')</div>' +
+    data.messages.map(m =>
+      '<div class="msg">' +
+        '<span class="from" title="' + esc(m.from) + '">' + esc(m.from || '?') + '</span>' +
+        '<span class="subj">' + esc(m.subject || '(no subject)') + '</span>' +
+        '<span class="time">' + fmtDate(m.received_at) + '</span>' +
+      '</div>'
+    ).join('');
+}
+
+async function loadOutbox() {
+  const container = document.getElementById('d-outbox');
+  const { ok, data } = await api('/v1/email/outbox?limit=20');
+  if (!ok) {
+    container.innerHTML = '<p class="meta">Failed to load outbox.</p>';
+    return;
+  }
+  const msgs = data.messages || data.sent || [];
+  if (msgs.length === 0) {
+    container.innerHTML = '<p class="meta">No sent messages yet.</p>';
+    return;
+  }
+
+  container.innerHTML = msgs.map(m =>
+    '<div class="msg">' +
+      '<span class="from" title="' + esc(m.to || m.to_address) + '">→ ' + esc((m.to || m.to_address || '?').split(',')[0]) + '</span>' +
+      '<span class="subj">' + esc(m.subject || '(no subject)') + '</span>' +
+      '<span class="time">' + fmtDate(m.sent_at || m.created_at) + '</span>' +
+    '</div>'
+  ).join('');
+}
+
+// ── Account actions ────────────────────────────────────────────────────────
+
+async function rotateKey() {
+  clearNotice('dashboard-notice');
+  const { ok, data } = await api('/v1/auth/keys/rotate', { method: 'POST' });
+  if (ok) {
+    // Update stored key
+    const remember = !!localStorage.getItem(COOKIE_NAME);
+    API_KEY = data.api_key;
+    saveKey(data.api_key, remember);
+    document.getElementById('new-key-box').style.display = 'block';
+    document.getElementById('new-key-value').textContent = data.api_key;
+    document.getElementById('d-key-prefix').textContent = (data.key_prefix || '') + '...';
+    document.getElementById('rotate-panel').style.display = 'none';
+    showNotice('dashboard-notice', 'ok', '✓ Key rotated. New key shown below.');
+  } else {
+    showNotice('dashboard-notice', 'err', data.message || 'Key rotation failed.');
+  }
+}
+
+async function setRecoveryEmail() {
+  const email = document.getElementById('recovery-email-input').value.trim();
+  if (!email) return;
+  const { ok, data } = await api('/v1/account/recovery-email', { method: 'POST', body: JSON.stringify({ email }) });
+  if (ok) {
+    document.getElementById('d-recovery-email').textContent = email;
+    togglePanel('recovery-panel');
+    showNotice('dashboard-notice', 'ok', '✓ Recovery email saved. You can now use magic links at <a href="https://agentlair.dev/dashboard">agentlair.dev/dashboard</a>.');
+  } else {
+    showNotice('dashboard-notice', 'err', data.message || 'Failed to save recovery email.');
+  }
+}
+
+// ── Key management ────────────────────────────────────────────────────
+
+async function loadKeys() {
+  const container = document.getElementById('d-keys');
+  const { ok, data } = await api('/v1/auth/keys/list');
+  if (!ok || !Array.isArray(data.keys) || data.keys.length === 0) {
+    container.innerHTML = '<p class="meta">No key data available.</p>';
+    return;
+  }
+
+  const statusBadge = (s) => {
+    if (s === 'active') return '<span class="badge green">active</span>';
+    if (s === 'backup') return '<span class="badge">backup</span>';
+    return '<span class="badge" style="background:rgba(239,68,68,0.1);color:var(--red);border-color:rgba(239,68,68,0.3);">revoked</span>';
+  };
+
+  let html = '<div style="display:flex;flex-direction:column;gap:0.5rem;">';
+  for (const k of data.keys) {
+    html += '<div style="display:flex;align-items:center;gap:0.75rem;padding:0.5rem 0.6rem;border:1px solid var(--border);border-radius:6px;">';
+    html += '<span style="font-family:monospace;font-size:0.85rem;color:var(--accent);flex:1;">' + esc(k.prefix) + '...</span>';
+    html += statusBadge(k.status);
+    if (k.label) html += '<span class="meta" style="font-size:0.75rem;">' + esc(k.label) + '</span>';
+    html += '<span class="meta" style="font-size:0.72rem;">' + fmtDate(k.created_at) + '</span>';
+    if (k.status === 'backup') {
+      html += '<button class="secondary" style="font-size:0.75rem;padding:0.2rem 0.5rem;" onclick="activateBackup()">Activate</button>';
+    }
+    html += '</div>';
+  }
+  html += '</div>';
+  container.innerHTML = html;
+
+  // Show/hide generate button based on whether a backup already exists
+  const hasBackup = data.keys.some(k => k.status === 'backup');
+  document.getElementById('generate-backup-panel').style.display = hasBackup ? 'none' : 'block';
+}
+
+async function generateBackupKey() {
+  clearNotice('dashboard-notice');
+  const { ok, data } = await api('/v1/auth/keys/generate-backup', { method: 'POST', body: JSON.stringify({}) });
+  if (ok) {
+    document.getElementById('backup-key-box').style.display = 'block';
+    document.getElementById('backup-key-value').textContent = data.backup_key;
+    showNotice('dashboard-notice', 'ok', 'Backup key generated. Copy it now.');
+    loadKeys(); // Refresh the list
+  } else {
+    showNotice('dashboard-notice', 'err', data.message || 'Failed to generate backup key.');
+  }
+}
+
+async function activateBackup() {
+  if (!confirm('Activate backup key? This will revoke your current active key immediately.')) return;
+  clearNotice('dashboard-notice');
+  const { ok, data } = await api('/v1/auth/keys/activate-backup', { method: 'POST', body: JSON.stringify({}) });
+  if (ok) {
+    showNotice('dashboard-notice', 'warn', 'Backup key activated. You are now authenticated with the backup key. Update your agents to use it. If you logged in with the old key, you may need to sign in again with the new key.');
+    document.getElementById('backup-key-box').style.display = 'none';
+    loadKeys();
+  } else {
+    showNotice('dashboard-notice', 'err', data.message || 'Failed to activate backup key.');
+  }
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+(async function init() {
+  const savedKey = loadKey();
+  if (savedKey) {
+    API_KEY = savedKey;
+    // Verify key is still valid
+    const { ok, data } = await api('/v1/account/me');
+    if (ok) {
+      showDashboard(data);
+      return;
+    } else {
+      // Key invalid — clear it and show login
+      clearKey();
+      API_KEY = null;
+    }
+  }
+  showLogin();
+})();
+</script>
+</body>
+</html>

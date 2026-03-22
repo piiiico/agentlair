@@ -1,9 +1,29 @@
 {
   "name": "@agentlair/email-channel",
-  "version": "0.0.1",
+  "version": "0.1.0",
+  "description": "AgentLair email channel for Claude Code — route inbound emails into your session and reply with send_email",
   "private": true,
   "type": "module",
+  "bin": "./src/server.ts",
   "scripts": {
+    "start": "bun install --no-summary && bun src/server.ts",
     "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  },
+  "keywords": [
+    "claude-code",
+    "mcp",
+    "channel",
+    "email",
+    "agentlair"
+  ],
+  "author": "Synlig Digital <hei@synligdigital.no>",
+  "license": "MIT",
+  "homepage": "https://agentlair.dev",
+  "devDependencies": {
+    "@types/bun": "^1.3.11",
+    "typescript": "^5.9.3"
   }
 }

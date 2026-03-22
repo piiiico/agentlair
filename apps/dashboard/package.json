@@ -1,10 +1,10 @@
 {
   "name": "@agentlair/dashboard",
   "version": "0.0.1",
+  "description": "AgentLair Dashboard — web UI for account, email, and vault management",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun run serve",
-    "typecheck": "tsc --noEmit"
+    "dev": "bun run serve"
   }
 }
