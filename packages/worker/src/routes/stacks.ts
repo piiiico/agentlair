@@ -10,6 +10,19 @@ import { X402_CONFIG, EMAIL_PAYMENT_AMOUNT } from '../x402.js';
 import { tursoExecute } from '../email-provider.js';
 import { nanoid } from '../utils.js';
 
+// ─── Request body types ─────────────────────────────────────────────────────
+
+interface StackCreateBody {
+  domain?: string;
+}
+
+interface ObservationCreateBody {
+  topic?: string;
+  content?: unknown;
+  shared?: boolean;
+  display_name?: unknown;
+}
+
 export async function handleStackRoutes(
   request: Request,
   env: Env,
@@ -20,6 +33,8 @@ export async function handleStackRoutes(
   // All stack/usage/billing/observation routes require auth
   if (!account) return null;
 
+  const stacks = account.stacks ?? [];
+
   // Pod keys cannot manage stacks (pod keys have no stacks[] field)
   if (account.type === 'pod' && (path === '/v1/stack')) {
     return err('Pod keys cannot manage stacks. Use your platform API key.', 403, 'pod_stack_forbidden');
@@ -27,25 +42,26 @@ export async function handleStackRoutes(
 
   // POST /v1/stack — provision a new stack
   if (path === '/v1/stack' && method === 'POST') {
-    let body: any = {};
-    try { body = await request.json(); } catch {}
+    let body: StackCreateBody = {};
+    try { body = (await request.json()) as StackCreateBody; } catch { /* empty body OK */ }
     const domain = body.domain;
 
     if (!domain) return err('domain is required. Example: {"domain": "myagent.dev"}', 400, 'missing_domain');
 
-    if (account.stacks.length >= 1 && account.tier === 'free') {
-      return json({
-        error: 'upgrade_required',
-        message: 'Free tier allows 1 stack. Upgrade for unlimited stacks.',
-        upgrade_url: 'https://agentlair.dev/pricing',
-        current_stacks: account.stacks,
-      }, 402);
-    }
-
+    // Idempotency check: if this domain already has a stack, return it (before tier limits)
     const stackKey = 'stack:' + account.id + ':' + domain;
     const existingStack = await env.KEYS.get(stackKey);
     if (existingStack) {
       return json(JSON.parse(existingStack));
+    }
+
+    if (stacks.length >= 1 && account.tier === 'free') {
+      return json({
+        error: 'upgrade_required',
+        message: 'Free tier allows 1 stack. Upgrade for unlimited stacks.',
+        upgrade_url: 'https://agentlair.dev/pricing',
+        current_stacks: stacks,
+      }, 402);
     }
 
     const stackId = 'stk_' + nanoid(16);
@@ -68,7 +84,8 @@ export async function handleStackRoutes(
 
     await env.KEYS.put(stackKey, JSON.stringify(stack));
 
-    account.stacks.push(stackId);
+    stacks.push(stackId);
+    account.stacks = stacks;
     const keyHash = await env.KEYS.get('account:' + account.id);
     if (keyHash) await env.KEYS.put('key:' + keyHash, JSON.stringify(account));
 
@@ -77,11 +94,8 @@ export async function handleStackRoutes(
 
   // GET /v1/stack — list stacks for account
   if (path === '/v1/stack' && method === 'GET') {
-    const stacks: any[] = [];
-    for (const stackId of account.stacks) {
-      stacks.push({ id: stackId });
-    }
-    return json({ stacks, count: stacks.length });
+    const stackList = stacks.map((stackId: string) => ({ id: stackId }));
+    return json({ stacks: stackList, count: stackList.length });
   }
 
   // GET /v1/usage — show account usage stats
@@ -107,7 +121,7 @@ export async function handleStackRoutes(
       tier: account.tier,
       period: today,
       requests: { used: parseInt(usedToday || '0'), limit: account.tier === 'paid' ? 10000 : 100 },
-      stacks: { used: account.stacks.length, limit: account.tier === 'free' ? 1 : 999 },
+      stacks: { used: stacks.length, limit: account.tier === 'free' ? 1 : 999 },
       emails: {
         daily_used: emailDailyUsed,
         daily_limit: emailLimits.daily,
@@ -146,8 +160,8 @@ export async function handleStackRoutes(
 
   // POST /v1/observations — write an observation
   if (path === '/v1/observations' && method === 'POST') {
-    let body: any = {};
-    try { body = await request.json(); } catch {
+    let body: ObservationCreateBody = {};
+    try { body = (await request.json()) as ObservationCreateBody; } catch {
       return err('Invalid JSON body.', 400, 'invalid_body');
     }
 
@@ -176,8 +190,9 @@ export async function handleStackRoutes(
       );
 
       return json({ id, agent_id, display_name, topic, shared: !!shared, created_at }, 201);
-    } catch (e: any) {
-      return err(`Failed to write observation: ${e.message}`, 502, 'turso_error');
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      return err(`Failed to write observation: ${message}`, 502, 'turso_error');
     }
   }
 
@@ -189,8 +204,9 @@ export async function handleStackRoutes(
         [account.id],
       );
       return json({ topics: result.rows, count: result.rows.length });
-    } catch (e: any) {
-      return err(`Failed to list topics: ${e.message}`, 502, 'turso_error');
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      return err(`Failed to list topics: ${message}`, 502, 'turso_error');
     }
   }
 
@@ -228,15 +244,16 @@ export async function handleStackRoutes(
         args,
       );
 
-      const observations = result.rows.map((r: any) => ({ ...r, shared: r.shared === '1' || r.shared === 1 }));
+      const observations = result.rows.map((r) => ({ ...r, shared: r.shared === '1' || r.shared === 1 }));
 
       return json({
         observations,
         count: observations.length,
         filters: { topic: topic || null, agent_id: agent_id || null, since: since || null, scope, limit },
       });
-    } catch (e: any) {
-      return err(`Failed to read observations: ${e.message}`, 502, 'turso_error');
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      return err(`Failed to read observations: ${message}`, 502, 'turso_error');
     }
   }
 

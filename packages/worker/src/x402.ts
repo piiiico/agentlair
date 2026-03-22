@@ -3,7 +3,7 @@
 // Flow: rate limit hit → 402 with payment requirements → agent pays USDC on Base → retries with X-PAYMENT header
 // Ref: https://github.com/coinbase/x402/blob/main/specs/x402-specification-v2.md
 
-import type { Env } from './types.js';
+import type { X402VerifyResult, X402SettleResult } from './types.js';
 
 export const X402_CONFIG = {
   network: 'eip155:8453',
@@ -36,12 +36,25 @@ export const EMAIL_PAYMENT_REQUIRED_RESPONSE = {
   accepts: [EMAIL_PAYMENT_REQUIREMENTS],
 };
 
+// ─── x402 Payment Types ──────────────────────────────────────────────────────
+
+interface PaymentPayload {
+  payload?: unknown;
+  [key: string]: unknown;
+}
+
+interface FacilitatorVerifyResponse {
+  isValid: boolean;
+  invalidReason?: string;
+  payer?: string;
+}
+
 // ─── x402 Payment Verification & Settlement ──────────────────────────────────
 
-export async function verifyX402Payment(paymentHeader: string) {
-  let paymentPayload: any;
+export async function verifyX402Payment(paymentHeader: string): Promise<X402VerifyResult> {
+  let paymentPayload: PaymentPayload;
   try {
-    paymentPayload = JSON.parse(atob(paymentHeader));
+    paymentPayload = JSON.parse(atob(paymentHeader)) as PaymentPayload;
   } catch {
     return { valid: false, error: 'Invalid X-PAYMENT header: not valid base64 JSON' };
   }
@@ -79,21 +92,22 @@ export async function verifyX402Payment(paymentHeader: string) {
       return { valid: false, error: `Facilitator verify failed (${res.status}): ${text}` };
     }
 
-    const result: any = await res.json();
+    const result = (await res.json()) as FacilitatorVerifyResponse;
     if (!result.isValid) {
       return { valid: false, error: result.invalidReason || 'Payment verification failed' };
     }
 
     return { valid: true, payer: result.payer, rawPayload: paymentPayload };
-  } catch (e: any) {
-    return { valid: false, error: `Facilitator unreachable: ${e.message}` };
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : String(e);
+    return { valid: false, error: `Facilitator unreachable: ${message}` };
   }
 }
 
-export async function settleX402Payment(paymentHeader: string) {
-  let paymentPayload: any;
+export async function settleX402Payment(paymentHeader: string): Promise<X402SettleResult> {
+  let paymentPayload: PaymentPayload;
   try {
-    paymentPayload = JSON.parse(atob(paymentHeader));
+    paymentPayload = JSON.parse(atob(paymentHeader)) as PaymentPayload;
   } catch {
     return { settled: false, error: 'Invalid payment for settlement' };
   }
@@ -130,9 +144,10 @@ export async function settleX402Payment(paymentHeader: string) {
       return { settled: false, error: `Facilitator settle failed (${res.status}): ${text}` };
     }
 
-    const result: any = await res.json();
+    const result = (await res.json()) as Record<string, unknown>;
     return { settled: true, receipt: btoa(JSON.stringify(result)) };
-  } catch (e: any) {
-    return { settled: false, error: `Facilitator settle unreachable: ${e.message}` };
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : String(e);
+    return { settled: false, error: `Facilitator settle unreachable: ${message}` };
   }
 }

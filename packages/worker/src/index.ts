@@ -1,5 +1,5 @@
 import { nanoid, sha256hex, json, err, html, VERBOSE_ONLY_FIELDS } from './utils.js';
-import type { Env } from './types.js';
+import type { Env, Account } from './types.js';
 import { InboxNotifier } from './durable-objects/inbox-notifier.js';
 import { LANDING_HTML } from './templates/landing.js';
 import { SECURITY_BLOG_HTML } from './templates/security.js';
@@ -16,6 +16,14 @@ import { authenticateAny } from './middleware/auth.js';
 import { checkRateLimit } from './middleware/ratelimit.js';
 import { detectAgent, AGENTLAIR_MANIFEST } from './middleware/agent-detect.js';
 import { encryptEmailField, encryptEmailE2E } from './platform-crypto.js';
+
+// ─── CF Email Message Type ──────────────────────────────────────────────────
+interface CfEmailMessage {
+  to?: string;
+  from?: string;
+  headers: Headers;
+  raw: ReadableStream<Uint8Array>;
+}
 
 // ─── Route modules ─────────────────────────────────────────────────────────────
 import { handleAuthRoutes } from './routes/auth.js';
@@ -41,7 +49,7 @@ const _agentlairHandler = {
         headers: {
           'Access-Control-Allow-Origin': '*',
           'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-          'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-PAYMENT',
+          'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-PAYMENT, X-AGENTKIT',
           'Access-Control-Expose-Headers': 'X-402-Version, X-Payment-Response',
           'Access-Control-Max-Age': '86400',
         },
@@ -196,7 +204,7 @@ const _agentlairHandler = {
       if (!accountJson) {
         return err('Invalid or expired token.', 401, 'unauthorized');
       }
-      const wsAccount = JSON.parse(accountJson);
+      const wsAccount = JSON.parse(accountJson) as Account;
       const notifierId = env.INBOX_NOTIFIER.idFromName(wsAccount.id);
       const notifier = env.INBOX_NOTIFIER.get(notifierId);
       return notifier.fetch(request);
@@ -211,7 +219,7 @@ const _agentlairHandler = {
     }
 
     // Rate limit check
-    const allowed = await checkRateLimit(env, account.id, account.tier);
+    const allowed = await checkRateLimit(env, account.id, account.tier || 'free');
     if (!allowed) {
       return err('Rate limit exceeded. Free tier: 100 requests/day.', 429, 'rate_limited');
     }
@@ -269,7 +277,7 @@ const _agentlairHandler = {
   // ─── Cloudflare Email Workers: inbound delivery ───────────────────────────
   // Triggered by Cloudflare Email Routing when an @agentlair.dev message arrives.
   // Stores encrypted message body in EMAILS KV and fires registered webhooks.
-  async email(message: any, env: Env, ctx: ExecutionContext) {
+  async email(message: CfEmailMessage, env: Env, ctx: ExecutionContext) {
     try {
       const toAddr = message.to ? message.to.toLowerCase().trim() : null;
       // Use header From (human-readable) over envelope from (SES relay address)
@@ -389,7 +397,7 @@ const _agentlairHandler = {
 
       const msgId = nanoid(16);
       const msgKey = `msg:${toAddr}:${msgId}`;
-      let msg: any;
+      let msg: Record<string, unknown> | null = null;
 
       if (e2ePubKey && rawBody) {
         // E2E encrypt: only the private key holder can decrypt
@@ -549,19 +557,19 @@ const _agentlairHandler = {
           }
         })());
       }
-    } catch (e: any) {
+    } catch (e: unknown) {
       // Log errors to KV for debugging — never bounce due to our own bugs
       try {
         if (env.EMAILS) {
           await env.EMAILS.put('debug:last-email-error', JSON.stringify({
             error: String(e),
-            stack: e?.stack || 'n/a',
+            stack: e instanceof Error ? e.stack || 'n/a' : 'n/a',
             from: message?.from || 'unknown',
             to: message?.to || 'unknown',
             ts: new Date().toISOString(),
           }));
         }
-      } catch {}
+      } catch { /* swallow */ }
     }
   },
 };
@@ -576,9 +584,9 @@ export default {
     let response: Response;
     try {
       response = await _agentlairHandler.fetch(request, env, ctx);
-    } catch (e: any) {
+    } catch (e: unknown) {
       // Global error handler — prevents CF 1101 error pages
-      const message = e?.message || 'Internal server error';
+      const message = e instanceof Error ? e.message : 'Internal server error';
       const isKvLimit = message.includes('free usage limit') || message.includes('KV') || message.includes('quota');
       response = new Response(JSON.stringify({
         error: 'internal_error',
@@ -629,7 +637,7 @@ export default {
     } catch {}
     return response;
   },
-  async email(message: any, env: Env, ctx: ExecutionContext) {
+  async email(message: CfEmailMessage, env: Env, ctx: ExecutionContext) {
     return _agentlairHandler.email(message, env, ctx);
   },
 };

@@ -1,10 +1,10 @@
 // ─── Auth Middleware ───────────────────────────────────────────────────────────
 
-import type { Env } from '../types.js';
+import type { Env, Account } from '../types.js';
 import { sha256hex } from '../utils.js';
 import { getEmailProvider } from '../email-provider.js';
 
-export async function authenticate(request: Request, env: Env) {
+export async function authenticate(request: Request, env: Env): Promise<Account | null> {
   const auth = request.headers.get('Authorization') || '';
   if (!auth.startsWith('Bearer ')) return null;
   const key = auth.slice(7).trim();
@@ -14,20 +14,25 @@ export async function authenticate(request: Request, env: Env) {
   const accountJson = await env.KEYS.get('key:' + hash);
   if (!accountJson) return null;
 
-  return JSON.parse(accountJson);
+  return JSON.parse(accountJson) as Account;
 }
 
 // ─── Session Auth (dashboard) ──────────────────────────────────────────────────
 // Session tokens are prefixed "session_" and stored as KV keys with 24h TTL.
 
-export async function authenticateSession(request: Request, env: Env) {
+interface SessionData {
+  accountId: string;
+  expires?: number;
+}
+
+export async function authenticateSession(request: Request, env: Env): Promise<Account | null> {
   const auth = request.headers.get('Authorization') || '';
   if (!auth.startsWith('Bearer session_')) return null;
   const token = auth.slice(7); // keep "session_..." prefix
   const tokenHash = await sha256hex(token);
   const sessionJson = await env.KEYS.get('session:' + tokenHash);
   if (!sessionJson) return null;
-  const session = JSON.parse(sessionJson);
+  const session = JSON.parse(sessionJson) as SessionData;
   if (session.expires && Date.now() > session.expires) {
     await env.KEYS.delete('session:' + tokenHash);
     return null;
@@ -37,17 +42,17 @@ export async function authenticateSession(request: Request, env: Env) {
   if (!keyHash) return null;
   const accountJson = await env.KEYS.get('key:' + keyHash);
   if (!accountJson) return null;
-  return { ...JSON.parse(accountJson), _session: token };
+  return { ...(JSON.parse(accountJson) as Account), _session: token };
 }
 
 // Authenticate with either API key or session token
-export async function authenticateAny(request: Request, env: Env) {
+export async function authenticateAny(request: Request, env: Env): Promise<Account | null> {
   const byApiKey = await authenticate(request, env);
   if (byApiKey) return byApiKey;
   return await authenticateSession(request, env);
 }
 
-export async function sendMagicLinkEmail(toEmail: string, token: string, baseUrl: string, env: Env) {
+export async function sendMagicLinkEmail(toEmail: string, token: string, baseUrl: string, env: Env): Promise<void> {
   const link = baseUrl + '/v1/auth/verify?token=' + token;
   const provider = getEmailProvider(env);
   if (!provider) throw new Error('No email provider configured');
@@ -62,7 +67,7 @@ export async function sendMagicLinkEmail(toEmail: string, token: string, baseUrl
 
 // ─── Vault: Recovery Email ────────────────────────────────────────────────────
 
-export async function sendVaultRecoveryEmail(toEmail: string, token: string, baseUrl: string, env: Env) {
+export async function sendVaultRecoveryEmail(toEmail: string, token: string, baseUrl: string, env: Env): Promise<void> {
   const link = baseUrl + '/v1/vault/recover/verify?token=' + token;
   const provider = getEmailProvider(env);
   if (!provider) throw new Error('No email provider configured');

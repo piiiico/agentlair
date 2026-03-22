@@ -26,6 +26,15 @@ export interface EncryptedData {
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
+/**
+ * Convert Uint8Array to ArrayBuffer for Web Crypto compatibility.
+ * CF Workers types require ArrayBuffer (not ArrayBufferLike) for BufferSource params.
+ * Uses ArrayBuffer.prototype.slice to guarantee an ArrayBuffer return type.
+ */
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  return ArrayBuffer.prototype.slice.call(bytes.buffer, bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+}
+
 function b64urlDecode(str: string): Uint8Array {
   const pad = (4 - (str.length % 4)) % 4;
   const b64 = str.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat(pad);
@@ -45,15 +54,15 @@ function b64urlEncode(bytes: Uint8Array): string {
  * Pure Web Crypto — works everywhere.
  */
 async function hkdfDerive(seed: Uint8Array, info: string): Promise<Uint8Array> {
-  const hkdfKey = await crypto.subtle.importKey('raw', seed, { name: 'HKDF' }, false, [
+  const hkdfKey = await crypto.subtle.importKey('raw', toArrayBuffer(seed), { name: 'HKDF' }, false, [
     'deriveBits',
   ]);
   const bits = await crypto.subtle.deriveBits(
     {
       name: 'HKDF',
       hash: 'SHA-256',
-      salt: new Uint8Array(32), // zero salt (deterministic)
-      info: new TextEncoder().encode(info),
+      salt: new ArrayBuffer(32), // zero salt (deterministic)
+      info: toArrayBuffer(new TextEncoder().encode(info)),
     },
     hkdfKey,
     256, // 32 bytes
@@ -68,15 +77,15 @@ async function deriveAesKey(
   sharedSecret: Uint8Array,
   usage: 'encrypt' | 'decrypt',
 ): Promise<CryptoKey> {
-  const hkdfKey = await crypto.subtle.importKey('raw', sharedSecret, { name: 'HKDF' }, false, [
+  const hkdfKey = await crypto.subtle.importKey('raw', toArrayBuffer(sharedSecret), { name: 'HKDF' }, false, [
     'deriveKey',
   ]);
   return crypto.subtle.deriveKey(
     {
       name: 'HKDF',
       hash: 'SHA-256',
-      salt: new Uint8Array(32),
-      info: new TextEncoder().encode('agentlair:aes-256-gcm:v1'),
+      salt: new ArrayBuffer(32),
+      info: toArrayBuffer(new TextEncoder().encode('agentlair:aes-256-gcm:v1')),
     },
     hkdfKey,
     { name: 'AES-GCM', length: 256 },
@@ -136,7 +145,7 @@ export async function encrypt(
   // 4. AES-256-GCM encrypt
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const ciphertext = new Uint8Array(
-    await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aesKey, plaintext),
+    await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aesKey, toArrayBuffer(plaintext)),
   );
 
   return { ephemeralPublicKey, iv, ciphertext };
@@ -160,9 +169,9 @@ export async function decrypt(
 
   // 3. AES-256-GCM decrypt (throws on auth tag mismatch)
   const plaintext = await crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv: data.iv },
+    { name: 'AES-GCM', iv: toArrayBuffer(data.iv) },
     aesKey,
-    data.ciphertext,
+    toArrayBuffer(data.ciphertext),
   );
 
   return new Uint8Array(plaintext);

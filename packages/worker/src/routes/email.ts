@@ -5,13 +5,88 @@
 // All routes require authentication (account !== null).
 // Webhook routes (/v1/email/webhooks) are handled separately in webhooks.ts.
 
-import { nanoid, sha256hex, json, err } from '../utils.js';
+import { nanoid, json, err } from '../utils.js';
 import type { Env, RouteContext } from '../types.js';
 import { isReservedAddress, validateLocalPart } from '../reserved.js';
 import { checkEmailRateLimit, recordEmailBounce, recordEmailSent, ADDRESS_LIMITS, countOwnedAddresses } from '../middleware/ratelimit.js';
-import { encryptEmailField, decryptEmailField } from '../platform-crypto.js';
+import { decryptEmailField } from '../platform-crypto.js';
 import { getEmailProvider } from '../email-provider.js';
-import { X402_CONFIG, EMAIL_PAYMENT_AMOUNT, EMAIL_PAYMENT_REQUIREMENTS, EMAIL_PAYMENT_REQUIRED_RESPONSE, verifyX402Payment, settleX402Payment } from '../x402.js';
+import { X402_CONFIG, EMAIL_PAYMENT_REQUIRED_RESPONSE, verifyX402Payment, settleX402Payment } from '../x402.js';
+import { verifyAgentKit, recordAgentkitUsage, AGENTKIT_FREE_TRIAL_USES } from '../middleware/agentkit.js';
+
+// ─── Request body types ─────────────────────────────────────────────────────
+
+interface EmailClaimBody {
+  address?: string;
+  public_key?: string;
+}
+
+interface EmailSendBody {
+  from?: string;
+  to?: unknown;
+  subject?: string;
+  text?: string;
+  html?: string;
+  in_reply_to?: string;
+  references?: string;
+  client_id?: unknown;
+}
+
+interface EmailDraftBody {
+  from?: string;
+  to?: unknown;
+  subject?: string;
+  text?: string;
+  html?: string;
+  in_reply_to?: string;
+}
+
+interface InboxCreateBody {
+  name?: string;
+}
+
+interface MessagePatchBody {
+  read?: boolean;
+}
+
+// ─── Stored message shape (from KV) ─────────────────────────────────────────
+
+interface StoredMessage {
+  message_id?: string;
+  from?: string;
+  to?: string;
+  subject?: string;
+  body?: string;
+  body_preview?: string;
+  body_encrypted?: boolean;
+  e2e_encrypted?: boolean;
+  received_at?: string;
+  read?: boolean;
+  thread_id?: string;
+  in_reply_to?: string;
+  references?: string;
+  [key: string]: unknown;
+}
+
+interface OutboxEntry {
+  id: string;
+  from: string;
+  to: string[];
+  subject: string;
+  text: string | null;
+  html: string | null;
+  in_reply_to: string | null;
+  queued_at: string;
+  status: string;
+  sent_at?: string;
+  provider?: string;
+  provider_id?: string;
+  paid_via?: string;
+  error?: string;
+  error_at?: string;
+  draft_id?: string;
+  [key: string]: unknown;
+}
 
 export async function handleEmailRoutes(
   request: Request,
@@ -30,8 +105,8 @@ export async function handleEmailRoutes(
 
   // POST /v1/email/claim — explicitly claim an @agentlair.dev address
   if (path === '/v1/email/claim' && method === 'POST') {
-    let body: any = {};
-    try { body = await request.json(); } catch {}
+    let body: EmailClaimBody = {};
+    try { body = (await request.json()) as EmailClaimBody; } catch { /* empty body OK */ }
     const { address, public_key } = body;
 
     if (!address) {
@@ -129,11 +204,11 @@ export async function handleEmailRoutes(
       pageKeys.map(async (key: string) => {
         const raw = await env.EMAILS.get(key);
         if (!raw) return null;
-        const msg = JSON.parse(raw);
+        const msg = JSON.parse(raw) as StoredMessage;
         const snippet = msg.body_preview !== undefined
           ? msg.body_preview
           : (msg.body_encrypted ? '[encrypted]' : (msg.body || '').substring(0, 120).replace(/\n/g, ' '));
-        const entry: any = {
+        const entry: Record<string, unknown> = {
           message_id: msg.message_id,
           message_id_url: encodeURIComponent(msg.message_id || ''),
           from: msg.from,
@@ -178,11 +253,11 @@ export async function handleEmailRoutes(
     const index = JSON.parse(indexRaw);
     const normalizedQuery = msgId.replace(/[<>]/g, '').trim();
     let foundKey: string | null = null;
-    let foundMsg: any = null;
+    let foundMsg: StoredMessage | null = null;
     for (const key of index.slice(0, 50)) {
       const raw = await env.EMAILS.get(key);
       if (!raw) continue;
-      const parsed = JSON.parse(raw);
+      const parsed = JSON.parse(raw) as StoredMessage;
       const normalizedStored = (parsed.message_id || '').replace(/[<>]/g, '').trim();
       if (normalizedStored === normalizedQuery || parsed.message_id === msgId) {
         foundKey = key;
@@ -203,7 +278,7 @@ export async function handleEmailRoutes(
       });
     }
 
-    const plainBody = await decryptEmailField(env, foundMsg.body, foundMsg.body_encrypted);
+    const plainBody = await decryptEmailField(env, foundMsg.body || '', !!foundMsg.body_encrypted);
     return json({ ...foundMsg, body: plainBody, body_encrypted: undefined, body_preview: undefined });
   }
 
@@ -256,8 +331,8 @@ export async function handleEmailRoutes(
   if (path.startsWith('/v1/email/messages/') && method === 'PATCH') {
     const msgId = decodeURIComponent(path.replace('/v1/email/messages/', ''));
     const address = url.searchParams.get('address');
-    let body: any = {};
-    try { body = await request.json(); } catch {}
+    let body: MessagePatchBody = {};
+    try { body = (await request.json()) as MessagePatchBody; } catch { /* empty body OK */ }
 
     if (!address || !msgId) {
       return err('address and message_id required.', 400, 'missing_params');
@@ -279,11 +354,11 @@ export async function handleEmailRoutes(
     const index = JSON.parse(indexRaw);
     const normalizedQuery = msgId.replace(/[<>]/g, '').trim();
     let foundKey: string | null = null;
-    let foundMsg: any = null;
+    let foundMsg: StoredMessage | null = null;
     for (const key of index.slice(0, 100)) {
       const raw = await env.EMAILS.get(key);
       if (!raw) continue;
-      const parsed = JSON.parse(raw);
+      const parsed = JSON.parse(raw) as StoredMessage;
       const normalizedStored = (parsed.message_id || '').replace(/[<>]/g, '').trim();
       if (normalizedStored === normalizedQuery || parsed.message_id === msgId) {
         foundKey = key;
@@ -333,10 +408,10 @@ export async function handleEmailRoutes(
 
     const list = await env.EMAILS.list({ prefix: `outbox:${account.id}:`, limit });
     const entries = await Promise.all(
-      list.keys.map(async (k: any) => {
+      list.keys.map(async (k) => {
         const raw = await env.EMAILS.get(k.name);
         if (!raw) return null;
-        const entry = JSON.parse(raw);
+        const entry = JSON.parse(raw) as OutboxEntry;
         return {
           id: entry.id,
           from: entry.from,
@@ -352,7 +427,7 @@ export async function handleEmailRoutes(
       }),
     );
 
-    const filtered = entries.filter(Boolean).sort((a: any, b: any) =>
+    const filtered = entries.filter((e): e is NonNullable<typeof e> => e !== null).sort((a, b) =>
       new Date(b.queued_at).getTime() - new Date(a.queued_at).getTime(),
     );
 
@@ -365,8 +440,8 @@ export async function handleEmailRoutes(
 
   // POST /v1/email/send — send email from an @agentlair.dev address
   if (path === '/v1/email/send' && method === 'POST') {
-    let body: any = {};
-    try { body = await request.json(); } catch {
+    let body: EmailSendBody = {};
+    try { body = (await request.json()) as EmailSendBody; } catch {
       return err('Invalid JSON body', 400, 'invalid_body');
     }
 
@@ -404,8 +479,11 @@ export async function handleEmailRoutes(
       }
     }
 
-    const emailRateCheck = await checkEmailRateLimit(env, account.id, account.tier, fromAddr);
+    const emailRateCheck = await checkEmailRateLimit(env, account.id, account.tier || 'free', fromAddr);
     let paidViaX402 = false;
+    let paidViaAgentKit = false;
+    let agentkitHumanId: string | null = null;
+    let agentkitUsageCount = 0;
     let x402PaymentHeader: string | null = null;
 
     if (!emailRateCheck.allowed) {
@@ -421,47 +499,82 @@ export async function handleEmailRoutes(
         });
       }
 
-      x402PaymentHeader = request.headers.get('X-PAYMENT');
-
-      if (!x402PaymentHeader) {
-        const retryAfter = emailRateCheck.reset_at
-          ? String(Math.max(1, Math.floor((new Date(emailRateCheck.reset_at).getTime() - Date.now()) / 1000)))
-          : '60';
+      // ── AgentKit free-trial check ──────────────────────────────────────────
+      // Human-verified agents (World ID) get free emails before x402 kicks in.
+      // Check AgentKit BEFORE x402 payment — it's cheaper for the agent.
+      const agentkitResult = await verifyAgentKit(request, env, '/v1/email/send');
+      if (agentkitResult.verified) {
+        if (agentkitResult.hasFreeUses) {
+          // Human-verified agent with remaining free-trial — bypass payment
+          paidViaAgentKit = true;
+          agentkitHumanId = agentkitResult.humanId;
+          agentkitUsageCount = agentkitResult.usageCount;
+        }
+        // If no free uses left, fall through to x402 payment below
+      } else if (agentkitResult.reason !== 'no_header') {
+        // AgentKit header was present but verification failed — tell the caller why
         return new Response(JSON.stringify({
-          ...EMAIL_PAYMENT_REQUIRED_RESPONSE,
-          rate_limit: {
-            reason: emailRateCheck.reason,
-            limit: emailRateCheck.limit,
-            reset_at: emailRateCheck.reset_at,
-            upgrade_url: 'https://agentlair.dev/pricing',
-          },
+          error: 'agentkit_verification_failed',
+          reason: agentkitResult.reason,
+          message: agentkitResult.reason === 'nonce_replay'
+            ? 'This AgentKit nonce has already been used. Generate a fresh signature.'
+            : agentkitResult.reason === 'not_registered'
+            ? 'Agent wallet not registered in AgentBook. Register via: npx @worldcoin/agentkit-cli register <address>'
+            : `AgentKit verification failed: ${('error' in agentkitResult && agentkitResult.error) || agentkitResult.reason}`,
         }), {
-          status: 402,
-          headers: {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Expose-Headers': 'X-402-Version, X-Payment-Response',
-            'X-402-Version': String(X402_CONFIG.x402Version),
-            'X-RateLimit-Limit': String(emailRateCheck.limit),
-            'X-RateLimit-Remaining': '0',
-            'X-RateLimit-Reset': emailRateCheck.reset_at || '',
-            'Retry-After': retryAfter,
-          },
+          status: 403,
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
         });
       }
 
-      const verification = await verifyX402Payment(x402PaymentHeader);
-      if (!verification.valid) {
-        return new Response(JSON.stringify({
-          error: 'payment_invalid',
-          message: verification.error,
-        }), {
-          status: 402,
-          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'X-402-Version': String(X402_CONFIG.x402Version) },
-        });
-      }
+      // ── x402 payment check ─────────────────────────────────────────────────
+      if (!paidViaAgentKit) {
+        x402PaymentHeader = request.headers.get('X-PAYMENT');
 
-      paidViaX402 = true;
+        if (!x402PaymentHeader) {
+          const retryAfter = emailRateCheck.reset_at
+            ? String(Math.max(1, Math.floor((new Date(emailRateCheck.reset_at).getTime() - Date.now()) / 1000)))
+            : '60';
+          return new Response(JSON.stringify({
+            ...EMAIL_PAYMENT_REQUIRED_RESPONSE,
+            rate_limit: {
+              reason: emailRateCheck.reason,
+              limit: emailRateCheck.limit,
+              reset_at: emailRateCheck.reset_at,
+              upgrade_url: 'https://agentlair.dev/pricing',
+            },
+            agentkit: {
+              hint: 'Human-verified agents get ' + AGENTKIT_FREE_TRIAL_USES + ' free emails. Pass X-AGENTKIT header with signed proof.',
+              docs: 'https://docs.world.org/agents/agent-kit',
+            },
+          }), {
+            status: 402,
+            headers: {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*',
+              'Access-Control-Expose-Headers': 'X-402-Version, X-Payment-Response',
+              'X-402-Version': String(X402_CONFIG.x402Version),
+              'X-RateLimit-Limit': String(emailRateCheck.limit),
+              'X-RateLimit-Remaining': '0',
+              'X-RateLimit-Reset': emailRateCheck.reset_at || '',
+              'Retry-After': retryAfter,
+            },
+          });
+        }
+
+        const verification = await verifyX402Payment(x402PaymentHeader);
+        if (!verification.valid) {
+          return new Response(JSON.stringify({
+            error: 'payment_invalid',
+            message: verification.error,
+          }), {
+            status: 402,
+            headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'X-402-Version': String(X402_CONFIG.x402Version) },
+          });
+        }
+
+        paidViaX402 = true;
+      }
     }
 
     const toAddrs = Array.isArray(to) ? to : [to];
@@ -478,11 +591,11 @@ export async function handleEmailRoutes(
     const now = new Date(outboxTs).toISOString();
     const outboxKey = `outbox:${account.id}:${outboxTs}:${msgId}`;
 
-    const outboxEntry: any = {
+    const outboxEntry: OutboxEntry = {
       id: msgId,
       from: fromAddr,
       to: toAddrs,
-      subject,
+      subject: subject || '',
       text: text || null,
       html: htmlBody || null,
       in_reply_to: in_reply_to || null,
@@ -564,20 +677,26 @@ export async function handleEmailRoutes(
         outboxEntry.provider = provider.name;
         outboxEntry.provider_id = result.provider_id;
         if (paidViaX402) outboxEntry.paid_via = 'x402';
+        if (paidViaAgentKit) outboxEntry.paid_via = 'agentkit';
         await env.EMAILS.put(outboxKey, JSON.stringify(outboxEntry), { expirationTtl: 30 * 24 * 3600 });
       }
 
       if (env.EMAILS) ctx.waitUntil(recordEmailSent(env, fromAddr));
 
+      // Record AgentKit free-trial usage AFTER successful send
+      if (paidViaAgentKit && agentkitHumanId) {
+        ctx.waitUntil(recordAgentkitUsage(env, '/v1/email/send', agentkitHumanId));
+      }
+
       const responseHeaders: Record<string, string> = {};
       if (paidViaX402 && x402PaymentHeader) {
         const settlement = await settleX402Payment(x402PaymentHeader);
-        if (settlement.settled) {
+        if (settlement.settled && settlement.receipt) {
           responseHeaders['X-Payment-Response'] = settlement.receipt;
         }
       }
 
-      const responseBody = {
+      const responseBody: Record<string, unknown> = {
         id: msgId,
         provider_id: result.provider_id,
         provider: provider.name,
@@ -586,13 +705,26 @@ export async function handleEmailRoutes(
         to: toAddrs,
         subject,
         sent_at: outboxEntry.sent_at,
-        paid_via: paidViaX402 ? 'x402' : undefined,
-        rate_limit: paidViaX402 ? { note: 'Sent via x402 payment — rate limits bypassed.' } : {
-          daily_remaining: emailRateCheck.daily_remaining,
-          hourly_remaining: emailRateCheck.hourly_remaining,
-          reset_at: emailRateCheck.reset_at,
-        },
+        paid_via: paidViaX402 ? 'x402' : paidViaAgentKit ? 'agentkit' : undefined,
+        rate_limit: (paidViaX402 || paidViaAgentKit)
+          ? { note: paidViaAgentKit
+              ? 'Sent via AgentKit human verification — free-trial access.'
+              : 'Sent via x402 payment — rate limits bypassed.' }
+          : {
+              daily_remaining: emailRateCheck.daily_remaining,
+              hourly_remaining: emailRateCheck.hourly_remaining,
+              reset_at: emailRateCheck.reset_at,
+            },
       };
+
+      // Include AgentKit usage info in response so agents can track remaining free uses
+      if (paidViaAgentKit && agentkitHumanId) {
+        responseBody.agentkit = {
+          human_verified: true,
+          free_uses_remaining: Math.max(0, AGENTKIT_FREE_TRIAL_USES - agentkitUsageCount - 1),
+          total_free_uses: AGENTKIT_FREE_TRIAL_USES,
+        };
+      }
 
       // Store idempotency record so retries with same client_id return cached response
       if (client_id && env.EMAILS) {
@@ -602,17 +734,18 @@ export async function handleEmailRoutes(
 
       return json(responseBody, 201, responseHeaders);
 
-    } catch (e: any) {
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
       if (env.EMAILS) {
         outboxEntry.status = 'failed';
-        outboxEntry.error = e.message;
+        outboxEntry.error = message;
         outboxEntry.error_at = new Date().toISOString();
         await env.EMAILS.put(outboxKey, JSON.stringify(outboxEntry), { expirationTtl: 30 * 24 * 3600 });
-        if (e.message.toLowerCase().includes('bounce') || e.message.toLowerCase().includes('invalid') || e.message.toLowerCase().includes('reject')) {
+        if (message.toLowerCase().includes('bounce') || message.toLowerCase().includes('invalid') || message.toLowerCase().includes('reject')) {
           ctx.waitUntil(recordEmailBounce(env, fromAddr));
         }
       }
-      return err(`Send failed: ${e.message}`, 502, 'send_failed');
+      return err(`Send failed: ${message}`, 502, 'send_failed');
     }
   }
 
@@ -624,8 +757,8 @@ export async function handleEmailRoutes(
 
   // POST /v1/email/drafts — compose a draft (save without sending)
   if (path === '/v1/email/drafts' && method === 'POST') {
-    let body: any = {};
-    try { body = await request.json(); } catch {
+    let body: EmailDraftBody = {};
+    try { body = (await request.json()) as EmailDraftBody; } catch {
       return err('Invalid JSON body', 400, 'invalid_body');
     }
 
@@ -733,7 +866,7 @@ export async function handleEmailRoutes(
       return err(`Draft is not in draft status (current: ${draft.status}).`, 409, 'invalid_status');
     }
 
-    const emailRateCheck = await checkEmailRateLimit(env, account.id, account.tier, draft.from);
+    const emailRateCheck = await checkEmailRateLimit(env, account.id, account.tier || 'free', draft.from);
     if (!emailRateCheck.allowed) {
       return err(emailRateCheck.upgrade_hint || 'Email rate limit exceeded.', 429, 'rate_limited');
     }
@@ -743,7 +876,7 @@ export async function handleEmailRoutes(
     const now = new Date(outboxTs).toISOString();
     const outboxKey = `outbox:${account.id}:${outboxTs}:${msgId}`;
 
-    const outboxEntry: any = {
+    const outboxEntry: OutboxEntry = {
       id: msgId,
       from: draft.from,
       to: draft.to,
@@ -812,15 +945,16 @@ export async function handleEmailRoutes(
         sent_at: outboxEntry.sent_at,
       }, 200);
 
-    } catch (e: any) {
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
       outboxEntry.status = 'failed';
-      outboxEntry.error = e.message;
+      outboxEntry.error = message;
       outboxEntry.error_at = new Date().toISOString();
       await env.EMAILS.put(outboxKey, JSON.stringify(outboxEntry), { expirationTtl: 30 * 24 * 3600 });
-      if (e.message.toLowerCase().includes('bounce') || e.message.toLowerCase().includes('invalid') || e.message.toLowerCase().includes('reject')) {
+      if (message.toLowerCase().includes('bounce') || message.toLowerCase().includes('invalid') || message.toLowerCase().includes('reject')) {
         ctx.waitUntil(recordEmailBounce(env, draft.from));
       }
-      return err(`Send failed: ${e.message}`, 502, 'send_failed');
+      return err(`Send failed: ${message}`, 502, 'send_failed');
     }
   }
 
@@ -979,8 +1113,8 @@ export async function handleEmailRoutes(
     }))).filter(Boolean);
 
     // Sort oldest-first for reading
-    messages.sort((a: any, b: any) =>
-      new Date(a.received_at).getTime() - new Date(b.received_at).getTime()
+    messages.sort((a, b) =>
+      new Date(String(a.received_at || '')).getTime() - new Date(String(b.received_at || '')).getTime()
     );
 
     return json({ thread_id: threadId, messages, count: messages.length });
@@ -1016,8 +1150,8 @@ export async function handleEmailRoutes(
 
   // POST /v1/inbox — create inbox
   if (path === '/v1/inbox' && method === 'POST') {
-    let body: any = {};
-    try { body = await request.json(); } catch {}
+    let body: InboxCreateBody = {};
+    try { body = (await request.json()) as InboxCreateBody; } catch { /* empty body OK */ }
     const slug = body.name || nanoid(8).toLowerCase().replace(/[^a-z0-9]/g, 'x');
     const address = slug.includes('@') ? slug : `${slug}@agentlair.dev`;
     if (!address.endsWith('@agentlair.dev')) {
@@ -1099,10 +1233,10 @@ export async function handleEmailRoutes(
     }
 
     if (method === 'POST' && subPath === '/send') {
-      let body: any = {};
-      try { body = await request.json(); } catch {}
+      let body: Record<string, unknown> = {};
+      try { body = (await request.json()) as Record<string, unknown>; } catch { /* empty body OK */ }
       body.from = inboxAddr;
-      const { to, subject, body: emailBody, html, reply_to } = body;
+      const { to, subject, body: emailBody, html, reply_to } = body as { to?: string; subject?: string; body?: string; html?: string; reply_to?: string };
       if (!to || !subject) return err('to and subject required.', 400, 'missing_params');
       if (!env.EMAILS) return err('Email storage not available.', 503, 'email_unavailable');
       const ownerKey = `email-owner:${inboxAddr}`;
@@ -1116,11 +1250,12 @@ export async function handleEmailRoutes(
           headers: { 'Authorization': `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ from: inboxAddr, to: Array.isArray(to) ? to : [to], subject, text: emailBody || '', html: html || undefined, reply_to: reply_to || undefined }),
         });
-        const result: any = await resp.json();
+        const result = (await resp.json()) as { message?: string; id?: string };
         if (!resp.ok) return err(result.message || 'Send failed', resp.status, 'send_failed');
         return json({ sent: true, id: result.id, from: inboxAddr, to, subject }, 200);
-      } catch (e: any) {
-        return err(`Send failed: ${e.message}`, 502, 'send_failed');
+      } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : String(e);
+        return err(`Send failed: ${message}`, 502, 'send_failed');
       }
     }
   }

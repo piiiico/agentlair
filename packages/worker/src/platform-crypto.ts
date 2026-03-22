@@ -5,7 +5,15 @@
 // Backward compat: messages without body_encrypted flag are returned as-is.
 
 import { x25519 } from '@noble/curves/ed25519.js';
-import type { Env } from './types.js';
+import type { Env, KeyEntry } from './types.js';
+
+/**
+ * Convert Uint8Array to ArrayBuffer for Web Crypto compatibility.
+ * CF Workers types require ArrayBuffer (not ArrayBufferLike) for BufferSource params.
+ */
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  return ArrayBuffer.prototype.slice.call(bytes.buffer, bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+}
 
 export function _b64ToBytes(b64: string): Uint8Array {
   const pad = (4 - (b64.length % 4)) % 4;
@@ -23,12 +31,12 @@ export async function _importPlatformKey(env: Env, usage: KeyUsage): Promise<Cry
   if (!env.PLATFORM_ENCRYPTION_KEY) return null;
   try {
     const raw = _b64ToBytes(env.PLATFORM_ENCRYPTION_KEY);
-    return await crypto.subtle.importKey('raw', raw, { name: 'AES-GCM', length: 256 }, false, [usage]);
+    return await crypto.subtle.importKey('raw', toArrayBuffer(raw), { name: 'AES-GCM', length: 256 }, false, [usage]);
   } catch { return null; }
 }
 
 // Returns { value: string, encrypted: boolean }
-export async function encryptEmailField(env: Env, plaintext: string) {
+export async function encryptEmailField(env: Env, plaintext: string): Promise<{ value: string; encrypted: boolean }> {
   if (!plaintext || !env.PLATFORM_ENCRYPTION_KEY) return { value: plaintext, encrypted: false };
   const key = await _importPlatformKey(env, 'encrypt');
   if (!key) return { value: plaintext, encrypted: false };
@@ -54,7 +62,7 @@ export async function decryptEmailField(env: Env, storedValue: string, isEncrypt
     const buf = _b64ToBytes(storedValue);
     const iv = buf.slice(0, 12);
     const cipher = buf.slice(12);
-    const plainBuf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, cipher);
+    const plainBuf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, toArrayBuffer(cipher));
     return new TextDecoder().decode(plainBuf);
   } catch {
     return '[decryption failed]';
@@ -71,13 +79,13 @@ export async function decryptEmailField(env: Env, storedValue: string, isEncrypt
  * Must match src/crypto.ts deriveAesKey — same salt/info params.
  */
 export async function _deriveAesKeyFromShared(sharedSecret: Uint8Array, usage: KeyUsage): Promise<CryptoKey> {
-  const hkdfKey = await crypto.subtle.importKey('raw', sharedSecret, { name: 'HKDF' }, false, ['deriveKey']);
+  const hkdfKey = await crypto.subtle.importKey('raw', toArrayBuffer(sharedSecret), { name: 'HKDF' }, false, ['deriveKey']);
   return crypto.subtle.deriveKey(
     {
       name: 'HKDF',
       hash: 'SHA-256',
-      salt: new Uint8Array(32),
-      info: new TextEncoder().encode('agentlair:aes-256-gcm:v1'),
+      salt: new ArrayBuffer(32),
+      info: toArrayBuffer(new TextEncoder().encode('agentlair:aes-256-gcm:v1')),
     },
     hkdfKey,
     { name: 'AES-GCM', length: 256 },
@@ -92,7 +100,7 @@ export async function _deriveAesKeyFromShared(sharedSecret: Uint8Array, usage: K
  * body = iv(12) || ciphertext(N)  (same layout as platform encryption for consistency)
  * ephemeral_public_key = 32-byte X25519 public key
  */
-export async function encryptEmailE2E(recipientPubKeyB64url: string, plaintext: string) {
+export async function encryptEmailE2E(recipientPubKeyB64url: string, plaintext: string): Promise<{ body: string; ephemeral_public_key: string }> {
   // Decode recipient public key from base64url
   const recipientPubKey = _b64ToBytes(recipientPubKeyB64url);
   if (recipientPubKey.length !== 32) throw new Error('Invalid X25519 public key length');
@@ -132,19 +140,19 @@ export async function encryptEmailE2E(recipientPubKeyB64url: string, plaintext: 
 // Only 'active' keys have a key:{hash} → account entry in KV.
 // Backup keys are stored in the list but cannot authenticate until activated.
 
-export async function getKeysList(env: Env, accountId: string) {
+export async function getKeysList(env: Env, accountId: string): Promise<KeyEntry[]> {
   const raw = await env.KEYS.get('account:' + accountId + ':keys');
   if (!raw) return [];
-  try { return JSON.parse(raw); } catch { return []; }
+  try { return JSON.parse(raw) as KeyEntry[]; } catch { return []; }
 }
 
-export async function saveKeysList(env: Env, accountId: string, keys: any[]) {
+export async function saveKeysList(env: Env, accountId: string, keys: KeyEntry[]): Promise<void> {
   await env.KEYS.put('account:' + accountId + ':keys', JSON.stringify(keys));
 }
 
 // Ensure the keys list exists and contains the current active key.
 // Called lazily on first access for accounts created before multi-key support.
-export async function ensureKeysList(env: Env, accountId: string) {
+export async function ensureKeysList(env: Env, accountId: string): Promise<KeyEntry[]> {
   let keys = await getKeysList(env, accountId);
   if (keys.length > 0) return keys;
 
@@ -154,13 +162,13 @@ export async function ensureKeysList(env: Env, accountId: string) {
 
   const accountJson = await env.KEYS.get('key:' + keyHash);
   if (!accountJson) return [];
-  const account = JSON.parse(accountJson);
+  const account = JSON.parse(accountJson) as Record<string, unknown>;
 
   keys = [{
     hash: keyHash,
     status: 'active',
-    prefix: account.key_prefix || '(unknown)',
-    created_at: account.created_at || new Date().toISOString(),
+    prefix: (account.key_prefix as string) || '(unknown)',
+    created_at: (account.created_at as string) || new Date().toISOString(),
     label: 'primary',
   }];
   await saveKeysList(env, accountId, keys);

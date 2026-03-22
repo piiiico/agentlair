@@ -20,13 +20,59 @@ export interface Account {
   recovery_email?: string;
   recovery_email_encrypted?: boolean;
   plan?: string;
+  tier?: string;
   email_count?: number;
   email_limit?: number;
+  stacks?: string[];
   // Pod fields — present when account is a pod virtual account
   type?: 'account' | 'pod';
   pod_id?: string;
   parent_id?: string;
+  // Dashboard session token (set when auth via session token)
+  _session?: string;
   [key: string]: unknown;
+}
+
+// ─── Email Send Options ─────────────────────────────────────────────────────
+
+export interface EmailSendOptions {
+  from: string;
+  to: string[];
+  subject: string;
+  text?: string;
+  html?: string;
+  in_reply_to?: string;
+  references?: string;
+}
+
+// ─── Email Provider ─────────────────────────────────────────────────────────
+
+export interface EmailProvider {
+  name: string;
+  isConfigured: (env: Env) => boolean;
+  send: (opts: EmailSendOptions, env: Env) => Promise<{ provider_id: string }>;
+}
+
+// ─── Turso Query Result ─────────────────────────────────────────────────────
+
+export interface TursoResult {
+  rows: Record<string, unknown>[];
+  affected: number;
+}
+
+// ─── x402 Payment Types ─────────────────────────────────────────────────────
+
+export interface X402VerifyResult {
+  valid: boolean;
+  error?: string;
+  payer?: string;
+  rawPayload?: unknown;
+}
+
+export interface X402SettleResult {
+  settled: boolean;
+  error?: string;
+  receipt?: string;
 }
 
 export interface Pod {

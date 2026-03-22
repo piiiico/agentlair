@@ -6,7 +6,7 @@
 export class InboxNotifier {
   private state: DurableObjectState;
 
-  constructor(state: DurableObjectState, env: unknown) {
+  constructor(state: DurableObjectState, _env: unknown) {
     this.state = state;
   }
 
