@@ -1,0 +1,11 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/worker" },
+    { "path": "packages/sdk" },
+    { "path": "packages/mcp-server" },
+    { "path": "packages/vault-crypto" },
+    { "path": "apps/agent-channel" },
+    { "path": "apps/email-channel" }
+  ]
+}
