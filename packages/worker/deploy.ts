@@ -4,7 +4,7 @@ const CF_KEY = "17f300ee284aed62f86bee19d75da163b0220";
 const CF_ACCOUNT = "1e3b03e4a8d2514f89998dbdda7d5140";
 const WORKER_NAME = "agentlair-api";
 
-const workerCode = await Bun.file("/workspace/agentlair-worker/dist/index.js").text();
+const workerCode = await Bun.file(new URL("dist/index.js", import.meta.url)).text();
 const boundary = "boundary" + Date.now();
 
 const metadata = {
@@ -16,7 +16,8 @@ const metadata = {
     { type: "analytics_engine", name: "AE_ANALYTICS", dataset: "agentlair_events" },
     { type: "durable_object_namespace", name: "INBOX_NOTIFIER", namespace_id: "ed86c0465f714bc8978398fc80cf8d68" },
   ],
-  compatibility_date: "2024-01-01",
+  compatibility_date: "2024-09-23",
+  compatibility_flags: ["nodejs_compat"],
 };
 
 const body = [
