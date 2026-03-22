@@ -8,7 +8,7 @@
 // Protected routes (account !== null): account info, key rotation, backup, e2e
 
 import { nanoid, sha256hex, json, err, html } from '../utils.js';
-import type { Env, RouteContext, KeyEntry, KeyHistoryEntry } from '../types.js';
+import type { Env, RouteContext, KeyHistoryEntry } from '../types.js';
 import { sendMagicLinkEmail } from '../middleware/auth.js';
 import { checkIpRateLimit } from '../middleware/ratelimit.js';
 import { saveKeysList, ensureKeysList } from '../platform-crypto.js';
@@ -128,9 +128,9 @@ export async function handleAuthRoutes(
         key_prefix: keyPrefix,
         name,
         tier: 'free',
-        email: body.email || null,
+        email: typeof body.email === 'string' ? body.email : null,
         created_at: now,
-        stacks: [],
+        stacks: [] as string[],
       };
 
       // KV writes — wrapped in try/catch to handle quota limits gracefully.
@@ -367,7 +367,7 @@ export async function handleAuthRoutes(
   if (path === '/v1/account/recovery-email' && method === 'POST') {
     let body: Record<string, unknown> = {};
     try { body = await request.json(); } catch {}
-    const newEmail = (body.email || '').toLowerCase().trim();
+    const newEmail = (typeof body.email === 'string' ? body.email : '').toLowerCase().trim();
     if (!newEmail || !newEmail.includes('@')) return err('email required', 400, 'invalid_email');
 
     // Update account with new recovery email
@@ -375,7 +375,7 @@ export async function handleAuthRoutes(
     if (!keyHash) return err('Account not found.', 404, 'not_found');
 
     const updatedAccount = { ...account, recovery_email: newEmail };
-    delete (updatedAccount as any)._session;
+    delete updatedAccount._session;
     await env.KEYS.put('key:' + keyHash, JSON.stringify(updatedAccount));
 
     // Index by recovery email for magic link lookup
@@ -394,7 +394,7 @@ export async function handleAuthRoutes(
     const now = new Date().toISOString();
 
     const updatedAccount = { ...account, key_prefix: newKeyPrefix, rotated_at: now };
-    delete (updatedAccount as any)._session;
+    delete updatedAccount._session;
 
     await env.KEYS.put('key:' + newKeyHash, JSON.stringify(updatedAccount));
     await env.KEYS.put('account:' + account.id, newKeyHash);
@@ -422,11 +422,11 @@ export async function handleAuthRoutes(
   if (path === '/v1/auth/keys/generate-backup' && method === 'POST') {
     let body: Record<string, unknown> = {};
     try { body = await request.json(); } catch {}
-    const label = body.label || 'backup';
+    const label = typeof body.label === 'string' ? body.label : 'backup';
 
     const keys = await ensureKeysList(env, account.id);
 
-    const existingBackup = keys.find((k: any) => k.status === 'backup');
+    const existingBackup = keys.find((k) => k.status === 'backup');
     if (existingBackup) {
       return err('A backup key already exists (prefix: ' + existingBackup.prefix + '...). Activate or revoke it first.', 409, 'backup_exists');
     }
@@ -457,7 +457,7 @@ export async function handleAuthRoutes(
   // POST /v1/auth/keys/activate-backup — promote backup key to active, revoke old primary
   if (path === '/v1/auth/keys/activate-backup' && method === 'POST') {
     const keys = await ensureKeysList(env, account.id);
-    const backupKey = keys.find((k: any) => k.status === 'backup');
+    const backupKey = keys.find((k) => k.status === 'backup');
     if (!backupKey) {
       return err('No backup key found. Generate one first with POST /v1/auth/keys/generate-backup.', 404, 'no_backup');
     }
@@ -466,7 +466,7 @@ export async function handleAuthRoutes(
     const oldKeyHash = await env.KEYS.get('account:' + account.id);
 
     const updatedAccount = { ...account, key_prefix: backupKey.prefix, rotated_at: now };
-    delete (updatedAccount as any)._session;
+    delete updatedAccount._session;
 
     await env.KEYS.put('key:' + backupKey.hash, JSON.stringify(updatedAccount));
     await env.KEYS.put('account:' + account.id, backupKey.hash);
@@ -479,7 +479,7 @@ export async function handleAuthRoutes(
       if (k.hash === backupKey.hash) {
         k.status = 'active';
         k.label = 'primary';
-        (k as any).activated_at = now;
+        k.activated_at = now;
       }
     }
     await saveKeysList(env, account.id, keys);
@@ -498,7 +498,7 @@ export async function handleAuthRoutes(
 
     return json({
       account_id: account.id,
-      keys: keys.map((k: any) => ({
+      keys: keys.map((k) => ({
         prefix: k.prefix,
         status: k.status,
         label: k.label || null,
@@ -512,7 +512,8 @@ export async function handleAuthRoutes(
   if (path === '/v1/e2e/rotate-key' && method === 'POST') {
     let body: Record<string, unknown> = {};
     try { body = await request.json(); } catch {}
-    const { master_seed, new_public_key } = body;
+    const master_seed = body.master_seed;
+    const new_public_key = body.new_public_key;
 
     if (!master_seed) return err('master_seed required in body', 400, 'missing_master_seed');
     if (!new_public_key) return err('new_public_key required in body', 400, 'missing_public_key');
@@ -520,7 +521,7 @@ export async function handleAuthRoutes(
       return err('new_public_key must be a non-empty string (base64 or hex encoded public key)', 400, 'invalid_public_key');
     }
 
-    const seedHash = await sha256hex(master_seed);
+    const seedHash = await sha256hex(master_seed as string);
     const now = new Date().toISOString();
     const isFirstSetup = !account.e2e_master_seed_hash;
 
@@ -528,8 +529,10 @@ export async function handleAuthRoutes(
       return err('master_seed does not match. Key rotation denied.', 403, 'seed_mismatch');
     }
 
-    const existingHistory = Array.isArray(account.e2e_key_history) ? account.e2e_key_history : [];
-    const updatedHistory = account.e2e_public_key
+    const existingHistory: KeyHistoryEntry[] = Array.isArray(account.e2e_key_history)
+      ? (account.e2e_key_history as KeyHistoryEntry[])
+      : [];
+    const updatedHistory: KeyHistoryEntry[] = typeof account.e2e_public_key === 'string'
       ? [{ public_key: account.e2e_public_key, rotated_at: now }, ...existingHistory]
       : existingHistory;
 
@@ -538,7 +541,7 @@ export async function handleAuthRoutes(
     account.e2e_key_history = updatedHistory;
     account.e2e_updated_at = now;
     if (isFirstSetup) account.e2e_created_at = now;
-    delete (account as any)._session;
+    delete account._session;
 
     const keyHash = await env.KEYS.get('account:' + account.id);
     if (!keyHash) return err('Account key not found. Cannot persist update.', 500, 'account_error');
@@ -548,8 +551,8 @@ export async function handleAuthRoutes(
       ok: true,
       account_id: account.id,
       active_public_key: new_public_key,
-      key_history_count: (updatedHistory as any[]).length,
-      key_history: (updatedHistory as any[]).map((k: any) => ({ public_key: k.public_key, rotated_at: k.rotated_at })),
+      key_history_count: updatedHistory.length,
+      key_history: updatedHistory.map((k) => ({ public_key: k.public_key, rotated_at: k.rotated_at })),
       first_setup: isFirstSetup,
       updated_at: now,
       note: isFirstSetup

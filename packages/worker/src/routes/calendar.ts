@@ -227,10 +227,13 @@ export async function handleCalendarRoutes(
 
   // POST /v1/calendar/events — create a new event
   if (path === '/v1/calendar/events' && method === 'POST') {
-    let body: any = {};
+    let body: Record<string, unknown> = {};
     try { body = await request.json(); } catch {}
 
-    const { summary, start, end, description, location, attendees } = body;
+    const { summary, start, end, description, location, attendees } = body as {
+      summary?: unknown; start?: unknown; end?: unknown;
+      description?: unknown; location?: unknown; attendees?: unknown;
+    };
 
     if (!summary || typeof summary !== 'string') {
       return err('summary required (string)', 400, 'invalid_summary');

@@ -87,8 +87,8 @@ export async function verifyAgentKit(
   let payload: AgentkitPayload;
   try {
     payload = parseAgentkitHeader(headerValue);
-  } catch (e: any) {
-    return { verified: false, reason: 'parse_error', error: e.message };
+  } catch (e: unknown) {
+    return { verified: false, reason: 'parse_error', error: e instanceof Error ? e.message : String(e) };
   }
 
   // 2. Initialize storage for nonce tracking

@@ -324,10 +324,10 @@ export async function handleVaultRoutes(
       const index = await getVaultIndex();
       const existingIdx = index.findIndex((e: VaultIndexEntry) => e.key === vaultKey);
       const createdAt = isNew ? now : (existingIdx >= 0 ? index[existingIdx].created_at : now);
-      const indexEntry = {
+      const indexEntry: VaultIndexEntry = {
         key: vaultKey,
         version: newVersion,
-        metadata: metadata || (existingIdx >= 0 ? index[existingIdx].metadata : null),
+        metadata: (metadata as Record<string, unknown> | null) || (existingIdx >= 0 ? index[existingIdx].metadata : null),
         created_at: createdAt,
         updated_at: now,
       };

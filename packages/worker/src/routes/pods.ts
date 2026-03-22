@@ -44,7 +44,7 @@ export async function handlePodRoutes(
       return err('Pod keys cannot create pods. Use your platform API key.', 403, 'pod_nested_forbidden');
     }
 
-    let body: any = {};
+    let body: Record<string, unknown> = {};
     try { body = await request.json(); } catch {}
     const name = typeof body.name === 'string' ? body.name.trim().slice(0, 64) || null : null;
 

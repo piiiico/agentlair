@@ -27,10 +27,12 @@ export async function handleWebhookRoutes(
 
   // POST /v1/email/webhooks — register a webhook
   if (path === '/v1/email/webhooks' && method === 'POST') {
-    let body: any = {};
+    let body: Record<string, unknown> = {};
     try { body = await request.json(); } catch {}
 
-    const { address, url: webhookUrl, secret } = body;
+    const address = typeof body.address === 'string' ? body.address : undefined;
+    const webhookUrl = typeof body.url === 'string' ? body.url : undefined;
+    const secret = typeof body.secret === 'string' ? body.secret : undefined;
 
     if (!address || !webhookUrl) {
       return err('address and url are required.', 400, 'missing_params');
@@ -114,7 +116,7 @@ export async function handleWebhookRoutes(
       };
     }))).filter(Boolean);
 
-    const filtered = filterAddress ? hooks.filter((h: any) => h.address === filterAddress) : hooks;
+    const filtered = filterAddress ? hooks.filter((h) => h && h.address === filterAddress) : hooks;
     return json({ webhooks: filtered, count: filtered.length });
   }
 
