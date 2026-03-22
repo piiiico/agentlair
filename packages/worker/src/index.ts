@@ -12,9 +12,6 @@ import { LANDING_HTML } from './templates/landing.js';
 import { SECURITY_BLOG_HTML } from './templates/security.js';
 import { AGENT_FIRST_BLOG_HTML } from './templates/blog-agent-first.js';
 import { DASHBOARD_HTML } from './templates/dashboard.js';
-import { VAULT_HTML } from './templates/vault.js';
-import { CALENDAR_HTML } from './templates/calendar.js';
-import { GETTING_STARTED_HTML } from './templates/getting-started.js';
 import { INTEGRATIONS_HTML } from './templates/integrations.js';
 import { PLATFORM_LOCKDOWN_HTML } from './templates/platform-lockdown.js';
 import { HUMAN_VERIFIED_AGENT_EMAIL_HTML } from './templates/blog-human-verified-agent-email.js';
@@ -111,6 +108,52 @@ function staticPage(htmlContent: string, extraHeaders?: Record<string, string>) 
     });
 }
 
+// ─── Helper: proxy request to CF Pages (Astro landing page) ─────────────────────
+
+const PAGES_ORIGIN = 'https://agentlair-web.pages.dev';
+
+async function proxyToPages(c: Context<HonoEnv>, path?: string): Promise<Response> {
+  const pagesBase = (c.env.PAGES_URL || PAGES_ORIGIN).replace(/\/$/, '');
+  const targetPath = path ?? new URL(c.req.url).pathname;
+  try {
+    const upstream = await fetch(`${pagesBase}${targetPath}`, {
+      headers: { 'User-Agent': 'AgentLair-Worker/1.0' },
+    });
+    // Follow CF Pages trailing-slash redirects transparently
+    if (upstream.status === 308 || upstream.status === 301) {
+      const location = upstream.headers.get('Location');
+      if (location) {
+        const redirectUrl = location.startsWith('http') ? location : `${pagesBase}${location}`;
+        const redirected = await fetch(redirectUrl, {
+          headers: { 'User-Agent': 'AgentLair-Worker/1.0' },
+        });
+        const body = await redirected.arrayBuffer();
+        const ct = redirected.headers.get('Content-Type') || 'text/html; charset=utf-8';
+        return new Response(body, {
+          status: redirected.status,
+          headers: {
+            'Content-Type': ct,
+            'X-Powered-By': 'AgentLair',
+            'Cache-Control': ct.includes('text/html') ? 'public, max-age=3600' : 'public, max-age=86400',
+          },
+        });
+      }
+    }
+    const body = await upstream.arrayBuffer();
+    const ct = upstream.headers.get('Content-Type') || 'text/html; charset=utf-8';
+    return new Response(body, {
+      status: upstream.status,
+      headers: {
+        'Content-Type': ct,
+        'X-Powered-By': 'AgentLair',
+        'Cache-Control': ct.includes('text/html') ? 'public, max-age=3600' : 'public, max-age=86400',
+      },
+    });
+  } catch {
+    return new Response('Service temporarily unavailable', { status: 503 });
+  }
+}
+
 // ─── App ────────────────────────────────────────────────────────────────────────
 
 const app = new Hono<HonoEnv>();
@@ -125,6 +168,16 @@ app.use('*', cors({
   maxAge: 86400,
 }));
 
+// ── 1.5. Astro static assets — proxy to CF Pages ────────────────────────────────
+// These MUST come before any other route handlers so /_astro/*, /fonts/*, etc.
+// are always served from the Astro build.
+
+app.get('/_astro/*', (c) => proxyToPages(c));
+app.get('/fonts/*', (c) => proxyToPages(c));
+app.get('/favicon.svg', (c) => proxyToPages(c));
+app.get('/og-image.jpg', (c) => proxyToPages(c));
+app.get('/sitemap-index.xml', (c) => proxyToPages(c));
+
 // ── 2. Static / public HTML pages ───────────────────────────────────────────────
 
 app.get('/security', agentFirstPage(SECURITY_BLOG_HTML));
@@ -133,15 +186,14 @@ app.get('/blog/agent-first-web', agentFirstPage(AGENT_FIRST_BLOG_HTML));
 app.get('/blog/human-verified-agent-email', agentFirstPage(HUMAN_VERIFIED_AGENT_EMAIL_HTML));
 app.get('/blog/anthropic-platform-lockdown', staticPage(PLATFORM_LOCKDOWN_HTML));
 app.get('/blog/platform-lockdown', staticPage(PLATFORM_LOCKDOWN_HTML));
-app.get('/vault', staticPage(VAULT_HTML));
-app.get('/calendar', staticPage(CALENDAR_HTML));
-app.get('/getting-started', agentFirstPage(GETTING_STARTED_HTML));
-app.get('/integrations', staticPage(INTEGRATIONS_HTML));
-app.get('/dashboard', () =>
-  new Response(DASHBOARD_HTML, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'X-Powered-By': 'AgentLair' } })
-);
+// Astro landing page routes — proxied to CF Pages
+app.get('/pricing', (c) => proxyToPages(c));
+app.get('/pricing/', (c) => proxyToPages(c));
+app.get('/privacy', (c) => proxyToPages(c));
+app.get('/privacy/', (c) => proxyToPages(c));
 
-app.get('/', (c) => {
+app.get('/vault', async (c) => {
+  // Agent-first content negotiation: agents get the manifest, humans get the Astro page
   const detection = detectAgent(c.req.raw.headers);
   if (detection.isAgent && (detection.confidence === 'high' || detection.confidence === 'medium')) {
     return new Response(JSON.stringify(AGENTLAIR_MANIFEST, null, 2), {
@@ -156,9 +208,53 @@ app.get('/', (c) => {
       },
     });
   }
+  return proxyToPages(c, '/vault');
+});
+app.get('/calendar', (c) => proxyToPages(c, '/calendar'));
+app.get('/getting-started', async (c) => {
+  // Agent-first content negotiation: agents get the manifest, humans get the Astro page
+  const detection = detectAgent(c.req.raw.headers);
+  if (detection.isAgent && (detection.confidence === 'high' || detection.confidence === 'medium')) {
+    return new Response(JSON.stringify(AGENTLAIR_MANIFEST, null, 2), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/agent+json',
+        'X-Agent-Optimized': 'true',
+        'X-Detection-Confidence': detection.confidence,
+        'X-Detection-Signals': detection.signals.join(','),
+        'Cache-Control': 'no-store',
+        'Access-Control-Allow-Origin': '*',
+      },
+    });
+  }
+  return proxyToPages(c, '/getting-started');
+});
+app.get('/integrations', staticPage(INTEGRATIONS_HTML));
+app.get('/dashboard', () =>
+  new Response(DASHBOARD_HTML, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'X-Powered-By': 'AgentLair' } })
+);
+
+app.get('/', async (c) => {
+  // Agent-first content negotiation: agents get the manifest
+  const detection = detectAgent(c.req.raw.headers);
+  if (detection.isAgent && (detection.confidence === 'high' || detection.confidence === 'medium')) {
+    return new Response(JSON.stringify(AGENTLAIR_MANIFEST, null, 2), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/agent+json',
+        'X-Agent-Optimized': 'true',
+        'X-Detection-Confidence': detection.confidence,
+        'X-Detection-Signals': detection.signals.join(','),
+        'Cache-Control': 'no-store',
+        'Access-Control-Allow-Origin': '*',
+      },
+    });
+  }
+  // Non-browser API clients get JSON API discovery
   const acceptHtml = c.req.raw.headers.get('Accept')?.includes('text/html');
-  if (acceptHtml) return html(LANDING_HTML);
-  return json(API_DISCOVERY);
+  if (!acceptHtml) return json(API_DISCOVERY);
+  // Human visitors get the Astro landing page
+  return proxyToPages(c, '/');
 });
 
 app.get('/api', (c) => {
