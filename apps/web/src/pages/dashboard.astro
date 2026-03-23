@@ -1,4 +1,6 @@
-export const DASHBOARD_HTML = `<!DOCTYPE html>
+---
+---
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -178,7 +180,7 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
   </div>
 </div>
 
-<script>
+<script is:inline>
   const BASE = '';
   let SESSION = null;
   let API_KEY = null;
@@ -331,7 +333,7 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
     el.innerHTML = '<div style="font-size:0.78rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted); font-weight:600; margin-bottom:0.4rem;">Inbox (' + data.messages.length + ')</div>' +
       data.messages.map(function(m) {
         var msgId = encodeURIComponent(m.id || m.message_id || '');
-        return '<div class="msg" style="cursor:pointer;" onclick="readMessage(\\'' + escHtml(addr) + '\\',\\'' + msgId + '\\')">' +
+        return '<div class="msg" style="cursor:pointer;" onclick="readMessage(\'' + escHtml(addr) + '\',\'' + msgId + '\')">' +
           '<span class="from">' + escHtml(m.from || '?') + '</span> \u2192 ' +
           '<span class="subj">' + escHtml(m.subject || '(no subject)') + '</span> ' +
           '<span class="time">' + (m.received_at || '').slice(0,16).replace('T',' ') + '</span></div>';
@@ -510,4 +512,4 @@ export const DASHBOARD_HTML = `<!DOCTYPE html>
   })();
 </script>
 </body>
-</html>`;
+</html>

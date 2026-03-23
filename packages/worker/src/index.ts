@@ -5,16 +5,9 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import type { Context, Next } from 'hono';
-import { nanoid, sha256hex, json, err, html, VERBOSE_ONLY_FIELDS } from './utils.js';
+import { nanoid, sha256hex, json, err, VERBOSE_ONLY_FIELDS } from './utils.js';
 import type { Env, Account, RouteContext, RouteHandler } from './types.js';
 import { InboxNotifier } from './durable-objects/inbox-notifier.js';
-import { LANDING_HTML } from './templates/landing.js';
-import { SECURITY_BLOG_HTML } from './templates/security.js';
-import { AGENT_FIRST_BLOG_HTML } from './templates/blog-agent-first.js';
-import { DASHBOARD_HTML } from './templates/dashboard.js';
-import { INTEGRATIONS_HTML } from './templates/integrations.js';
-import { PLATFORM_LOCKDOWN_HTML } from './templates/platform-lockdown.js';
-import { HUMAN_VERIFIED_AGENT_EMAIL_HTML } from './templates/blog-human-verified-agent-email.js';
 import { API_DISCOVERY, OPENAPI_SPEC, SCALAR_DOCS_HTML } from './openapi.js';
 import { AGENT_CARD } from './a2a.js';
 import { authenticateAny } from './middleware/auth.js';
@@ -75,38 +68,6 @@ function publicHandler(handler: RouteHandler) {
   };
 }
 
-// ─── Helper: agent-first content negotiation page ───────────────────────────────
-
-function agentFirstPage(htmlContent: string) {
-  return (c: Context<HonoEnv>) => {
-    const detection = detectAgent(c.req.raw.headers);
-    if (detection.isAgent && (detection.confidence === 'high' || detection.confidence === 'medium')) {
-      return new Response(JSON.stringify(AGENTLAIR_MANIFEST, null, 2), {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/agent+json',
-          'X-Agent-Optimized': 'true',
-          'X-Detection-Confidence': detection.confidence,
-          'X-Detection-Signals': detection.signals.join(','),
-          'Cache-Control': 'no-store',
-          'Access-Control-Allow-Origin': '*',
-        },
-      });
-    }
-    return new Response(htmlContent, {
-      status: 200,
-      headers: { 'Content-Type': 'text/html; charset=utf-8', 'X-Powered-By': 'AgentLair', 'Cache-Control': 'public, max-age=3600' },
-    });
-  };
-}
-
-function staticPage(htmlContent: string, extraHeaders?: Record<string, string>) {
-  return (_c: Context<HonoEnv>) =>
-    new Response(htmlContent, {
-      status: 200,
-      headers: { 'Content-Type': 'text/html; charset=utf-8', 'X-Powered-By': 'AgentLair', 'Cache-Control': 'public, max-age=3600', ...extraHeaders },
-    });
-}
 
 // ─── Helper: proxy request to CF Pages (Astro landing page) ─────────────────────
 
@@ -180,12 +141,13 @@ app.get('/sitemap-index.xml', (c) => proxyToPages(c));
 
 // ── 2. Static / public HTML pages ───────────────────────────────────────────────
 
-app.get('/security', agentFirstPage(SECURITY_BLOG_HTML));
-app.get('/blog/security', agentFirstPage(SECURITY_BLOG_HTML));
-app.get('/blog/agent-first-web', agentFirstPage(AGENT_FIRST_BLOG_HTML));
-app.get('/blog/human-verified-agent-email', agentFirstPage(HUMAN_VERIFIED_AGENT_EMAIL_HTML));
-app.get('/blog/anthropic-platform-lockdown', staticPage(PLATFORM_LOCKDOWN_HTML));
-app.get('/blog/platform-lockdown', staticPage(PLATFORM_LOCKDOWN_HTML));
+// Blog + security pages — proxied to CF Pages (Astro)
+app.get('/security', (c) => proxyToPages(c, '/security'));
+app.get('/blog/security', (c) => proxyToPages(c, '/security'));
+app.get('/blog/agent-first-web', (c) => proxyToPages(c, '/blog/agent-first-web'));
+app.get('/blog/human-verified-agent-email', (c) => proxyToPages(c, '/blog/human-verified-agent-email'));
+app.get('/blog/anthropic-platform-lockdown', (c) => proxyToPages(c, '/blog/anthropic-platform-lockdown'));
+app.get('/blog/platform-lockdown', (c) => proxyToPages(c, '/blog/anthropic-platform-lockdown'));
 // Astro landing page routes — proxied to CF Pages
 app.get('/pricing', (c) => proxyToPages(c));
 app.get('/pricing/', (c) => proxyToPages(c));
@@ -229,10 +191,9 @@ app.get('/getting-started', async (c) => {
   }
   return proxyToPages(c, '/getting-started');
 });
-app.get('/integrations', staticPage(INTEGRATIONS_HTML));
-app.get('/dashboard', () =>
-  new Response(DASHBOARD_HTML, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'X-Powered-By': 'AgentLair' } })
-);
+// Astro pages — proxied to CF Pages
+app.get('/integrations', (c) => proxyToPages(c, '/integrations'));
+app.get('/dashboard', (c) => proxyToPages(c, '/dashboard'));
 
 app.get('/', async (c) => {
   // Agent-first content negotiation: agents get the manifest
