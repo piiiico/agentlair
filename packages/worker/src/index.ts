@@ -140,19 +140,12 @@ app.get('/og-image.jpg', (c) => proxyToPages(c));
 app.get('/sitemap-index.xml', (c) => proxyToPages(c));
 
 // ── 2. Static / public HTML pages ───────────────────────────────────────────────
+// Most pages are handled by the proxyToPages() catch-all at the bottom.
+// Only routes with special logic (agent detection, path aliases) are listed here.
 
-// Blog + security pages — proxied to CF Pages (Astro)
-app.get('/security', (c) => proxyToPages(c, '/security'));
+// Path aliases — URL slug changed, keep backwards compatibility
 app.get('/blog/security', (c) => proxyToPages(c, '/security'));
-app.get('/blog/agent-first-web', (c) => proxyToPages(c, '/blog/agent-first-web'));
-app.get('/blog/human-verified-agent-email', (c) => proxyToPages(c, '/blog/human-verified-agent-email'));
-app.get('/blog/anthropic-platform-lockdown', (c) => proxyToPages(c, '/blog/anthropic-platform-lockdown'));
 app.get('/blog/platform-lockdown', (c) => proxyToPages(c, '/blog/anthropic-platform-lockdown'));
-// Astro landing page routes — proxied to CF Pages
-app.get('/pricing', (c) => proxyToPages(c));
-app.get('/pricing/', (c) => proxyToPages(c));
-app.get('/privacy', (c) => proxyToPages(c));
-app.get('/privacy/', (c) => proxyToPages(c));
 
 app.get('/vault', async (c) => {
   // Agent-first content negotiation: agents get the manifest, humans get the Astro page
@@ -172,7 +165,6 @@ app.get('/vault', async (c) => {
   }
   return proxyToPages(c, '/vault');
 });
-app.get('/calendar', (c) => proxyToPages(c, '/calendar'));
 app.get('/getting-started', async (c) => {
   // Agent-first content negotiation: agents get the manifest, humans get the Astro page
   const detection = detectAgent(c.req.raw.headers);
@@ -191,10 +183,6 @@ app.get('/getting-started', async (c) => {
   }
   return proxyToPages(c, '/getting-started');
 });
-// Astro pages — proxied to CF Pages
-app.get('/integrations', (c) => proxyToPages(c, '/integrations'));
-app.get('/dashboard', (c) => proxyToPages(c, '/dashboard'));
-
 app.get('/', async (c) => {
   // Agent-first content negotiation: agents get the manifest
   const detection = detectAgent(c.req.raw.headers);
@@ -357,9 +345,14 @@ app.all('/v1/hosting/*', () => json({
   roadmap: 'https://agentlair.dev/roadmap',
 }, 503));
 
-// ── 8. 404 catch-all ────────────────────────────────────────────────────────────
+// ── 8. Catch-alls ───────────────────────────────────────────────────────────────
 
-app.all('*', () => err('Route not found. See GET / for available endpoints.', 404, 'not_found'));
+// API clients hitting unknown /v1/* routes get a JSON 404 (not an HTML page)
+app.all('/v1/*', () => err('Route not found. See GET / for available endpoints.', 404, 'not_found'));
+
+// All other routes proxy to CF Pages (Astro) — handles /security, /blog/*, /pricing, /privacy,
+// /calendar, /integrations, /dashboard, and any future Astro pages automatically.
+app.all('*', (c) => proxyToPages(c));
 
 // ─── CF Email Message Type ──────────────────────────────────────────────────────
 interface CfEmailMessage {
