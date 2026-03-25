@@ -15,6 +15,7 @@ import { DASHBOARD_HTML } from './templates/dashboard.js';
 import { INTEGRATIONS_HTML } from './templates/integrations.js';
 import { PLATFORM_LOCKDOWN_HTML } from './templates/platform-lockdown.js';
 import { HUMAN_VERIFIED_AGENT_EMAIL_HTML } from './templates/blog-human-verified-agent-email.js';
+import { MCP_SECURITY_IDENTITY_GAP_HTML } from './templates/blog-mcp-security-identity-gap.js';
 import { API_DISCOVERY, OPENAPI_SPEC, SCALAR_DOCS_HTML } from './openapi.js';
 import { AGENT_CARD } from './a2a.js';
 import { authenticateAny } from './middleware/auth.js';
@@ -184,6 +185,7 @@ app.get('/security', agentFirstPage(SECURITY_BLOG_HTML));
 app.get('/blog/security', agentFirstPage(SECURITY_BLOG_HTML));
 app.get('/blog/agent-first-web', agentFirstPage(AGENT_FIRST_BLOG_HTML));
 app.get('/blog/human-verified-agent-email', agentFirstPage(HUMAN_VERIFIED_AGENT_EMAIL_HTML));
+app.get('/blog/mcp-security-identity-gap', agentFirstPage(MCP_SECURITY_IDENTITY_GAP_HTML));
 app.get('/blog/anthropic-platform-lockdown', staticPage(PLATFORM_LOCKDOWN_HTML));
 app.get('/blog/platform-lockdown', staticPage(PLATFORM_LOCKDOWN_HTML));
 // Astro landing page routes — proxied to CF Pages
