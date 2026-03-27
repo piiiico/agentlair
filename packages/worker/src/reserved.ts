@@ -7,6 +7,12 @@ export const RESERVED_ADDRESSES = new Set([
   'postmaster', 'abuse', 'hostmaster', 'webmaster',
   // Platform technical addresses — used by mail infrastructure
   'noreply', 'no-reply', 'mailer-daemon', 'null', 'devnull',
+  // Platform identity — prevent impersonation of official channels
+  'admin', 'administrator', 'support', 'help', 'info', 'contact',
+  'billing', 'sales', 'security', 'api', 'system', 'root',
+  'team', 'hello', 'hi', 'office', 'service', 'services',
+  // Common high-value addresses that should be reserved
+  'ceo', 'cto', 'cfo', 'founder', 'legal', 'compliance', 'privacy',
 ]);
 
 export function isReservedAddress(address: string): boolean {

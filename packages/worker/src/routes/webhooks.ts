@@ -40,8 +40,19 @@ export async function handleWebhookRoutes(
     if (!address.endsWith('@agentlair.dev')) {
       return err('Only @agentlair.dev addresses are supported.', 400, 'invalid_address');
     }
-    try { new URL(webhookUrl); } catch {
+    // Validate webhook URL: must be https://, no private IPs, no non-http schemes
+    let parsedUrl: URL;
+    try { parsedUrl = new URL(webhookUrl); } catch {
       return err('url must be a valid URL (https://...).', 400, 'invalid_url');
+    }
+    if (parsedUrl.protocol !== 'https:' && parsedUrl.protocol !== 'http:') {
+      return err('Webhook URL must use https:// or http:// scheme.', 400, 'invalid_url');
+    }
+    // Block private/internal IP ranges to prevent SSRF
+    const hostname = parsedUrl.hostname;
+    const isPrivate = /^(127\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.|169\.254\.|0\.|localhost$|0\.0\.0\.0$|\[::1?\]$)/i.test(hostname);
+    if (isPrivate) {
+      return err('Webhook URL must not point to private or internal addresses.', 400, 'invalid_url');
     }
 
     const ownerKey = `email-owner:${address}`;

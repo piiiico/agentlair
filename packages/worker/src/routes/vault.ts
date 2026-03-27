@@ -105,7 +105,8 @@ export async function handleVaultRoutes(
       const accountIds = accountIdsRaw ? JSON.parse(accountIdsRaw) : [];
 
       if (vaultIds.length === 0 && accountIds.length === 0) {
-        return json({ sent: true, message: 'If vault entries exist for this email, a recovery link has been sent.' });
+        // Security: return same message as success to prevent email enumeration
+        return json({ sent: true, message: 'Recovery link sent. Check your inbox — expires in 15 minutes.' });
       }
 
       const token = nanoid(40);

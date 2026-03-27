@@ -9,6 +9,29 @@ import { nanoid, json, err } from '../utils.js';
 import type { Env, RouteContext } from '../types.js';
 import { isReservedAddress, validateLocalPart } from '../reserved.js';
 import { checkEmailRateLimit, recordEmailBounce, recordEmailSent, ADDRESS_LIMITS, countOwnedAddresses } from '../middleware/ratelimit.js';
+
+// ─── Account address index ────────────────────────────────────────────────────
+// Maintains an explicit per-account address list in KV for instant consistency.
+// Cloudflare KV list() is eventually consistent (up to 60s lag), so we can't
+// rely on prefix-scanning email-owner:* keys for the addresses endpoint.
+
+async function addToAccountAddresses(env: Env, accountId: string, address: string): Promise<void> {
+  if (!env.EMAILS) return;
+  const key = `account-addresses:${accountId}`;
+  const raw = await env.EMAILS.get(key);
+  const addresses: string[] = raw ? JSON.parse(raw) : [];
+  if (!addresses.includes(address)) {
+    addresses.push(address);
+    await env.EMAILS.put(key, JSON.stringify(addresses));
+  }
+}
+
+async function getAccountAddresses(env: Env, accountId: string): Promise<string[]> {
+  if (!env.EMAILS) return [];
+  const key = `account-addresses:${accountId}`;
+  const raw = await env.EMAILS.get(key);
+  return raw ? JSON.parse(raw) : [];
+}
 import { decryptEmailField } from '../platform-crypto.js';
 import { getEmailProvider } from '../email-provider.js';
 import { X402_CONFIG, EMAIL_PAYMENT_REQUIRED_RESPONSE, verifyX402Payment, settleX402Payment } from '../x402.js';
@@ -154,6 +177,7 @@ export async function handleEmailRoutes(
     }
 
     await env.EMAILS.put(ownerKey, account.id);
+    await addToAccountAddresses(env, account.id, address);
     return json({ address, claimed: true, already_owned: false, account_id: account.id, e2e_enabled: !!public_key }, 201);
   }
 
@@ -186,6 +210,7 @@ export async function handleEmailRoutes(
         return err(`Address limit reached (${owned}/${addrLimit}). Cannot auto-claim new addresses.`, 403, 'address_limit');
       }
       await env.EMAILS.put(ownerKey, account.id);
+      await addToAccountAddresses(env, account.id, address);
     } else if (currentOwner !== account.id) {
       return err('This address is registered to another account.', 403, 'address_not_yours');
     }
@@ -381,14 +406,8 @@ export async function handleEmailRoutes(
       return err('Email storage not available.', 503, 'email_unavailable');
     }
 
-    const list = await env.EMAILS.list({ prefix: 'email-owner:' });
-    const myAddresses: string[] = [];
-    for (const k of list.keys) {
-      const owner = await env.EMAILS.get(k.name);
-      if (owner === account.id) {
-        myAddresses.push(k.name.replace('email-owner:', ''));
-      }
-    }
+    // Use per-account address index for instant consistency (KV list() is eventually consistent)
+    const myAddresses = await getAccountAddresses(env, account.id);
 
     return json({
       addresses: myAddresses,
@@ -451,6 +470,11 @@ export async function handleEmailRoutes(
       return err('Required: from, to, subject, and text or html', 400, 'missing_fields');
     }
 
+    // Server-side header injection prevention — validate subject before sending to provider
+    if (typeof subject === 'string' && /[\r\n]/.test(subject)) {
+      return err('Subject must not contain newline or carriage return characters.', 400, 'invalid_subject');
+    }
+
     const fromAddr = String(from);
     if (!fromAddr.endsWith('@agentlair.dev') && !fromAddr.match(/<[^>]+@agentlair\.dev>/)) {
       return err('Sender must be an @agentlair.dev address', 403, 'invalid_sender');
@@ -462,6 +486,46 @@ export async function handleEmailRoutes(
     const addrOwner = await env.EMAILS.get(`email-owner:${normalizedFromAddr}`);
     if (!addrOwner || addrOwner !== account.id) {
       return err('You do not own this sender address. Claim it first via POST /v1/email/claim.', 403, 'not_your_address');
+    }
+
+    // ── Approval gate (P1 OWASP ASI01) ───────────────────────────────────────
+    // Backward compat: keys without approval_required field default to false.
+    // New keys default to approval_required: true — send saves as draft instead.
+    const keyApprovalRequired = typeof account.approval_required === 'boolean' ? account.approval_required : false;
+    if (keyApprovalRequired) {
+      const toAddrsForDraft = Array.isArray(to) ? to : [to];
+      const draftId = 'draft_' + nanoid(16);
+      const nowDraft = new Date().toISOString();
+      const draftKey = `draft:${account.id}:${draftId}`;
+
+      const draft = {
+        id: draftId,
+        from: fromAddr,
+        to: toAddrsForDraft,
+        subject: subject || '',
+        text: text || null,
+        html: htmlBody || null,
+        in_reply_to: in_reply_to || null,
+        status: 'draft',
+        created_at: nowDraft,
+        updated_at: nowDraft,
+        queued_by: 'approval_gate',
+      };
+
+      await env.EMAILS.put(draftKey, JSON.stringify(draft), { expirationTtl: 30 * 24 * 3600 });
+
+      // Update draft index (newest first)
+      const draftIndexKey = `draft-index:${account.id}`;
+      const draftIndexRaw = await env.EMAILS.get(draftIndexKey);
+      const draftIndex = draftIndexRaw ? JSON.parse(draftIndexRaw) : [];
+      draftIndex.unshift(draftKey);
+      await env.EMAILS.put(draftIndexKey, JSON.stringify(draftIndex.slice(0, 200)), { expirationTtl: 30 * 24 * 3600 });
+
+      return json({
+        status: 'queued_for_approval',
+        draft_id: draftId,
+        message: 'This email requires human approval. Use POST /v1/email/drafts/' + draftId + '/send to approve.',
+      }, 202);
     }
 
     // ── Idempotency check ─────────────────────────────────────────────────────

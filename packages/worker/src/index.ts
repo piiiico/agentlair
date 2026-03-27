@@ -11,7 +11,7 @@ import { InboxNotifier } from './durable-objects/inbox-notifier.js';
 import { API_DISCOVERY, OPENAPI_SPEC, SCALAR_DOCS_HTML } from './openapi.js';
 import { AGENT_CARD } from './a2a.js';
 import { authenticateAny } from './middleware/auth.js';
-import { checkRateLimit } from './middleware/ratelimit.js';
+import { checkRateLimit, checkPodRateLimit } from './middleware/ratelimit.js';
 import { detectAgent, AGENTLAIR_MANIFEST } from './middleware/agent-detect.js';
 import { encryptEmailField, encryptEmailE2E } from './platform-crypto.js';
 
@@ -20,8 +20,8 @@ import { handleAuthRoutes } from './routes/auth.js';
 import { handleVaultRoutes } from './routes/vault.js';
 import { handleEmailRoutes } from './routes/email.js';
 import { handleWebhookRoutes } from './routes/webhooks.js';
-import { handleStackRoutes } from './routes/stacks.js';
-import { handlePodRoutes } from './routes/pods.js';
+import { stackRoutes } from './routes/stacks.js';
+import { podRoutes } from './routes/pods.js';
 import { handleCalendarRoutes } from './routes/calendar.js';
 
 // ─── Hono App Type ──────────────────────────────────────────────────────────────
@@ -280,7 +280,7 @@ app.use('/v1/*', async (c: Context<HonoEnv>, next: Next): Promise<void | Respons
     return err('Rate limit exceeded. Free tier: 100 requests/day.', 429, 'rate_limited');
   }
 
-  // Pod suspension guard
+  // Pod suspension guard + pod-specific rate limiting
   if (account.type === 'pod' && account.pod_id) {
     try {
       const podRaw = await c.env.KEYS.get('pod:' + account.pod_id);
@@ -288,6 +288,24 @@ app.use('/v1/*', async (c: Context<HonoEnv>, next: Next): Promise<void | Respons
         const pod = JSON.parse(podRaw);
         if (pod.status === 'suspended') {
           return err('This pod has been suspended. Contact your platform operator to restore access.', 403, 'pod_suspended');
+        }
+        // Enforce pod-specific rate limits if configured
+        if (pod.rate_limits) {
+          const podRl = await checkPodRateLimit(c.env, account.pod_id, pod.rate_limits);
+          if (!podRl.allowed) {
+            const headers: Record<string, string> = {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*',
+            };
+            if (podRl.retry_after) headers['Retry-After'] = podRl.retry_after;
+            if (podRl.rl_limit != null) headers['X-RateLimit-Limit'] = String(podRl.rl_limit);
+            if (podRl.rl_remaining != null) headers['X-RateLimit-Remaining'] = String(podRl.rl_remaining);
+            if (podRl.rl_reset != null) headers['X-RateLimit-Reset'] = String(podRl.rl_reset);
+            return new Response(JSON.stringify({
+              error: 'rate_limited',
+              message: `Pod rate limit exceeded (${podRl.window} window). Limit: ${podRl.limit}.`,
+            }), { status: 429, headers });
+          }
         }
       }
     } catch { /* fail open — don't block on KV read error */ }
@@ -305,16 +323,10 @@ app.use('/v1/account/*', legacyHandler(handleAuthRoutes));
 app.use('/v1/e2e/*', legacyHandler(handleAuthRoutes));
 
 // Pod management
-app.use('/v1/pods', legacyHandler(handlePodRoutes));
-app.use('/v1/pods/*', legacyHandler(handlePodRoutes));
+app.route('/v1/pods', podRoutes);
 
 // Stacks, usage, billing, observations
-app.use('/v1/stack', legacyHandler(handleStackRoutes));
-app.use('/v1/stack/*', legacyHandler(handleStackRoutes));
-app.use('/v1/usage', legacyHandler(handleStackRoutes));
-app.use('/v1/billing', legacyHandler(handleStackRoutes));
-app.use('/v1/observations', legacyHandler(handleStackRoutes));
-app.use('/v1/observations/*', legacyHandler(handleStackRoutes));
+app.route('/v1', stackRoutes);
 
 // Email webhooks (before general email routes — more specific prefix first)
 app.use('/v1/email/webhooks', legacyHandler(handleWebhookRoutes));

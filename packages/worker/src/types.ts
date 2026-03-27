@@ -1,5 +1,15 @@
 // AgentLair Worker — Shared Types
 
+// ─── Hono App Environment ──────────────────────────────────────────────────────
+// Defined here (not in index.ts) to avoid circular imports in route sub-apps.
+
+export type HonoEnv = {
+  Bindings: Env;
+  Variables: {
+    account: Account | null;
+  };
+};
+
 export interface Env {
   KEYS: KVNamespace;
   EMAILS: KVNamespace;
@@ -11,6 +21,12 @@ export interface Env {
   EMAIL_PROVIDER?: string;
   TURSO_URL?: string;
   TURSO_AUTH_TOKEN?: string;
+  // CF Pages base URL for proxying (default: https://agentlair-web.pages.dev)
+  PAGES_URL?: string;
+  // Audit trail D1 database (optional — graceful degradation if not bound)
+  AUDIT?: D1Database;
+  // Ed25519 private key for audit log signing, base64-encoded 32-byte key (CF secret)
+  AUDIT_SIGNING_KEY?: string;
 }
 
 export interface Account {
@@ -75,6 +91,24 @@ export interface X402SettleResult {
   receipt?: string;
 }
 
+export interface PodRateLimits {
+  requests_per_day?: number;
+  requests_per_hour?: number;
+  requests_per_minute?: number;
+}
+
+export interface PodRateLimitResult {
+  allowed: boolean;
+  // Present when not allowed
+  limit?: number;
+  window?: string;
+  retry_after?: string;
+  // Present when allowed and pod has rate limits (for response headers)
+  rl_limit?: number;
+  rl_remaining?: number;
+  rl_reset?: number; // Unix epoch seconds
+}
+
 export interface Pod {
   id: string;
   parent_id: string;
@@ -82,6 +116,7 @@ export interface Pod {
   created_at: string;
   status: 'active' | 'suspended';
   suspended_at?: string;
+  rate_limits?: PodRateLimits | null;
 }
 
 export interface EmailMessage {

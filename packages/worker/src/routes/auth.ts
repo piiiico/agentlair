@@ -116,6 +116,8 @@ export async function handleAuthRoutes(
       let body: Record<string, unknown> = {};
       try { body = await request.json(); } catch {}
       const name = typeof body.name === 'string' ? body.name : 'default';
+      const approvalBypass = body.approval_bypass === true;
+      const approvalRequired = !approvalBypass;
 
       const keyValue = 'al_live_' + nanoid(32);
       const keyHash = await sha256hex(keyValue);
@@ -131,6 +133,8 @@ export async function handleAuthRoutes(
         email: typeof body.email === 'string' ? body.email : null,
         created_at: now,
         stacks: [] as string[],
+        approval_required: approvalRequired,
+        approval_bypass: approvalBypass,
       };
 
       // KV writes — wrapped in try/catch to handle quota limits gracefully.
@@ -155,6 +159,8 @@ export async function handleAuthRoutes(
         account_id: accountId,
         tier: 'free',
         created_at: now,
+        approval_required: approvalRequired,
+        approval_bypass: approvalBypass,
         warning: 'Save this key — it will not be shown again. Set a recovery email at POST /v1/account/recovery-email to enable dashboard login.',
         limits: {
           stacks: 1,
@@ -221,6 +227,10 @@ export async function handleAuthRoutes(
       const address = typeof body.address === 'string' ? body.address : undefined;
       const public_key = typeof body.public_key === 'string' ? body.public_key : undefined;
       const recovery_email = typeof body.recovery_email === 'string' ? body.recovery_email : undefined;
+      // Security: approval_bypass is NOT accepted from registration requests.
+      // All new accounts default to approval_required: true.
+      // Agents can disable approval via dashboard settings after account creation.
+      const agentApprovalRequired = true;
 
       let emailAddress = '';
 
@@ -288,6 +298,7 @@ export async function handleAuthRoutes(
         email: recovery_email || null,
         created_at: now,
         stacks: [] as string[],
+        approval_required: agentApprovalRequired,
       };
 
       // KV writes — wrapped in try/catch to handle quota limits gracefully.
@@ -299,6 +310,15 @@ export async function handleAuthRoutes(
         // Claim email address
         if (!env.EMAILS) return err('Email service unavailable.', 503, 'service_unavailable');
         await env.EMAILS.put('email-owner:' + emailAddress, accountId);
+
+        // Update per-account address index for instant consistency
+        const addrIndexKey = `account-addresses:${accountId}`;
+        const addrRaw = await env.EMAILS.get(addrIndexKey);
+        const addrList: string[] = addrRaw ? JSON.parse(addrRaw) : [];
+        if (!addrList.includes(emailAddress)) {
+          addrList.push(emailAddress);
+          await env.EMAILS.put(addrIndexKey, JSON.stringify(addrList));
+        }
 
         // Optional: register E2E public key
         if (public_key) {
@@ -324,6 +344,7 @@ export async function handleAuthRoutes(
         tier: 'free',
         e2e_enabled: !!public_key,
         created_at: now,
+        approval_required: agentApprovalRequired,
         warning: 'Save your API key — it will not be shown again.',
         limits: { emails_per_day: 10, requests_per_day: 100, stacks: 1, addresses: 10 },
       }, 201);
@@ -341,13 +362,18 @@ export async function handleAuthRoutes(
     path === '/v1/auth/keys/activate-backup' ||
     path === '/v1/auth/keys/list' ||
     path === '/v1/account/recovery-email' ||
-    path === '/v1/e2e/rotate-key'
+    path === '/v1/e2e/rotate-key' ||
+    (path === '/v1/auth/keys' && method === 'PATCH')
   )) {
     return err('Pod keys cannot manage account keys. Use your platform API key.', 403, 'pod_auth_forbidden');
   }
 
   // GET /v1/account/me — return current account info
-  if (path === '/v1/account/me' && method === 'GET') {
+  // GET /v1/auth/me — alias (spec-compatible path)
+  if ((path === '/v1/account/me' || path === '/v1/auth/me') && method === 'GET') {
+    // Backward compat: keys without approval_required field default to false (old behavior)
+    const approvalRequired = typeof account.approval_required === 'boolean' ? account.approval_required : false;
+    const approvalBypass = typeof account.approval_bypass === 'boolean' ? account.approval_bypass : !approvalRequired;
     return json({
       id: account.id,
       key_prefix: account.key_prefix,
@@ -360,6 +386,8 @@ export async function handleAuthRoutes(
       stacks: account.stacks || [],
       e2e_enabled: !!account.e2e_public_key,
       e2e_public_key: account.e2e_public_key || null,
+      approval_required: approvalRequired,
+      approval_bypass: approvalBypass,
     });
   }
 
@@ -506,6 +534,28 @@ export async function handleAuthRoutes(
         activated_at: k.activated_at || null,
       })),
     });
+  }
+
+  // PATCH /v1/auth/keys — update approval_bypass for the current key
+  if (path === '/v1/auth/keys' && method === 'PATCH') {
+    let body: Record<string, unknown> = {};
+    try { body = await request.json(); } catch {}
+
+    if (typeof body.approval_bypass !== 'boolean') {
+      return err('approval_bypass (boolean) required in body', 400, 'missing_approval_bypass');
+    }
+
+    const newApprovalBypass = body.approval_bypass as boolean;
+    const newApprovalRequired = !newApprovalBypass;
+
+    const keyHash = await env.KEYS.get('account:' + account.id);
+    if (!keyHash) return err('Account not found.', 404, 'not_found');
+
+    const updatedAccount = { ...account, approval_required: newApprovalRequired, approval_bypass: newApprovalBypass };
+    delete updatedAccount._session;
+    await env.KEYS.put('key:' + keyHash, JSON.stringify(updatedAccount));
+
+    return json({ ok: true, approval_required: newApprovalRequired, approval_bypass: newApprovalBypass });
   }
 
   // POST /v1/e2e/rotate-key — register or rotate E2E public key for this account

@@ -1,6 +1,6 @@
 // ─── Rate Limiting ─────────────────────────────────────────────────────────────
 
-import type { Env } from '../types.js';
+import type { Env, PodRateLimits, PodRateLimitResult } from '../types.js';
 
 // IP-based rate limit for unauthenticated endpoints (key creation, vault store)
 // Returns { allowed: boolean, remaining: number }
@@ -18,6 +18,128 @@ export async function checkIpRateLimit(env: Env, ip: string, action: string, max
   } catch {
     // Fail open: if KV is unavailable (e.g. write quota exceeded), allow the request
     return { allowed: true, remaining: maxPerHour };
+  }
+}
+
+// ─── Per-Pod Rate Limiting ──────────────────────────────────────────────────────
+//
+// Checks minute → hour → day (fail fast on tightest window).
+// KV keys: pod-rl:{pod_id}:day:{YYYY-MM-DD}, pod-rl:{pod_id}:hour:{YYYY-MM-DDTHH},
+//          pod-rl:{pod_id}:min:{YYYY-MM-DDTHH:MM}
+// TTLs: day=172800, hour=7200, minute=300
+// Fail-open on any KV error (consistent with account-level pattern).
+// Increments all applicable counters on allow.
+
+export async function checkPodRateLimit(
+  env: Env,
+  podId: string,
+  rateLimits: PodRateLimits
+): Promise<PodRateLimitResult> {
+  if (!env.KEYS) return { allowed: true };
+  try {
+    const now = new Date();
+    const day    = now.toISOString().slice(0, 10);   // YYYY-MM-DD
+    const hour   = now.toISOString().slice(0, 13);   // YYYY-MM-DDTHH
+    const minute = now.toISOString().slice(0, 16);   // YYYY-MM-DDTHH:MM
+
+    const dayKey  = `pod-rl:${podId}:day:${day}`;
+    const hourKey = `pod-rl:${podId}:hour:${hour}`;
+    const minKey  = `pod-rl:${podId}:min:${minute}`;
+
+    // Read all applicable counters in parallel
+    const reads = await Promise.all([
+      rateLimits.requests_per_minute != null ? env.KEYS.get(minKey)  : Promise.resolve(null),
+      rateLimits.requests_per_hour    != null ? env.KEYS.get(hourKey) : Promise.resolve(null),
+      rateLimits.requests_per_day     != null ? env.KEYS.get(dayKey)  : Promise.resolve(null),
+    ]);
+    const [minRaw, hourRaw, dayRaw] = reads;
+
+    const minCount  = parseInt(minRaw  || '0');
+    const hourCount = parseInt(hourRaw || '0');
+    const dayCount  = parseInt(dayRaw  || '0');
+
+    // Check tightest window first (minute → hour → day)
+    if (rateLimits.requests_per_minute != null && minCount >= rateLimits.requests_per_minute) {
+      const minReset = new Date(now);
+      minReset.setSeconds(0, 0);
+      minReset.setMinutes(minReset.getMinutes() + 1);
+      return {
+        allowed: false,
+        limit: rateLimits.requests_per_minute,
+        window: 'minute',
+        retry_after: minReset.toISOString(),
+      };
+    }
+
+    if (rateLimits.requests_per_hour != null && hourCount >= rateLimits.requests_per_hour) {
+      const hourReset = new Date(now);
+      hourReset.setMinutes(0, 0, 0);
+      hourReset.setHours(hourReset.getHours() + 1);
+      return {
+        allowed: false,
+        limit: rateLimits.requests_per_hour,
+        window: 'hour',
+        retry_after: hourReset.toISOString(),
+      };
+    }
+
+    if (rateLimits.requests_per_day != null && dayCount >= rateLimits.requests_per_day) {
+      const dayReset = new Date(now);
+      dayReset.setUTCDate(dayReset.getUTCDate() + 1);
+      dayReset.setUTCHours(0, 0, 0, 0);
+      return {
+        allowed: false,
+        limit: rateLimits.requests_per_day,
+        window: 'day',
+        retry_after: dayReset.toISOString(),
+      };
+    }
+
+    // Determine tightest active window for response headers
+    let rl_limit: number | undefined;
+    let rl_remaining: number | undefined;
+    let rl_reset: number | undefined;
+
+    if (rateLimits.requests_per_minute != null) {
+      const minReset = new Date(now);
+      minReset.setSeconds(0, 0);
+      minReset.setMinutes(minReset.getMinutes() + 1);
+      rl_limit = rateLimits.requests_per_minute;
+      rl_remaining = rateLimits.requests_per_minute - minCount - 1;
+      rl_reset = Math.floor(minReset.getTime() / 1000);
+    } else if (rateLimits.requests_per_hour != null) {
+      const hourReset = new Date(now);
+      hourReset.setMinutes(0, 0, 0);
+      hourReset.setHours(hourReset.getHours() + 1);
+      rl_limit = rateLimits.requests_per_hour;
+      rl_remaining = rateLimits.requests_per_hour - hourCount - 1;
+      rl_reset = Math.floor(hourReset.getTime() / 1000);
+    } else if (rateLimits.requests_per_day != null) {
+      const dayReset = new Date(now);
+      dayReset.setUTCDate(dayReset.getUTCDate() + 1);
+      dayReset.setUTCHours(0, 0, 0, 0);
+      rl_limit = rateLimits.requests_per_day;
+      rl_remaining = rateLimits.requests_per_day - dayCount - 1;
+      rl_reset = Math.floor(dayReset.getTime() / 1000);
+    }
+
+    // Increment all configured counters (fail-open if writes fail)
+    const writes: Promise<void>[] = [];
+    if (rateLimits.requests_per_minute != null) {
+      writes.push(env.KEYS.put(minKey,  String(minCount  + 1), { expirationTtl: 300    }));
+    }
+    if (rateLimits.requests_per_hour != null) {
+      writes.push(env.KEYS.put(hourKey, String(hourCount + 1), { expirationTtl: 7200   }));
+    }
+    if (rateLimits.requests_per_day != null) {
+      writes.push(env.KEYS.put(dayKey,  String(dayCount  + 1), { expirationTtl: 172800 }));
+    }
+    try { await Promise.all(writes); } catch { /* fail-open: stale counters are acceptable */ }
+
+    return { allowed: true, rl_limit, rl_remaining, rl_reset };
+  } catch {
+    // Fail-open: if KV is unavailable, allow the request
+    return { allowed: true };
   }
 }
 
@@ -58,6 +180,13 @@ export const ADDRESS_LIMITS = {
 
 export async function countOwnedAddresses(env: Env, accountId: string) {
   if (!env.EMAILS) return 0;
+  // Use per-account address index for instant consistency (KV list() is eventually consistent)
+  const raw = await env.EMAILS.get(`account-addresses:${accountId}`);
+  if (raw) {
+    const addresses: string[] = JSON.parse(raw);
+    return addresses.length;
+  }
+  // Fallback to prefix scan for accounts created before the index existed
   const list = await env.EMAILS.list({ prefix: 'email-owner:' });
   let count = 0;
   for (const k of list.keys) {
