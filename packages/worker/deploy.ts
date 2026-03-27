@@ -15,6 +15,7 @@ const metadata = {
     { type: "kv_namespace", name: "VAULT", namespace_id: "5eb916dd7125415da51c15cd85c3b761" },
     { type: "analytics_engine", name: "AE_ANALYTICS", dataset: "agentlair_events" },
     { type: "durable_object_namespace", name: "INBOX_NOTIFIER", namespace_id: "ed86c0465f714bc8978398fc80cf8d68" },
+    { type: "d1", name: "AUDIT", id: "7e358e12-9c65-4803-9d1d-298fec510099" },
   ],
   compatibility_date: "2024-09-23",
   compatibility_flags: ["nodejs_compat"],

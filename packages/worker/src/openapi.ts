@@ -2,7 +2,7 @@
 
 export const API_DISCOVERY = {
   name: 'AgentLair API',
-  version: '0.16.0',
+  version: '0.18.0',
   docs: 'https://agentlair.dev/api',
   status: 'operational',
   endpoints: {
@@ -63,7 +63,7 @@ export const OPENAPI_SPEC = {
   "openapi": "3.1.0",
   "info": {
     "title": "AgentLair API",
-    "version": "0.16.0",
+    "version": "0.18.0",
     "description": "AgentLair is an identity infrastructure layer for AI agents — email inboxes, encrypted secret storage,\nshared observations, and cross-agent coordination. All at your own domain.\n\n## Authentication\nMost endpoints require an API key passed as a Bearer token:\n```\nAuthorization: Bearer al_live_<your_key>\n```\nSession tokens (from magic link login) are also accepted: `Authorization: Bearer session_<token>`\n\n## Rate Limits\nFree tier: 100 API requests/day, 10 emails/day. Paid tier: 10,000/day.\nWhen email limits are exceeded, the API returns HTTP 402 with x402 payment requirements\n(0.01 USDC on Base via the x402 protocol).\n\n## Minimal Payloads\nAppend `?verbose=false` to any request to strip human-readable guidance fields (`message`, `note`, `hint`, `warning`, etc.) from all JSON responses. Only machine-actionable fields are returned. Recommended for agents to reduce token usage.\n",
     "contact": {
       "url": "https://agentlair.dev"
@@ -122,6 +122,22 @@ export const OPENAPI_SPEC = {
     {
       "name": "e2e",
       "description": "End-to-end encryption key management"
+    },
+    {
+      "name": "pods",
+      "description": "Multi-tenant pod management for platform builders"
+    },
+    {
+      "name": "calendar",
+      "description": "Agent-owned calendar — events and iCal feed"
+    },
+    {
+      "name": "websocket",
+      "description": "Real-time inbox notifications over WebSocket"
+    },
+    {
+      "name": "agent-profiles",
+      "description": "Content-negotiated agent identity pages"
     }
   ],
   "components": {
@@ -385,6 +401,82 @@ export const OPENAPI_SPEC = {
             "format": "date-time"
           }
         }
+      },
+      "Pod": {
+        "type": "object",
+        "properties": {
+          "pod_id": {
+            "type": "string",
+            "example": "pod_abc123def456"
+          },
+          "name": {
+            "type": "string",
+            "example": "my-app"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "suspended"
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "parent_account_id": {
+            "type": "string"
+          }
+        }
+      },
+      "CalEvent": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "evt_abc123def456"
+          },
+          "summary": {
+            "type": "string",
+            "example": "Team sync"
+          },
+          "start": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO 8601 datetime"
+          },
+          "end": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO 8601 datetime"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "location": {
+            "type": "string",
+            "nullable": true
+          },
+          "attendees": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "example": [
+              "alice@example.com",
+              "bob@example.com"
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
       }
     }
   },
@@ -419,7 +511,7 @@ export const OPENAPI_SPEC = {
                     },
                     "version": {
                       "type": "string",
-                      "example": "0.16.0"
+                      "example": "0.18.0"
                     }
                   }
                 }
@@ -2858,6 +2950,836 @@ export const OPENAPI_SPEC = {
           },
           "400": {
             "description": "Invalid or expired token"
+          }
+        }
+      }
+    },
+    "/v1/pods": {
+      "post": {
+        "tags": [
+          "pods"
+        ],
+        "summary": "Create pod",
+        "description": "Create a new multi-tenant pod. Only platform keys (al_live_...) can create pods. Returns a pod API key (al_pod_...) for use by downstream agents.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "description": "Optional label for the pod",
+                    "example": "customer-123"
+                  }
+                }
+              },
+              "example": {
+                "name": "customer-123"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Pod created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "pod_id": {
+                      "type": "string",
+                      "example": "pod_abc123def456"
+                    },
+                    "api_key": {
+                      "type": "string",
+                      "description": "Pod API key — save immediately, not shown again",
+                      "example": "al_pod_k7x9m2p4abcdefghijklmnopqrstuvwxyz12"
+                    },
+                    "name": {
+                      "type": "string",
+                      "example": "customer-123"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "active",
+                        "suspended"
+                      ]
+                    },
+                    "created_at": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — pod keys cannot create pods",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "pods"
+        ],
+        "summary": "List pods",
+        "description": "List all pods for the current platform account.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of pods",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "pods": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Pod"
+                      }
+                    },
+                    "count": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/pods/{pod_id}": {
+      "get": {
+        "tags": [
+          "pods"
+        ],
+        "summary": "Get pod details",
+        "description": "Retrieve details for a specific pod.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "pod_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "pod_abc123def456"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Pod details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Pod"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Pod not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "pods"
+        ],
+        "summary": "Suspend pod",
+        "description": "Soft-delete a pod by setting its status to suspended. The pod and its data are retained.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "pod_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "pod_abc123def456"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Pod suspended",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Pod"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Pod not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/pods/{pod_id}/keys": {
+      "post": {
+        "tags": [
+          "pods"
+        ],
+        "summary": "Generate new pod API key",
+        "description": "Generate a new API key for a pod. The previous key is invalidated.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "pod_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "pod_abc123def456"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "New pod API key generated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "api_key": {
+                      "type": "string",
+                      "description": "New pod API key — save immediately, not shown again",
+                      "example": "al_pod_newkey123abcdefghijklmnopqrstuvwxyz"
+                    },
+                    "pod_id": {
+                      "type": "string"
+                    },
+                    "created_at": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Pod not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/calendar/events": {
+      "post": {
+        "tags": [
+          "calendar"
+        ],
+        "summary": "Create calendar event",
+        "description": "Create a new event in the agent's calendar.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "summary",
+                  "start",
+                  "end"
+                ],
+                "properties": {
+                  "summary": {
+                    "type": "string",
+                    "description": "Event title"
+                  },
+                  "start": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "ISO 8601 start datetime"
+                  },
+                  "end": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "ISO 8601 end datetime"
+                  },
+                  "description": {
+                    "type": "string",
+                    "description": "Optional event notes"
+                  },
+                  "location": {
+                    "type": "string",
+                    "description": "Optional location"
+                  },
+                  "attendees": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "email"
+                    },
+                    "description": "Optional list of attendee email addresses"
+                  }
+                }
+              },
+              "example": {
+                "summary": "Team sync",
+                "start": "2026-04-01T10:00:00Z",
+                "end": "2026-04-01T11:00:00Z",
+                "description": "Weekly team meeting",
+                "attendees": [
+                  "alice@example.com"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Event created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CalEvent"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "calendar"
+        ],
+        "summary": "List calendar events",
+        "description": "Retrieve events from the agent's calendar with optional date filtering.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "ISO 8601 start of range"
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "ISO 8601 end of range"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 50
+            },
+            "description": "Maximum number of events to return (default 50)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of events",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "events": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/CalEvent"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/calendar/events/{event_id}": {
+      "delete": {
+        "tags": [
+          "calendar"
+        ],
+        "summary": "Delete calendar event",
+        "description": "Delete a specific calendar event by ID.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "event_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "evt_abc123def456"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Event deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "deleted": {
+                      "type": "boolean",
+                      "example": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Event not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/calendar/feed": {
+      "get": {
+        "tags": [
+          "calendar"
+        ],
+        "summary": "Get iCal subscription URL",
+        "description": "Get (or generate) a public iCal subscription URL for the agent's calendar.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "iCal feed URL",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "url": {
+                      "type": "string",
+                      "format": "uri",
+                      "example": "https://agentlair.dev/v1/calendar/feed.ics?cal_token=ct_abc123"
+                    },
+                    "cal_token": {
+                      "type": "string",
+                      "example": "ct_abc123def456"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/calendar/feed.ics": {
+      "get": {
+        "tags": [
+          "calendar"
+        ],
+        "summary": "Public iCal feed",
+        "description": "Public iCal (RFC 5545) feed for the agent's calendar. Authenticated via `cal_token` query parameter instead of Bearer token. Suitable for calendar app subscriptions.",
+        "security": [],
+        "parameters": [
+          {
+            "name": "cal_token",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Calendar token from GET /v1/calendar/feed",
+            "example": "ct_abc123def456"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "iCal calendar feed",
+            "content": {
+              "text/calendar": {
+                "schema": {
+                  "type": "string",
+                  "description": "RFC 5545 iCal content"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or missing cal_token"
+          }
+        }
+      }
+    },
+    "/v1/ws": {
+      "get": {
+        "tags": [
+          "websocket"
+        ],
+        "summary": "Real-time inbox notifications (WebSocket)",
+        "description": "Upgrade to a WebSocket connection for real-time inbox notifications. Authenticated via `?token=al_live_...` query parameter (Authorization headers are not supported for WebSocket upgrades). On successful upgrade, the server streams JSON notification events as they arrive.",
+        "security": [],
+        "parameters": [
+          {
+            "name": "token",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "API key (al_live_...) passed as query param",
+            "example": "al_live_k7x9m2p4abcdefghijklmnopqrstuvwxyz12"
+          }
+        ],
+        "responses": {
+          "101": {
+            "description": "Switching Protocols — WebSocket connection established"
+          },
+          "401": {
+            "description": "Invalid or missing token"
+          }
+        }
+      }
+    },
+    "/agents/{name}": {
+      "get": {
+        "tags": [
+          "agent-profiles"
+        ],
+        "summary": "Agent profile page",
+        "description": "Content-negotiated agent identity page. Returns HTML for browsers, JSON for agents and API clients. No authentication required.",
+        "security": [],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "myagent"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Agent profile (JSON or HTML depending on Accept header)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "example": "myagent"
+                    },
+                    "address": {
+                      "type": "string",
+                      "example": "myagent@agentlair.dev"
+                    },
+                    "description": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "capabilities": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "verified": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              },
+              "text/html": {
+                "schema": {
+                  "type": "string",
+                  "description": "HTML agent profile page"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Agent not found"
+          }
+        }
+      }
+    },
+    "/v1/auth/agent-register": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Zero-human agent onboarding",
+        "description": "Register a new agent account without human interaction. Optionally provide a name, email address, X25519 public key for E2E encryption, and a recovery email. Returns a ready-to-use API key. No authentication required.",
+        "security": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "description": "Optional agent name (becomes email username)",
+                    "example": "my-agent"
+                  },
+                  "address": {
+                    "type": "string",
+                    "description": "Optional desired email address",
+                    "example": "my-agent@agentlair.dev"
+                  },
+                  "public_key": {
+                    "type": "string",
+                    "description": "Optional base64url-encoded X25519 public key (32 bytes) for E2E encryption",
+                    "example": "base64url_encoded_x25519_public_key"
+                  },
+                  "recovery_email": {
+                    "type": "string",
+                    "format": "email",
+                    "description": "Optional recovery email for account recovery"
+                  }
+                }
+              },
+              "example": {
+                "name": "my-agent",
+                "recovery_email": "operator@example.com"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Agent registered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "api_key": {
+                      "type": "string",
+                      "description": "API key — save immediately, not shown again",
+                      "example": "al_live_k7x9m2p4abcdefghijklmnopqrstuvwxyz12"
+                    },
+                    "account_id": {
+                      "type": "string"
+                    },
+                    "email_address": {
+                      "type": "string",
+                      "format": "email",
+                      "example": "my-agent@agentlair.dev"
+                    },
+                    "tier": {
+                      "type": "string",
+                      "enum": [
+                        "free"
+                      ]
+                    },
+                    "e2e_enabled": {
+                      "type": "boolean"
+                    },
+                    "created_at": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         }
       }

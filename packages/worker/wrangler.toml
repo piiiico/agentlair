@@ -37,3 +37,11 @@ class_name = "InboxNotifier"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["InboxNotifier"]
+
+# Audit trail D1 database
+# Note: database_id is a placeholder — the deploy task will create the actual D1 database
+# and update this ID via: wrangler d1 create agentlair-audit
+[[d1_databases]]
+binding = "AUDIT"
+database_name = "agentlair-audit"
+database_id = "7e358e12-9c65-4803-9d1d-298fec510099"

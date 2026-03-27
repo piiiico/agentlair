@@ -1,0 +1,108 @@
+// ─── Audit Routes ────────────────────────────────────────────────────────────
+// Handles: GET /v1/audit/log — query audit trail with filters and pagination
+//          GET /v1/audit/verification-key — return Ed25519 public key
+//
+// All routes require authentication (mounted after auth middleware in index.ts).
+
+import { Hono } from 'hono';
+import type { HonoEnv } from '../types.js';
+import { json, err } from '../utils.js';
+import { ed25519 } from '@noble/curves/ed25519.js';
+import type { AuditEntry } from '../middleware/audit.js';
+
+export const auditRoutes = new Hono<HonoEnv>();
+
+// ─── GET /audit/log ──────────────────────────────────────────────────────────
+// Query audit trail with optional filters and cursor-based pagination.
+
+auditRoutes.get('/log', async (c) => {
+  const account = c.get('account');
+  if (!account) return err('Authentication required.', 401, 'unauthorized');
+
+  // Check AUDIT binding
+  if (!c.env.AUDIT) {
+    return err('Audit trail not enabled for this instance.', 503, 'audit_unavailable');
+  }
+
+  // Parse query params
+  const url = new URL(c.req.url);
+  const from = url.searchParams.get('from');
+  const to = url.searchParams.get('to');
+  const category = url.searchParams.get('category');
+  const action = url.searchParams.get('action');
+  const resource_id = url.searchParams.get('resource_id');
+  const result = url.searchParams.get('result');
+  const cursor = url.searchParams.get('cursor');
+  const limitParam = parseInt(url.searchParams.get('limit') || '50', 10);
+  const limit = Math.min(Math.max(1, isNaN(limitParam) ? 50 : limitParam), 1000);
+
+  // Build dynamic SQL
+  const conditions: string[] = ['account_id = ?'];
+  const params: (string | number)[] = [account.id];
+
+  if (from) { conditions.push('timestamp >= ?'); params.push(from); }
+  if (to) { conditions.push('timestamp <= ?'); params.push(to); }
+  if (category) { conditions.push('category = ?'); params.push(category); }
+  if (action) { conditions.push('action = ?'); params.push(action); }
+  if (resource_id) { conditions.push('resource_id = ?'); params.push(resource_id); }
+  if (result) { conditions.push('result = ?'); params.push(result); }
+  if (cursor) { conditions.push('id > ?'); params.push(cursor); }
+
+  const whereClause = conditions.join(' AND ');
+  const sql = `SELECT * FROM audit_log WHERE ${whereClause} ORDER BY timestamp DESC LIMIT ?`;
+  params.push(limit);
+
+  try {
+    const queryResult = await c.env.AUDIT.prepare(sql)
+      .bind(...params)
+      .all<AuditEntry>();
+
+    const entries = (queryResult.results || []).map((entry) => ({
+      ...entry,
+      // Parse details JSON string back to object
+      details: entry.details
+        ? (typeof entry.details === 'string' ? JSON.parse(entry.details) : entry.details)
+        : null,
+    }));
+
+    const lastEntry = entries[entries.length - 1];
+    const nextCursor = entries.length === limit ? (lastEntry?.id ?? null) : null;
+
+    return json({
+      entries,
+      cursor: nextCursor,
+      count: entries.length,
+    });
+  } catch (e) {
+    console.error('Audit log query failed:', e instanceof Error ? e.message : String(e));
+    return err('Failed to query audit log.', 500, 'audit_query_error');
+  }
+});
+
+// ─── GET /audit/verification-key ─────────────────────────────────────────────
+// Return Ed25519 public key derived from AUDIT_SIGNING_KEY.
+// Behind auth for Phase 1 (Phase 2 can make this public).
+
+auditRoutes.get('/verification-key', async (c) => {
+  const account = c.get('account');
+  if (!account) return err('Authentication required.', 401, 'unauthorized');
+
+  if (!c.env.AUDIT_SIGNING_KEY) {
+    return err('Audit signing key not configured.', 503, 'audit_unavailable');
+  }
+
+  try {
+    const privateKeyBytes = Uint8Array.from(atob(c.env.AUDIT_SIGNING_KEY), ch => ch.charCodeAt(0));
+    const publicKeyBytes = ed25519.getPublicKey(privateKeyBytes);
+    const publicKeyB64 = btoa(String.fromCharCode(...publicKeyBytes));
+
+    return json({
+      algorithm: 'Ed25519',
+      public_key: publicKeyB64,
+      valid_from: new Date().toISOString().split('T')[0] + 'T00:00:00Z',
+    });
+  } catch (e) {
+    console.error('Verification key derivation failed:', e instanceof Error ? e.message : String(e));
+    return err('Failed to derive verification key.', 500, 'key_derivation_error');
+  }
+});

@@ -70,6 +70,32 @@ describe('public routes', () => {
     expect(typeof r.body).toBe('object');
   });
 
+  test('GET /.well-known/jwks.json — returns JWKS with Ed25519 key', async () => {
+    const r = await req('/.well-known/jwks.json');
+    expect(r.status).toBe(200);
+    expect(Array.isArray(r.body.keys)).toBe(true);
+    if (r.body.keys.length > 0) {
+      const key = r.body.keys[0];
+      expect(key.kty).toBe('OKP');
+      expect(key.crv).toBe('Ed25519');
+      expect(key.alg).toBe('EdDSA');
+      expect(key.use).toBe('sig');
+      expect(typeof key.kid).toBe('string');
+      expect(typeof key.x).toBe('string');
+    }
+  });
+
+  test('GET /.well-known/openid-configuration — returns OpenID discovery doc', async () => {
+    const r = await req('/.well-known/openid-configuration');
+    expect(r.status).toBe(200);
+    expect(r.body.issuer).toBe('https://agentlair.dev');
+    expect(r.body.jwks_uri).toBe('https://agentlair.dev/.well-known/jwks.json');
+    expect(r.body.token_endpoint).toBe('https://agentlair.dev/v1/tokens/issue');
+    expect(r.body.introspection_endpoint).toBe('https://agentlair.dev/v1/tokens/introspect');
+    expect(Array.isArray(r.body.grant_types_supported)).toBe(true);
+    expect(r.body.grant_types_supported).toContain('agent_credentials');
+  });
+
   test('OPTIONS — CORS preflight returns 204', async () => {
     const res = await fetch(`${BASE_URL}/v1/email/claim`, {
       method: 'OPTIONS',
@@ -80,6 +106,57 @@ describe('public routes', () => {
     });
     expect(res.status).toBe(204);
     expect(res.headers.get('Access-Control-Allow-Origin')).toBe('*');
+  });
+});
+
+// ─── AAT: Token Introspect (public, no auth required) ─────────────────────────
+
+describe('AAT: token introspect (public)', () => {
+  test('POST /v1/tokens/introspect — missing token returns 400', async () => {
+    const r = await req('/v1/tokens/introspect', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+    expect(r.status).toBe(400);
+    expect(r.body.error).toBe('missing_token');
+  });
+
+  test('POST /v1/tokens/introspect — invalid/random token returns active=false', async () => {
+    const r = await req('/v1/tokens/introspect', {
+      method: 'POST',
+      body: JSON.stringify({ token: 'not.a.valid.jwt.token' }),
+    });
+    expect(r.status).toBe(200);
+    expect(r.body.active).toBe(false);
+  });
+
+  test('POST /v1/tokens/introspect — malformed JWT returns active=false', async () => {
+    const r = await req('/v1/tokens/introspect', {
+      method: 'POST',
+      body: JSON.stringify({ token: 'eyJhbGciOiJub25lIn0.eyJzdWIiOiJ0ZXN0In0.invalidsig' }),
+    });
+    expect(r.status).toBe(200);
+    expect(r.body.active).toBe(false);
+  });
+
+  test('POST /v1/tokens/introspect — no auth header works (public endpoint)', async () => {
+    // Verify this endpoint does NOT require Bearer auth
+    const r = await req('/v1/tokens/introspect', {
+      method: 'POST',
+      body: JSON.stringify({ token: 'eyJhbGciOiJFZERTQSJ9.fake.sig' }),
+    });
+    // Should get 200 active=false, NOT 401
+    expect(r.status).toBe(200);
+    expect(r.body.active).toBe(false);
+  });
+
+  test('POST /v1/tokens/introspect — invalid JSON body returns 400', async () => {
+    const res = await fetch(`${BASE_URL}/v1/tokens/introspect`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: 'not-json',
+    });
+    expect(res.status).toBe(400);
   });
 });
 
@@ -1154,6 +1231,150 @@ describe('authenticated API', () => {
     test('GET /v1/billing — without auth returns 401', async () => {
       const r = await req('/v1/billing');
       expect(r.status).toBe(401);
+    });
+  });
+
+  // ── AAT: Token Issuance + Introspection ──────────────────────────────────────
+
+  describe('AAT: token issuance', () => {
+    test('POST /v1/tokens/issue — issues JWT with correct structure', async () => {
+      const r = await req('/v1/tokens/issue', {
+        method: 'POST',
+        body: JSON.stringify({
+          audience: 'https://mcp.example.com',
+          scopes: ['mcp:tools:read', 'mcp:tools:execute'],
+        }),
+      }, apiKey);
+      expect([201, 429]).toContain(r.status);
+      if (r.status === 201) {
+        expect(typeof r.body.token).toBe('string');
+        expect(r.body.token_type).toBe('Bearer');
+        expect(typeof r.body.expires_at).toBe('string');
+        expect(typeof r.body.expires_in).toBe('number');
+        expect(r.body.jti).toMatch(/^aat_/);
+        expect(typeof r.body.audit_url).toBe('string');
+        expect(r.body.audit_url).toContain('/v1/audit/aat_');
+        // Token must be 3-part JWT
+        const parts = r.body.token.split('.');
+        expect(parts.length).toBe(3);
+      }
+    });
+
+    test('POST /v1/tokens/issue — custom TTL respected', async () => {
+      const r = await req('/v1/tokens/issue', {
+        method: 'POST',
+        body: JSON.stringify({
+          audience: 'https://mcp.example.com',
+          scopes: ['mcp:tools:read'],
+          ttl: 300,
+        }),
+      }, apiKey);
+      expect([201, 429]).toContain(r.status);
+      if (r.status === 201) {
+        expect(r.body.expires_in).toBe(300);
+      }
+    });
+
+    test('POST /v1/tokens/issue — missing audience returns 400', async () => {
+      const r = await req('/v1/tokens/issue', {
+        method: 'POST',
+        body: JSON.stringify({ scopes: ['mcp:tools:read'] }),
+      }, apiKey);
+      expect([400, 429]).toContain(r.status);
+      if (r.status === 400) {
+        expect(r.body.error).toBe('missing_audience');
+      }
+    });
+
+    test('POST /v1/tokens/issue — missing scopes returns 400', async () => {
+      const r = await req('/v1/tokens/issue', {
+        method: 'POST',
+        body: JSON.stringify({ audience: 'https://mcp.example.com' }),
+      }, apiKey);
+      expect([400, 429]).toContain(r.status);
+      if (r.status === 400) {
+        expect(r.body.error).toBe('missing_scopes');
+      }
+    });
+
+    test('POST /v1/tokens/issue — empty scopes array returns 400', async () => {
+      const r = await req('/v1/tokens/issue', {
+        method: 'POST',
+        body: JSON.stringify({ audience: 'https://mcp.example.com', scopes: [] }),
+      }, apiKey);
+      expect([400, 429]).toContain(r.status);
+      if (r.status === 400) {
+        expect(r.body.error).toBe('missing_scopes');
+      }
+    });
+
+    test('POST /v1/tokens/issue — TTL out of range returns 400', async () => {
+      const r = await req('/v1/tokens/issue', {
+        method: 'POST',
+        body: JSON.stringify({
+          audience: 'https://mcp.example.com',
+          scopes: ['mcp:tools:read'],
+          ttl: 999999,
+        }),
+      }, apiKey);
+      expect([400, 429]).toContain(r.status);
+      if (r.status === 400) {
+        expect(r.body.error).toBe('invalid_ttl');
+      }
+    });
+
+    test('POST /v1/tokens/issue — without auth returns 401', async () => {
+      const r = await req('/v1/tokens/issue', {
+        method: 'POST',
+        body: JSON.stringify({
+          audience: 'https://mcp.example.com',
+          scopes: ['mcp:tools:read'],
+        }),
+      });
+      expect(r.status).toBe(401);
+    });
+
+    test('POST /v1/tokens/issue → POST /v1/tokens/introspect round-trip', async () => {
+      // Issue a token
+      const issueR = await req('/v1/tokens/issue', {
+        method: 'POST',
+        body: JSON.stringify({
+          audience: 'https://mcp.example.com',
+          scopes: ['mcp:tools:read', 'mcp:tools:execute'],
+        }),
+      }, apiKey);
+      expect([201, 429]).toContain(issueR.status);
+      if (issueR.status !== 201) return; // Skip introspect if rate limited
+
+      const token = issueR.body.token;
+      const jti = issueR.body.jti;
+
+      // Introspect the token (no auth required)
+      const introR = await req('/v1/tokens/introspect', {
+        method: 'POST',
+        body: JSON.stringify({ token }),
+      });
+      expect(introR.status).toBe(200);
+      expect(introR.body.active).toBe(true);
+      expect(introR.body.sub).toBe(accountId);
+      expect(introR.body.iss).toBe('https://agentlair.dev');
+      expect(introR.body.aud).toBe('https://mcp.example.com');
+      expect(introR.body.jti).toBe(jti);
+      expect(typeof introR.body.scope).toBe('string');
+      expect(introR.body.scope).toContain('mcp:tools:read');
+      expect(Array.isArray(introR.body.al_scopes)).toBe(true);
+      expect(typeof introR.body.al_audit_url).toBe('string');
+      expect(introR.body.exp).toBeGreaterThan(Math.floor(Date.now() / 1000));
+    });
+
+    test('GET /v1/tokens/info — returns token service info', async () => {
+      const r = await req('/v1/tokens/info', {}, apiKey);
+      expect([200, 429]).toContain(r.status);
+      if (r.status === 200) {
+        expect(r.body.issuer).toBe('https://agentlair.dev');
+        expect(typeof r.body.default_ttl).toBe('number');
+        expect(typeof r.body.max_ttl).toBe('number');
+      }
     });
   });
 });

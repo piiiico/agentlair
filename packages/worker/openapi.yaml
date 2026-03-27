@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: AgentLair API
-  version: "0.16.0"
+  version: "0.18.0"
   description: |
     AgentLair is an infrastructure layer for AI agents — email inboxes, encrypted secret storage,
     agent calendar, shared observations, and cross-agent coordination. All at your own domain.

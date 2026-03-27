@@ -50,6 +50,12 @@ export const SERVICE_PRICES: Record<string, ServicePaymentConfig> = {
     description: 'AgentLair stack provision — 0.01 USDC per stack beyond free tier limit.',
     mimeType: 'application/json',
   },
+  api_request: {
+    amount: '1000', // 0.001 USDC
+    resource: 'https://agentlair.dev/v1',
+    description: 'AgentLair API request — 0.001 USDC per request beyond free tier limit.',
+    mimeType: 'application/json',
+  },
 } as const;
 
 // ─── Backward-compatible email exports ────────────────────────────────────────
