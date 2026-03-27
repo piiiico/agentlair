@@ -3,7 +3,7 @@
 // Flow: limit hit → 402 with payment requirements → agent pays USDC on Base → retries with X-PAYMENT header
 // Ref: https://github.com/coinbase/x402/blob/main/specs/x402-specification-v2.md
 
-import type { X402VerifyResult, X402SettleResult } from './types.js';
+import type { Env, X402VerifyResult, X402SettleResult } from './types.js';
 
 export const X402_CONFIG = {
   network: 'eip155:8453',
@@ -54,6 +54,12 @@ export const SERVICE_PRICES: Record<string, ServicePaymentConfig> = {
     amount: '1000', // 0.001 USDC
     resource: 'https://agentlair.dev/v1',
     description: 'AgentLair API request — 0.001 USDC per request beyond free tier limit.',
+    mimeType: 'application/json',
+  },
+  tier_upgrade: {
+    amount: '5000000', // 5.00 USDC
+    resource: 'https://agentlair.dev/v1/account/upgrade',
+    description: 'AgentLair tier upgrade — 5.00 USDC for 30 days of paid tier (10K req/day, 1K emails/day, 999 stacks).',
     mimeType: 'application/json',
   },
 } as const;
@@ -251,5 +257,43 @@ export async function settleX402Payment(
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : String(e);
     return { settled: false, error: `Facilitator settle unreachable: ${message}` };
+  }
+}
+
+// ─── x402 Spend Tracking ──────────────────────────────────────────────────────
+// Tracks cumulative x402 spend per account for billing visibility and auto-upgrade.
+
+export interface X402SpendRecord {
+  total: number;       // cumulative atomic USDC
+  payments: number;    // total payment count
+  last_at: string | null;
+}
+
+/** Record an x402 payment for an account. Returns updated spend record. */
+export async function trackX402Spend(env: Env, accountId: string, amount: string): Promise<X402SpendRecord> {
+  const key = `x402-spend:${accountId}`;
+  try {
+    const raw = await env.KEYS.get(key);
+    const current: X402SpendRecord = raw
+      ? JSON.parse(raw)
+      : { total: 0, payments: 0, last_at: null };
+    current.total += parseInt(amount);
+    current.payments += 1;
+    current.last_at = new Date().toISOString();
+    await env.KEYS.put(key, JSON.stringify(current), { expirationTtl: 86400 * 365 });
+    return current;
+  } catch {
+    return { total: parseInt(amount), payments: 1, last_at: new Date().toISOString() };
+  }
+}
+
+/** Get cumulative x402 spend for an account. */
+export async function getX402Spend(env: Env, accountId: string): Promise<X402SpendRecord> {
+  try {
+    const key = `x402-spend:${accountId}`;
+    const raw = await env.KEYS.get(key);
+    return raw ? JSON.parse(raw) : { total: 0, payments: 0, last_at: null };
+  } catch {
+    return { total: 0, payments: 0, last_at: null };
   }
 }

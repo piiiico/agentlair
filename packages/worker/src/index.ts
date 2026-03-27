@@ -17,7 +17,7 @@ import { encryptEmailField, encryptEmailE2E } from './platform-crypto.js';
 import { SERVICE_PRICES, make402Response, verifyX402Payment } from './x402.js';
 
 // ─── Route modules ─────────────────────────────────────────────────────────────
-import { handleAuthRoutes } from './routes/auth.js';
+import { handleAuthRoutes, handleAdminRoutes } from './routes/auth.js';
 import { handleVaultRoutes } from './routes/vault.js';
 import { handleEmailRoutes } from './routes/email.js';
 import { handleWebhookRoutes } from './routes/webhooks.js';
@@ -245,6 +245,18 @@ app.use('/v1/vault/recover/verify', publicHandler(handleVaultRoutes));
 // Calendar: public iCal feed
 app.use('/v1/calendar/feed.ics', publicHandler(handleCalendarRoutes));
 
+// Admin routes: own auth via ADMIN_KEY (not user API keys)
+app.post('/v1/admin/tier', async (c) => {
+  const response = await handleAdminRoutes(c.req.raw, c.env);
+  if (response) return response;
+  return err('Not found.', 404, 'not_found');
+});
+app.get('/v1/admin/account/:id', async (c) => {
+  const response = await handleAdminRoutes(c.req.raw, c.env);
+  if (response) return response;
+  return err('Not found.', 404, 'not_found');
+});
+
 // ── 4. WebSocket: real-time inbox notifications ─────────────────────────────────
 // WebSocket handshake cannot carry Authorization headers — token in ?token= param.
 
@@ -274,6 +286,38 @@ app.use('/v1/*', async (c: Context<HonoEnv>, next: Next): Promise<void | Respons
     return err('Authentication required. Pass API key as: Authorization: Bearer al_live_...', 401, 'unauthorized');
   }
   c.set('account', account);
+
+  // Lazy tier downgrade: if paid tier has expired, silently revert to free.
+  // Persisted asynchronously (non-blocking, fail-open) so the current request
+  // sees the correct tier without adding latency.
+  if (account.tier === 'paid' && account.tier_expires_at) {
+    const expiresAt = new Date(account.tier_expires_at as string);
+    if (expiresAt < new Date()) {
+      account.tier = 'free';
+      const expiredAt = account.tier_expires_at;
+      delete account.tier_upgraded_at;
+      delete account.tier_expires_at;
+      // Persist downgrade asynchronously
+      c.executionCtx.waitUntil((async () => {
+        try {
+          const kh = await c.env.KEYS.get('account:' + account.id);
+          if (kh) {
+            const raw = await c.env.KEYS.get('key:' + kh);
+            if (raw) {
+              const acct = JSON.parse(raw);
+              acct.tier = 'free';
+              delete acct.tier_upgraded_at;
+              delete acct.tier_expires_at;
+              acct.tier_downgraded_at = new Date().toISOString();
+              acct.tier_downgrade_reason = 'expired';
+              acct.tier_previous_expiry = expiredAt;
+              await c.env.KEYS.put('key:' + kh, JSON.stringify(acct));
+            }
+          }
+        } catch { /* fail-open */ }
+      })());
+    }
+  }
 
   // Rate limit: unified account-level daily check
   const allowed = await checkRateLimit(c.env, account.id, account.tier || 'free');

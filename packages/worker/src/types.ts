@@ -27,6 +27,9 @@ export interface Env {
   AUDIT?: D1Database;
   // Ed25519 private key for audit log signing, base64-encoded 32-byte key (CF secret)
   AUDIT_SIGNING_KEY?: string;
+  // Admin API key for privileged operations (tier overrides, etc.)
+  // Set via: wrangler secret put ADMIN_KEY
+  ADMIN_KEY?: string;
 }
 
 export interface Account {

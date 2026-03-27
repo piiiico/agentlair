@@ -13,6 +13,10 @@ import { sendMagicLinkEmail } from '../middleware/auth.js';
 import { checkIpRateLimit } from '../middleware/ratelimit.js';
 import { saveKeysList, ensureKeysList } from '../platform-crypto.js';
 import { validateLocalPart, isReservedAddress } from '../reserved.js';
+import {
+  SERVICE_PRICES, make402Response, verifyX402Payment, settleX402Payment,
+  trackX402Spend, getX402Spend,
+} from '../x402.js';
 
 export async function handleAuthRoutes(
   request: Request,
@@ -379,6 +383,8 @@ export async function handleAuthRoutes(
       key_prefix: account.key_prefix,
       name: account.name,
       tier: account.tier,
+      tier_upgraded_at: account.tier_upgraded_at || null,
+      tier_expires_at: account.tier_expires_at || null,
       created_at: account.created_at,
       recovery_email: account.recovery_email
         ? (account.recovery_email_encrypted ? '[encrypted]' : account.recovery_email)
@@ -558,6 +564,125 @@ export async function handleAuthRoutes(
     return json({ ok: true, approval_required: newApprovalRequired, approval_bypass: newApprovalBypass });
   }
 
+  // POST /v1/account/upgrade — upgrade tier via x402 payment
+  if (path === '/v1/account/upgrade' && method === 'POST') {
+    // Pod keys cannot manage account tier
+    if (account.type === 'pod') {
+      return err('Pod keys cannot manage account tier. Use your platform API key.', 403, 'pod_upgrade_forbidden');
+    }
+
+    // Already on paid tier and not expired?
+    if (account.tier === 'paid' && account.tier_expires_at) {
+      const expiresAt = new Date(account.tier_expires_at as string);
+      if (expiresAt > new Date()) {
+        return json({
+          tier: 'paid',
+          tier_upgraded_at: account.tier_upgraded_at,
+          tier_expires_at: account.tier_expires_at,
+          message: 'Already on paid tier.',
+          x402_spend: await getX402Spend(env, account.id),
+        });
+      }
+    }
+
+    // Check for x402 payment header
+    const paymentHeader = request.headers.get('X-PAYMENT');
+    if (!paymentHeader) {
+      return make402Response(SERVICE_PRICES.tier_upgrade, {
+        current_tier: account.tier || 'free',
+        upgrade_benefit: {
+          requests_per_day: 10000,
+          emails_per_day: 1000,
+          stacks: 999,
+          addresses: 25,
+          vault_keys: 999999,
+          vault_blob_size: '64 KB',
+          duration: '30 days',
+        },
+      });
+    }
+
+    // Verify payment
+    const verification = await verifyX402Payment(paymentHeader, SERVICE_PRICES.tier_upgrade);
+    if (!verification.valid) {
+      return err('Payment verification failed: ' + verification.error, 402, 'payment_invalid');
+    }
+
+    // Upgrade account to paid tier
+    const now = new Date().toISOString();
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+    const keyHash = await env.KEYS.get('account:' + account.id);
+    if (!keyHash) return err('Account not found.', 404, 'not_found');
+
+    const updatedAccount = {
+      ...account,
+      tier: 'paid',
+      tier_upgraded_at: now,
+      tier_expires_at: expiresAt,
+    };
+    delete updatedAccount._session;
+    await env.KEYS.put('key:' + keyHash, JSON.stringify(updatedAccount));
+
+    // Track x402 spend
+    const spend = await trackX402Spend(env, account.id, SERVICE_PRICES.tier_upgrade.amount);
+
+    // Settle payment
+    const settlement = await settleX402Payment(paymentHeader, SERVICE_PRICES.tier_upgrade);
+
+    const responseHeaders: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+    };
+    if (settlement.settled && settlement.receipt) {
+      responseHeaders['X-Payment-Response'] = settlement.receipt;
+      responseHeaders['Access-Control-Expose-Headers'] = 'X-Payment-Response';
+    }
+
+    return new Response(JSON.stringify({
+      tier: 'paid',
+      tier_upgraded_at: now,
+      tier_expires_at: expiresAt,
+      settled: settlement.settled,
+      x402_spend: spend,
+      message: 'Upgraded to paid tier for 30 days.',
+      limits: {
+        requests_per_day: 10000,
+        emails_per_day: 1000,
+        stacks: 999,
+        addresses: 25,
+        vault_keys: 999999,
+        vault_blob_size: '64 KB',
+      },
+    }), { status: 200, headers: responseHeaders });
+  }
+
+  // GET /v1/account/upgrade — show upgrade pricing and current status
+  if (path === '/v1/account/upgrade' && method === 'GET') {
+    const spend = await getX402Spend(env, account.id);
+    return json({
+      current_tier: account.tier || 'free',
+      tier_upgraded_at: account.tier_upgraded_at || null,
+      tier_expires_at: account.tier_expires_at || null,
+      x402_spend: spend,
+      upgrade_price: {
+        amount: SERVICE_PRICES.tier_upgrade.amount,
+        amount_human: '5.00 USDC',
+        network: 'Base (eip155:8453)',
+        duration: '30 days',
+      },
+      paid_tier_limits: {
+        requests_per_day: 10000,
+        emails_per_day: 1000,
+        stacks: 999,
+        addresses: 25,
+        vault_keys: 999999,
+        vault_blob_size: '64 KB',
+      },
+      how_to_upgrade: 'POST /v1/account/upgrade with X-PAYMENT header containing x402 payment for 5.00 USDC on Base.',
+    });
+  }
+
   // POST /v1/e2e/rotate-key — register or rotate E2E public key for this account
   if (path === '/v1/e2e/rotate-key' && method === 'POST') {
     let body: Record<string, unknown> = {};
@@ -612,4 +737,110 @@ export async function handleAuthRoutes(
   }
 
   return null; // no auth route matched
+}
+
+// ─── Admin Routes ──────────────────────────────────────────────────────────────
+// Separated from regular auth routes — uses ADMIN_KEY instead of user API keys.
+// Registered as public routes in index.ts (before auth middleware).
+
+export async function handleAdminRoutes(
+  request: Request,
+  env: Env,
+): Promise<Response | null> {
+  const url = new URL(request.url);
+  const path = url.pathname;
+  const method = request.method;
+
+  // POST /v1/admin/tier — set tier for any account (admin-only)
+  if (path === '/v1/admin/tier' && method === 'POST') {
+    // Admin key auth — separate from user API keys
+    const authHeader = request.headers.get('Authorization') || '';
+    const adminKey = authHeader.replace(/^Bearer\s+/i, '').trim();
+    if (!env.ADMIN_KEY || !adminKey || adminKey !== env.ADMIN_KEY) {
+      return err('Unauthorized. Admin key required.', 403, 'admin_unauthorized');
+    }
+
+    let body: Record<string, unknown> = {};
+    try { body = await request.json(); } catch {}
+
+    const accountId = typeof body.account_id === 'string' ? body.account_id : '';
+    const tier = typeof body.tier === 'string' ? body.tier : '';
+    const expiresAt = typeof body.expires_at === 'string' ? body.expires_at : undefined;
+    const reason = typeof body.reason === 'string' ? body.reason : undefined;
+
+    if (!accountId) return err('account_id required.', 400, 'missing_account_id');
+    if (!tier || !['free', 'paid'].includes(tier)) {
+      return err('tier must be "free" or "paid".', 400, 'invalid_tier');
+    }
+
+    const keyHash = await env.KEYS.get('account:' + accountId);
+    if (!keyHash) return err('Account not found.', 404, 'not_found');
+
+    const raw = await env.KEYS.get('key:' + keyHash);
+    if (!raw) return err('Account data not found.', 404, 'not_found');
+
+    const account = JSON.parse(raw);
+    const now = new Date().toISOString();
+    const previousTier = account.tier || 'free';
+
+    account.tier = tier;
+    if (tier === 'paid') {
+      account.tier_upgraded_at = account.tier_upgraded_at || now;
+      account.tier_expires_at = expiresAt || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    } else {
+      // Downgrade: clear upgrade fields
+      delete account.tier_upgraded_at;
+      delete account.tier_expires_at;
+    }
+
+    // Remove session token if present (shouldn't be stored in KV)
+    delete account._session;
+    await env.KEYS.put('key:' + keyHash, JSON.stringify(account));
+
+    return json({
+      ok: true,
+      account_id: accountId,
+      previous_tier: previousTier,
+      tier: account.tier,
+      tier_upgraded_at: account.tier_upgraded_at || null,
+      tier_expires_at: account.tier_expires_at || null,
+      reason: reason || null,
+      admin_action_at: now,
+    });
+  }
+
+  // GET /v1/admin/account/:id — view any account (admin-only)
+  if (path.startsWith('/v1/admin/account/') && method === 'GET') {
+    const authHeader = request.headers.get('Authorization') || '';
+    const adminKey = authHeader.replace(/^Bearer\s+/i, '').trim();
+    if (!env.ADMIN_KEY || !adminKey || adminKey !== env.ADMIN_KEY) {
+      return err('Unauthorized. Admin key required.', 403, 'admin_unauthorized');
+    }
+
+    const accountId = path.replace('/v1/admin/account/', '');
+    if (!accountId) return err('account_id required in path.', 400, 'missing_account_id');
+
+    const keyHash = await env.KEYS.get('account:' + accountId);
+    if (!keyHash) return err('Account not found.', 404, 'not_found');
+
+    const raw = await env.KEYS.get('key:' + keyHash);
+    if (!raw) return err('Account data not found.', 404, 'not_found');
+
+    const account = JSON.parse(raw);
+    const spend = await getX402Spend(env, accountId);
+
+    return json({
+      id: account.id,
+      name: account.name,
+      tier: account.tier,
+      tier_upgraded_at: account.tier_upgraded_at || null,
+      tier_expires_at: account.tier_expires_at || null,
+      created_at: account.created_at,
+      type: account.type || 'account',
+      stacks: account.stacks || [],
+      x402_spend: spend,
+    });
+  }
+
+  return null;
 }

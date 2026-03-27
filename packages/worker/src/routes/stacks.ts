@@ -12,7 +12,7 @@ import { Hono } from 'hono';
 import { json, err, nanoid } from '../utils.js';
 import type { HonoEnv } from '../types.js';
 import { EMAIL_LIMITS } from '../middleware/ratelimit.js';
-import { X402_CONFIG, SERVICE_PRICES, verifyX402Payment, make402Response } from '../x402.js';
+import { X402_CONFIG, SERVICE_PRICES, verifyX402Payment, make402Response, getX402Spend } from '../x402.js';
 import { tursoExecute } from '../email-provider.js';
 
 // ─── Request body types ─────────────────────────────────────────────────────
@@ -148,6 +148,8 @@ stackRoutes.get('/usage', async (c) => {
   return json({
     account_id: account.id,
     tier: account.tier,
+    tier_upgraded_at: account.tier_upgraded_at || null,
+    tier_expires_at: account.tier_expires_at || null,
     period: today,
     requests: { used: parseInt(usedToday || '0'), limit: account.tier === 'paid' ? 10000 : 100 },
     stacks: { used: stacks.length, limit: account.tier === 'free' ? 1 : 999 },
@@ -168,13 +170,24 @@ stackRoutes.get('/billing', async (c) => {
   const account = c.get('account');
   if (!account) return err('Authentication required.', 401, 'unauthorized');
 
+  const spend = await getX402Spend(c.env, account.id);
+
   return json({
     account_id: account.id,
     tier: account.tier,
+    tier_upgraded_at: account.tier_upgraded_at || null,
+    tier_expires_at: account.tier_expires_at || null,
     plan: account.tier === 'free' ? 'Free Beta' : 'Pro',
     next_invoice: null,
     upgrade_url: 'https://agentlair.dev/pricing',
-    note: 'Free tier includes rate-limited services. When limits are exceeded, pay per-use via x402 (USDC on Base). No Stripe needed — agents pay autonomously.',
+    upgrade_endpoint: 'POST /v1/account/upgrade',
+    note: 'Free tier includes rate-limited services. When limits are exceeded, pay per-use via x402 (USDC on Base). No Stripe needed — agents pay autonomously. Upgrade to paid tier for 30 days via POST /v1/account/upgrade (5.00 USDC).',
+    x402_spend: {
+      total_atomic: spend.total,
+      total_human: (spend.total / 1_000_000).toFixed(2) + ' USDC',
+      payments_count: spend.payments,
+      last_payment_at: spend.last_at,
+    },
     x402: {
       supported: true,
       network: X402_CONFIG.network,
@@ -182,6 +195,12 @@ stackRoutes.get('/billing', async (c) => {
       facilitator: X402_CONFIG.facilitator,
       how_it_works: 'When a service limit is hit, API returns HTTP 402 with payment requirements. Send X-PAYMENT header with base64-encoded payment payload to bypass limits.',
       services: {
+        tier_upgrade: {
+          price: '5.00 USDC',
+          price_atomic: SERVICE_PRICES.tier_upgrade.amount,
+          trigger: 'POST /v1/account/upgrade — one-time payment for 30 days of paid tier',
+          resource: SERVICE_PRICES.tier_upgrade.resource,
+        },
         email_send: {
           price: '0.01 USDC',
           price_atomic: SERVICE_PRICES.email_send.amount,
