@@ -14,7 +14,7 @@ import { authenticateAny } from './middleware/auth.js';
 import { checkRateLimit, checkPodRateLimit } from './middleware/ratelimit.js';
 import { detectAgent, AGENTLAIR_MANIFEST } from './middleware/agent-detect.js';
 import { encryptEmailField, encryptEmailE2E } from './platform-crypto.js';
-import { SERVICE_PRICES, make402Response, verifyX402Payment } from './x402.js';
+// x402 imports removed — catch-all api_request pricing eliminated. Service routes handle their own x402.
 
 // ─── Route modules ─────────────────────────────────────────────────────────────
 import { handleAuthRoutes, handleAdminRoutes } from './routes/auth.js';
@@ -24,6 +24,7 @@ import { handleWebhookRoutes } from './routes/webhooks.js';
 import { stackRoutes } from './routes/stacks.js';
 import { podRoutes } from './routes/pods.js';
 import { handleCalendarRoutes } from './routes/calendar.js';
+import { tokenRoutes, publicTokenRoutes } from './routes/tokens.js';
 
 // ─── Hono App Type ──────────────────────────────────────────────────────────────
 
@@ -245,6 +246,7 @@ app.use('/v1/vault/recover/verify', publicHandler(handleVaultRoutes));
 // Calendar: public iCal feed
 app.use('/v1/calendar/feed.ics', publicHandler(handleCalendarRoutes));
 
+
 // Admin routes: own auth via ADMIN_KEY (not user API keys)
 app.post('/v1/admin/tier', async (c) => {
   const response = await handleAdminRoutes(c.req.raw, c.env);
@@ -280,6 +282,12 @@ app.get('/v1/ws', async (c) => {
 // ── 5. Auth + Rate Limit middleware (for all /v1/* protected routes) ─────────
 
 app.use('/v1/*', async (c: Context<HonoEnv>, next: Next): Promise<void | Response> => {
+  // Skip auth for public token endpoints (RFC 7662 introspect — no API key required)
+  if (c.req.path === '/v1/tokens/introspect') {
+    await next();
+    return;
+  }
+
   // Authenticate: API key (al_live_...) or session token (session_...)
   const account = await authenticateAny(c.req.raw, c.env);
   if (!account) {
@@ -323,8 +331,7 @@ app.use('/v1/*', async (c: Context<HonoEnv>, next: Next): Promise<void | Respons
   const allowed = await checkRateLimit(c.env, account.id, account.tier || 'free');
   if (!allowed) {
     // x402: any request with X-PAYMENT bypasses the general rate limit.
-    // The payment may be for api_request (general) or a service-specific limit
-    // (email, vault, etc.). Either way, the service handler will do final verification.
+    // The service handler (email, vault, calendar, stack) will do final x402 verification.
     // Auth already prevents unauthenticated abuse — a garbage payment will be
     // rejected downstream, not here.
     const xPayment = c.req.header('X-PAYMENT');
@@ -332,14 +339,13 @@ app.use('/v1/*', async (c: Context<HonoEnv>, next: Next): Promise<void | Respons
       await next();
       return;
     }
-    // No payment → return 402 with payment requirements (not 429)
-    return make402Response(SERVICE_PRICES.api_request, {
-      rate_limit: {
-        reason: 'daily_limit_exceeded',
-        limit: account.tier === 'paid' ? 10000 : 100,
-        upgrade_url: 'https://agentlair.dev/pricing',
-      },
-    });
+    // No payment → return 429. No catch-all x402 for generic requests.
+    // Only service-specific endpoints (email, vault, calendar, stack) accept x402 payment.
+    return err(
+      'Daily rate limit exceeded. Upgrade to paid tier (POST /v1/account/upgrade, 5.00 USDC) or pay per service via x402.',
+      429,
+      'rate_limit_exceeded',
+    );
   }
 
   // Pod suspension guard + pod-specific rate limiting
@@ -404,6 +410,10 @@ app.use('/v1/vault/*', legacyHandler(handleVaultRoutes));
 
 // Calendar routes (protected)
 app.use('/v1/calendar/*', legacyHandler(handleCalendarRoutes));
+
+// Token routes: introspect (public — auth skipped in section 5), issue + info (auth required)
+app.route('/v1/tokens', publicTokenRoutes);
+app.route('/v1/tokens', tokenRoutes);
 
 // ── 7. Stubbed routes ───────────────────────────────────────────────────────────
 

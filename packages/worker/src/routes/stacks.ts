@@ -181,7 +181,7 @@ stackRoutes.get('/billing', async (c) => {
     next_invoice: null,
     upgrade_url: 'https://agentlair.dev/pricing',
     upgrade_endpoint: 'POST /v1/account/upgrade',
-    note: 'Free tier includes rate-limited services. When limits are exceeded, pay per-use via x402 (USDC on Base). No Stripe needed — agents pay autonomously. Upgrade to paid tier for 30 days via POST /v1/account/upgrade (5.00 USDC).',
+    note: 'Free tier includes rate-limited services. When service limits are exceeded, pay 0.01 USDC per write via x402 (USDC on Base). No Stripe needed — agents pay autonomously. Reads are always free. Upgrade to paid tier for 30 days via POST /v1/account/upgrade (5.00 USDC).',
     x402_spend: {
       total_atomic: spend.total,
       total_human: (spend.total / 1_000_000).toFixed(2) + ' USDC',
@@ -208,13 +208,13 @@ stackRoutes.get('/billing', async (c) => {
           resource: SERVICE_PRICES.email_send.resource,
         },
         vault_write: {
-          price: '0.005 USDC',
+          price: '0.01 USDC',
           price_atomic: SERVICE_PRICES.vault_write.amount,
           trigger: 'Vault key limit reached on free tier',
           resource: SERVICE_PRICES.vault_write.resource,
         },
         calendar_event: {
-          price: '0.005 USDC',
+          price: '0.01 USDC',
           price_atomic: SERVICE_PRICES.calendar_event.amount,
           trigger: 'Calendar event limit reached on free tier',
           resource: SERVICE_PRICES.calendar_event.resource,

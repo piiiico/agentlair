@@ -33,27 +33,21 @@ export const SERVICE_PRICES: Record<string, ServicePaymentConfig> = {
     mimeType: 'application/json',
   },
   vault_write: {
-    amount: '5000', // 0.005 USDC
+    amount: '10000', // 0.01 USDC
     resource: 'https://agentlair.dev/v1/vault',
-    description: 'AgentLair vault write — 0.005 USDC per key beyond free tier limit.',
+    description: 'AgentLair vault write — 0.01 USDC per key beyond free tier limit.',
     mimeType: 'application/json',
   },
   calendar_event: {
-    amount: '5000', // 0.005 USDC
+    amount: '10000', // 0.01 USDC
     resource: 'https://agentlair.dev/v1/calendar/events',
-    description: 'AgentLair calendar event — 0.005 USDC per event beyond free tier limit.',
+    description: 'AgentLair calendar event — 0.01 USDC per event beyond free tier limit.',
     mimeType: 'application/json',
   },
   stack_create: {
     amount: '10000', // 0.01 USDC
     resource: 'https://agentlair.dev/v1/stack',
     description: 'AgentLair stack provision — 0.01 USDC per stack beyond free tier limit.',
-    mimeType: 'application/json',
-  },
-  api_request: {
-    amount: '1000', // 0.001 USDC
-    resource: 'https://agentlair.dev/v1',
-    description: 'AgentLair API request — 0.001 USDC per request beyond free tier limit.',
     mimeType: 'application/json',
   },
   tier_upgrade: {
