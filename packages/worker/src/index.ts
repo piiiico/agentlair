@@ -5,7 +5,7 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import type { Context, Next } from 'hono';
-import { nanoid, sha256hex, json, err, VERBOSE_ONLY_FIELDS } from './utils.js';
+import { nanoid, sha256hex, hmacSha256, json, err, VERBOSE_ONLY_FIELDS } from './utils.js';
 import type { Env, Account, RouteContext, RouteHandler } from './types.js';
 import { InboxNotifier } from './durable-objects/inbox-notifier.js';
 import { API_DISCOVERY, OPENAPI_SPEC, SCALAR_DOCS_HTML } from './openapi.js';
@@ -14,6 +14,7 @@ import { authenticateAny } from './middleware/auth.js';
 import { checkRateLimit, checkPodRateLimit } from './middleware/ratelimit.js';
 import { detectAgent, AGENTLAIR_MANIFEST } from './middleware/agent-detect.js';
 import { encryptEmailField, encryptEmailE2E } from './platform-crypto.js';
+import { SERVICE_PRICES, make402Response, verifyX402Payment } from './x402.js';
 
 // ─── Route modules ─────────────────────────────────────────────────────────────
 import { handleAuthRoutes } from './routes/auth.js';
@@ -277,7 +278,24 @@ app.use('/v1/*', async (c: Context<HonoEnv>, next: Next): Promise<void | Respons
   // Rate limit: unified account-level daily check
   const allowed = await checkRateLimit(c.env, account.id, account.tier || 'free');
   if (!allowed) {
-    return err('Rate limit exceeded. Free tier: 100 requests/day.', 429, 'rate_limited');
+    // x402: any request with X-PAYMENT bypasses the general rate limit.
+    // The payment may be for api_request (general) or a service-specific limit
+    // (email, vault, etc.). Either way, the service handler will do final verification.
+    // Auth already prevents unauthenticated abuse — a garbage payment will be
+    // rejected downstream, not here.
+    const xPayment = c.req.header('X-PAYMENT');
+    if (xPayment) {
+      await next();
+      return;
+    }
+    // No payment → return 402 with payment requirements (not 429)
+    return make402Response(SERVICE_PRICES.api_request, {
+      rate_limit: {
+        reason: 'daily_limit_exceeded',
+        limit: account.tier === 'paid' ? 10000 : 100,
+        upgrade_url: 'https://agentlair.dev/pricing',
+      },
+    });
   }
 
   // Pod suspension guard + pod-specific rate limiting
@@ -500,7 +518,7 @@ async function handleInboundEmail(message: CfEmailMessage, env: Env, ctx: Execut
         msg = {
           message_id: messageId, from: fromAddr, to: toAddr, subject,
           body: e2eBody, body_encrypted: true, e2e_encrypted: true, ephemeral_public_key,
-          body_preview: rawBody.substring(0, 120).replace(/\n/g, ' '),
+          body_preview: '[E2E encrypted]',
           received_at: now, read: false,
         };
       } catch { e2ePubKey = null; }
@@ -592,9 +610,14 @@ async function handleInboundEmail(message: CfEmailMessage, env: Env, ctx: Execut
             const hook = JSON.parse(hookRaw);
             if (!hook.url || hook.status === 'paused') return;
             const body = JSON.stringify(payload);
-            const sig = hook.secret ? await sha256hex(hook.secret + body) : null;
+            // Use HMAC-SHA256 instead of sha256(secret+body) to prevent length-extension attacks
+            const sig = hook.secret ? await hmacSha256(hook.secret, body) : null;
+            const ts = Math.floor(Date.now() / 1000).toString();
             const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-            if (sig) headers['X-AgentLair-Signature'] = sig;
+            if (sig) {
+              headers['X-AgentLair-Signature'] = `sha256=${sig}`;
+              headers['X-AgentLair-Timestamp'] = ts;
+            }
             await fetch(hook.url, { method: 'POST', headers, body }).catch(() => {});
           }));
         } catch { /* Webhook delivery failed — best effort */ }
@@ -622,6 +645,9 @@ async function handleInboundEmail(message: CfEmailMessage, env: Env, ctx: Execut
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext) {
     const t0 = Date.now();
+    if (!env.PLATFORM_ENCRYPTION_KEY) {
+      console.warn('[AgentLair] WARNING: PLATFORM_ENCRYPTION_KEY is not set — platform-level email encryption is disabled');
+    }
     const url = new URL(request.url);
     let response: Response;
     try {

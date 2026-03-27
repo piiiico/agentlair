@@ -70,6 +70,7 @@ interface InboxCreateBody {
 
 interface MessagePatchBody {
   read?: boolean;
+  archived?: boolean;
 }
 
 // ─── Stored message shape (from KV) ─────────────────────────────────────────
@@ -85,6 +86,7 @@ interface StoredMessage {
   e2e_encrypted?: boolean;
   received_at?: string;
   read?: boolean;
+  archived?: boolean;
   thread_id?: string;
   in_reply_to?: string;
   references?: string;
@@ -181,10 +183,13 @@ export async function handleEmailRoutes(
     return json({ address, claimed: true, already_owned: false, account_id: account.id, e2e_enabled: !!public_key }, 201);
   }
 
-  // GET /v1/email/inbox?address=...&limit=20
+  // GET /v1/email/inbox?address=...&limit=20&archived=true&include_archived=true
   if (path === '/v1/email/inbox' && method === 'GET') {
     const address = url.searchParams.get('address');
     const limit = Math.min(parseInt(url.searchParams.get('limit') || '20'), 100);
+    // archived=true: show ONLY archived. include_archived=true: show all. Default: hide archived.
+    const showArchived = url.searchParams.get('archived') === 'true';
+    const includeArchived = url.searchParams.get('include_archived') === 'true';
 
     if (!address) {
       return err('address query parameter required. Example: ?address=myagent@agentlair.dev', 400, 'missing_address');
@@ -221,35 +226,44 @@ export async function handleEmailRoutes(
       return json({ messages: [], has_more: false, count: 0, address });
     }
 
-    const index = JSON.parse(indexRaw);
-    const pageKeys = index.slice(0, limit);
-    const hasMore = index.length > limit;
+    const index: string[] = JSON.parse(indexRaw);
+    // Iterate index, fetch and filter until we have `limit` messages
+    const messages: Record<string, unknown>[] = [];
+    let hasMore = false;
+    for (let i = 0; i < index.length; i++) {
+      const key = index[i];
+      const raw = await env.EMAILS.get(key);
+      if (!raw) continue;
+      const msg = JSON.parse(raw) as StoredMessage;
+      const isArchived = msg.archived === true;
+      // Apply archive filter
+      if (!includeArchived) {
+        if (showArchived && !isArchived) continue;   // only archived: skip non-archived
+        if (!showArchived && isArchived) continue;   // default: skip archived
+      }
+      if (messages.length >= limit) {
+        hasMore = true;
+        break;
+      }
+      const snippet = msg.body_preview !== undefined
+        ? msg.body_preview
+        : (msg.body_encrypted ? '[encrypted]' : (msg.body || '').substring(0, 120).replace(/\n/g, ' '));
+      const entry: Record<string, unknown> = {
+        message_id: msg.message_id,
+        message_id_url: encodeURIComponent(msg.message_id || ''),
+        from: msg.from,
+        to: msg.to,
+        subject: msg.subject,
+        snippet,
+        received_at: msg.received_at,
+        read: msg.read,
+        archived: isArchived,
+      };
+      if (msg.e2e_encrypted) entry.e2e_encrypted = true;
+      messages.push(entry);
+    }
 
-    const messages = await Promise.all(
-      pageKeys.map(async (key: string) => {
-        const raw = await env.EMAILS.get(key);
-        if (!raw) return null;
-        const msg = JSON.parse(raw) as StoredMessage;
-        const snippet = msg.body_preview !== undefined
-          ? msg.body_preview
-          : (msg.body_encrypted ? '[encrypted]' : (msg.body || '').substring(0, 120).replace(/\n/g, ' '));
-        const entry: Record<string, unknown> = {
-          message_id: msg.message_id,
-          message_id_url: encodeURIComponent(msg.message_id || ''),
-          from: msg.from,
-          to: msg.to,
-          subject: msg.subject,
-          snippet,
-          received_at: msg.received_at,
-          read: msg.read,
-        };
-        if (msg.e2e_encrypted) entry.e2e_encrypted = true;
-        return entry;
-      }),
-    );
-
-    const filtered = messages.filter(Boolean);
-    return json({ messages: filtered, has_more: hasMore, count: filtered.length, address });
+    return json({ messages, has_more: hasMore, count: messages.length, address });
   }
 
   // GET /v1/email/messages/:id?address=...
@@ -395,9 +409,10 @@ export async function handleEmailRoutes(
     if (!foundMsg) return err('Message not found.', 404, 'not_found');
 
     if (typeof body.read === 'boolean') foundMsg.read = body.read;
+    if (typeof body.archived === 'boolean') foundMsg.archived = body.archived;
 
     await env.EMAILS.put(foundKey!, JSON.stringify(foundMsg), { expirationTtl: 30 * 24 * 3600 });
-    return json({ updated: true, message_id: msgId, read: foundMsg.read });
+    return json({ updated: true, message_id: msgId, read: foundMsg.read, archived: foundMsg.archived });
   }
 
   // GET /v1/email/addresses — list claimed addresses for this account
@@ -470,9 +485,23 @@ export async function handleEmailRoutes(
       return err('Required: from, to, subject, and text or html', 400, 'missing_fields');
     }
 
-    // Server-side header injection prevention — validate subject before sending to provider
+    // Server-side header injection prevention — validate all header-injectable fields for CRLF
     if (typeof subject === 'string' && /[\r\n]/.test(subject)) {
       return err('Subject must not contain newline or carriage return characters.', 400, 'invalid_subject');
+    }
+    // Validate to field(s) for CRLF injection
+    const toList = Array.isArray(to) ? to : [to];
+    for (const addr of toList) {
+      if (typeof addr === 'string' && /[\r\n]/.test(addr)) {
+        return err('Recipient address must not contain newline or carriage return characters.', 400, 'invalid_to');
+      }
+    }
+    // Validate in_reply_to and references for CRLF injection (header injection via threading headers)
+    if (typeof in_reply_to === 'string' && /[\r\n]/.test(in_reply_to)) {
+      return err('in_reply_to must not contain newline or carriage return characters.', 400, 'invalid_in_reply_to');
+    }
+    if (typeof clientReferences === 'string' && /[\r\n]/.test(clientReferences)) {
+      return err('references must not contain newline or carriage return characters.', 400, 'invalid_references');
     }
 
     const fromAddr = String(from);
