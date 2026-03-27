@@ -16,6 +16,7 @@
 import { nanoid, sha256hex, json, err } from '../utils.js';
 import type { Env, RouteContext, VaultIndexEntry } from '../types.js';
 import { sendVaultRecoveryEmail } from '../middleware/auth.js';
+import { SERVICE_PRICES, X402_CONFIG, verifyX402Payment, make402Response } from '../x402.js';
 
 const VAULT_LIMITS = {
   free:  { max_keys: 10, max_versions: 3, max_blob_size: 16384 },   // 16 KB
@@ -301,7 +302,30 @@ export async function handleVaultRoutes(
       if (isNew) {
         const index = await getVaultIndex();
         if (index.length >= limits.max_keys) {
-          return err('Vault key limit reached (' + limits.max_keys + ' keys on ' + account.tier + ' tier). Delete unused keys or upgrade.', 403, 'vault_limit_reached');
+          // Free tier limit reached — allow bypass via x402 payment
+          const paymentHeader = request.headers.get('X-PAYMENT');
+          if (!paymentHeader) {
+            return make402Response(SERVICE_PRICES.vault_write, {
+              vault_limit: {
+                current: index.length,
+                limit: limits.max_keys,
+                tier: account.tier,
+                upgrade_url: 'https://agentlair.dev/pricing',
+              },
+            });
+          }
+          // Verify the x402 payment
+          const verification = await verifyX402Payment(paymentHeader, SERVICE_PRICES.vault_write);
+          if (!verification.valid) {
+            return new Response(JSON.stringify({
+              error: 'payment_invalid',
+              message: verification.error,
+            }), {
+              status: 402,
+              headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'X-402-Version': String(X402_CONFIG.x402Version) },
+            });
+          }
+          // Payment verified — allow the write beyond limit
         }
       }
 

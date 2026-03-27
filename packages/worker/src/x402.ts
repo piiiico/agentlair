@@ -1,6 +1,6 @@
 // ─── x402 Payment Config ──────────────────────────────────────────────────────
-// x402 enables autonomous agents to pay per-email when rate limits are hit.
-// Flow: rate limit hit → 402 with payment requirements → agent pays USDC on Base → retries with X-PAYMENT header
+// x402 enables autonomous agents to pay USDC when service limits are hit.
+// Flow: limit hit → 402 with payment requirements → agent pays USDC on Base → retries with X-PAYMENT header
 // Ref: https://github.com/coinbase/x402/blob/main/specs/x402-specification-v2.md
 
 import type { X402VerifyResult, X402SettleResult } from './types.js';
@@ -14,27 +14,105 @@ export const X402_CONFIG = {
   x402Version: 2,
 };
 
-// 0.01 USDC per email send (6 decimals = 10000 atomic units)
-export const EMAIL_PAYMENT_AMOUNT = '10000';
+// ─── Per-Service Pricing ──────────────────────────────────────────────────────
+// Each service has its own resource URL, price, and description.
+// Amounts are in USDC atomic units (6 decimals): 10000 = 0.01 USDC.
 
-export const EMAIL_PAYMENT_REQUIREMENTS = {
-  scheme: 'exact',
-  network: X402_CONFIG.network,
-  maxAmountRequired: EMAIL_PAYMENT_AMOUNT,
-  asset: X402_CONFIG.asset,
-  payTo: X402_CONFIG.payTo,
-  resource: 'https://agentlair.dev/v1/email/send',
-  description: 'AgentLair email send — 0.01 USDC per email when rate limit exceeded.',
-  mimeType: 'application/json',
-  maxTimeoutSeconds: X402_CONFIG.maxTimeoutSeconds,
-  extra: { name: 'USDC', version: '2' },
-};
+export interface ServicePaymentConfig {
+  amount: string;
+  resource: string;
+  description: string;
+  mimeType: string;
+}
+
+export const SERVICE_PRICES: Record<string, ServicePaymentConfig> = {
+  email_send: {
+    amount: '10000', // 0.01 USDC
+    resource: 'https://agentlair.dev/v1/email/send',
+    description: 'AgentLair email send — 0.01 USDC per email when rate limit exceeded.',
+    mimeType: 'application/json',
+  },
+  vault_write: {
+    amount: '5000', // 0.005 USDC
+    resource: 'https://agentlair.dev/v1/vault',
+    description: 'AgentLair vault write — 0.005 USDC per key beyond free tier limit.',
+    mimeType: 'application/json',
+  },
+  calendar_event: {
+    amount: '5000', // 0.005 USDC
+    resource: 'https://agentlair.dev/v1/calendar/events',
+    description: 'AgentLair calendar event — 0.005 USDC per event beyond free tier limit.',
+    mimeType: 'application/json',
+  },
+  stack_create: {
+    amount: '10000', // 0.01 USDC
+    resource: 'https://agentlair.dev/v1/stack',
+    description: 'AgentLair stack provision — 0.01 USDC per stack beyond free tier limit.',
+    mimeType: 'application/json',
+  },
+} as const;
+
+// ─── Backward-compatible email exports ────────────────────────────────────────
+// These are used by email.ts and stacks.ts billing endpoint.
+
+export const EMAIL_PAYMENT_AMOUNT = SERVICE_PRICES.email_send.amount;
+
+export const EMAIL_PAYMENT_REQUIREMENTS = getPaymentRequirements(SERVICE_PRICES.email_send);
 
 export const EMAIL_PAYMENT_REQUIRED_RESPONSE = {
   x402Version: X402_CONFIG.x402Version,
   error: 'Payment required: 0.01 USDC on Base to send email beyond rate limit.',
   accepts: [EMAIL_PAYMENT_REQUIREMENTS],
 };
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/** Build x402 payment requirements object for a given service. */
+export function getPaymentRequirements(service: ServicePaymentConfig) {
+  return {
+    scheme: 'exact' as const,
+    network: X402_CONFIG.network,
+    maxAmountRequired: service.amount,
+    asset: X402_CONFIG.asset,
+    payTo: X402_CONFIG.payTo,
+    resource: service.resource,
+    description: service.description,
+    mimeType: service.mimeType,
+    maxTimeoutSeconds: X402_CONFIG.maxTimeoutSeconds,
+    extra: { name: 'USDC', version: '2' },
+  };
+}
+
+/** Format atomic USDC amount to human-readable string. */
+function formatUSDC(atomicAmount: string): string {
+  const n = parseInt(atomicAmount);
+  return (n / 1_000_000).toFixed(n % 10000 === 0 ? 2 : 3);
+}
+
+/** Build a full 402 response body for a given service. */
+export function make402ResponseBody(service: ServicePaymentConfig, extra?: Record<string, unknown>) {
+  const requirements = getPaymentRequirements(service);
+  return {
+    x402Version: X402_CONFIG.x402Version,
+    error: `Payment required: ${formatUSDC(service.amount)} USDC on Base — ${service.description}`,
+    accepts: [requirements],
+    ...extra,
+  };
+}
+
+/** Build a complete HTTP 402 Response for a service limit. */
+export function make402Response(service: ServicePaymentConfig, extra?: Record<string, unknown>): Response {
+  const body = make402ResponseBody(service, extra);
+  return new Response(JSON.stringify(body), {
+    status: 402,
+    headers: {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Expose-Headers': 'X-402-Version, X-Payment-Response',
+      'X-402-Version': String(X402_CONFIG.x402Version),
+    },
+  });
+}
 
 // ─── x402 Payment Types ──────────────────────────────────────────────────────
 
@@ -51,7 +129,15 @@ interface FacilitatorVerifyResponse {
 
 // ─── x402 Payment Verification & Settlement ──────────────────────────────────
 
-export async function verifyX402Payment(paymentHeader: string): Promise<X402VerifyResult> {
+/**
+ * Verify an x402 payment against the facilitator.
+ * @param paymentHeader Base64-encoded X-PAYMENT header value
+ * @param service Service config to verify against (defaults to email for backward compat)
+ */
+export async function verifyX402Payment(
+  paymentHeader: string,
+  service: ServicePaymentConfig = SERVICE_PRICES.email_send,
+): Promise<X402VerifyResult> {
   let paymentPayload: PaymentPayload;
   try {
     paymentPayload = JSON.parse(atob(paymentHeader)) as PaymentPayload;
@@ -61,22 +147,23 @@ export async function verifyX402Payment(paymentHeader: string): Promise<X402Veri
 
   // Extract inner payload (signature + authorization) — facilitator expects this, not the full envelope
   const innerPayload = paymentPayload.payload || paymentPayload;
+  const requirements = getPaymentRequirements(service);
 
   const verifyBody = {
     x402Version: X402_CONFIG.x402Version,
     payload: innerPayload,
     resource: {
-      url: EMAIL_PAYMENT_REQUIREMENTS.resource,
-      description: EMAIL_PAYMENT_REQUIREMENTS.description,
-      mimeType: EMAIL_PAYMENT_REQUIREMENTS.mimeType,
+      url: requirements.resource,
+      description: requirements.description,
+      mimeType: requirements.mimeType,
     },
     accepted: {
-      scheme: EMAIL_PAYMENT_REQUIREMENTS.scheme,
-      network: EMAIL_PAYMENT_REQUIREMENTS.network,
-      asset: EMAIL_PAYMENT_REQUIREMENTS.asset,
-      amount: EMAIL_PAYMENT_REQUIREMENTS.maxAmountRequired,
-      payTo: EMAIL_PAYMENT_REQUIREMENTS.payTo,
-      maxTimeoutSeconds: EMAIL_PAYMENT_REQUIREMENTS.maxTimeoutSeconds,
+      scheme: requirements.scheme,
+      network: requirements.network,
+      asset: requirements.asset,
+      amount: requirements.maxAmountRequired,
+      payTo: requirements.payTo,
+      maxTimeoutSeconds: requirements.maxTimeoutSeconds,
     },
   };
 
@@ -104,7 +191,15 @@ export async function verifyX402Payment(paymentHeader: string): Promise<X402Veri
   }
 }
 
-export async function settleX402Payment(paymentHeader: string): Promise<X402SettleResult> {
+/**
+ * Settle an x402 payment via the facilitator.
+ * @param paymentHeader Base64-encoded X-PAYMENT header value
+ * @param service Service config to settle against (defaults to email for backward compat)
+ */
+export async function settleX402Payment(
+  paymentHeader: string,
+  service: ServicePaymentConfig = SERVICE_PRICES.email_send,
+): Promise<X402SettleResult> {
   let paymentPayload: PaymentPayload;
   try {
     paymentPayload = JSON.parse(atob(paymentHeader)) as PaymentPayload;
@@ -113,22 +208,23 @@ export async function settleX402Payment(paymentHeader: string): Promise<X402Sett
   }
 
   const innerPayload = paymentPayload.payload || paymentPayload;
+  const requirements = getPaymentRequirements(service);
 
   const settleBody = {
     x402Version: X402_CONFIG.x402Version,
     payload: innerPayload,
     resource: {
-      url: EMAIL_PAYMENT_REQUIREMENTS.resource,
-      description: EMAIL_PAYMENT_REQUIREMENTS.description,
-      mimeType: EMAIL_PAYMENT_REQUIREMENTS.mimeType,
+      url: requirements.resource,
+      description: requirements.description,
+      mimeType: requirements.mimeType,
     },
     accepted: {
-      scheme: EMAIL_PAYMENT_REQUIREMENTS.scheme,
-      network: EMAIL_PAYMENT_REQUIREMENTS.network,
-      asset: EMAIL_PAYMENT_REQUIREMENTS.asset,
-      amount: EMAIL_PAYMENT_REQUIREMENTS.maxAmountRequired,
-      payTo: EMAIL_PAYMENT_REQUIREMENTS.payTo,
-      maxTimeoutSeconds: EMAIL_PAYMENT_REQUIREMENTS.maxTimeoutSeconds,
+      scheme: requirements.scheme,
+      network: requirements.network,
+      asset: requirements.asset,
+      amount: requirements.maxAmountRequired,
+      payTo: requirements.payTo,
+      maxTimeoutSeconds: requirements.maxTimeoutSeconds,
     },
   };
 

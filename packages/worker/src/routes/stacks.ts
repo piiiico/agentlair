@@ -1,14 +1,19 @@
 // ─── Stack Routes ─────────────────────────────────────────────────────────────
-// Handles: /v1/stack, /v1/usage, /v1/billing, /v1/observations, /v1/dns, /v1/hosting
+// Handles: /v1/stack (create, list), /v1/usage, /v1/billing, /v1/observations
 //
 // All routes require authentication (account !== null).
+// Auth is enforced by middleware in index.ts; each handler also belt-and-suspenders.
+//
+// Mounted in index.ts as: app.route('/v1', stackRoutes)
+// Since routes span multiple prefixes (stack, usage, billing, observations),
+// we mount at /v1 rather than a shared prefix.
 
-import { json, err } from '../utils.js';
-import type { Env, RouteContext } from '../types.js';
+import { Hono } from 'hono';
+import { json, err, nanoid } from '../utils.js';
+import type { HonoEnv } from '../types.js';
 import { EMAIL_LIMITS } from '../middleware/ratelimit.js';
-import { X402_CONFIG, EMAIL_PAYMENT_AMOUNT } from '../x402.js';
+import { X402_CONFIG, SERVICE_PRICES, verifyX402Payment, make402Response } from '../x402.js';
 import { tursoExecute } from '../email-provider.js';
-import { nanoid } from '../utils.js';
 
 // ─── Request body types ─────────────────────────────────────────────────────
 
@@ -23,241 +28,307 @@ interface ObservationCreateBody {
   display_name?: unknown;
 }
 
-export async function handleStackRoutes(
-  request: Request,
-  env: Env,
-  _ctx: ExecutionContext,
-  { url, path, method, account }: RouteContext,
-): Promise<Response | null> {
+export const stackRoutes = new Hono<HonoEnv>();
 
-  // All stack/usage/billing/observation routes require auth
-  if (!account) return null;
+// ── POST /v1/stack — provision a new stack ────────────────────────────────────
 
-  const stacks = account.stacks ?? [];
+stackRoutes.post('/stack', async (c) => {
+  const account = c.get('account');
+  if (!account) return err('Authentication required.', 401, 'unauthorized');
 
-  // Pod keys cannot manage stacks (pod keys have no stacks[] field)
-  if (account.type === 'pod' && (path === '/v1/stack')) {
+  // Pod keys cannot manage stacks
+  if (account.type === 'pod') {
     return err('Pod keys cannot manage stacks. Use your platform API key.', 403, 'pod_stack_forbidden');
   }
 
-  // POST /v1/stack — provision a new stack
-  if (path === '/v1/stack' && method === 'POST') {
-    let body: StackCreateBody = {};
-    try { body = (await request.json()) as StackCreateBody; } catch { /* empty body OK */ }
-    const domain = body.domain;
+  const stacks = account.stacks ?? [];
+  let body: StackCreateBody = {};
+  try { body = await c.req.json() as StackCreateBody; } catch { /* empty body OK */ }
+  const domain = body.domain;
 
-    if (!domain) return err('domain is required. Example: {"domain": "myagent.dev"}', 400, 'missing_domain');
+  if (!domain) return err('domain is required. Example: {"domain": "myagent.dev"}', 400, 'missing_domain');
 
-    // Idempotency check: if this domain already has a stack, return it (before tier limits)
-    const stackKey = 'stack:' + account.id + ':' + domain;
-    const existingStack = await env.KEYS.get(stackKey);
-    if (existingStack) {
-      return json(JSON.parse(existingStack));
-    }
-
-    if (stacks.length >= 1 && account.tier === 'free') {
-      return json({
-        error: 'upgrade_required',
-        message: 'Free tier allows 1 stack. Upgrade for unlimited stacks.',
-        upgrade_url: 'https://agentlair.dev/pricing',
-        current_stacks: stacks,
-      }, 402);
-    }
-
-    const stackId = 'stk_' + nanoid(16);
-    const now = new Date().toISOString();
-    const stack = {
-      id: stackId,
-      domain,
-      status: 'provisioning',
-      account_id: account.id,
-      created_at: now,
-      email: 'contact@' + domain,
-      nameservers: ['ns1.agentlair.dev', 'ns2.agentlair.dev'],
-      note: 'Beta: DNS provisioning is stubbed. Full CF DNS integration coming Q2 2026.',
-      next_steps: [
-        'Update your domain nameservers to ns1.agentlair.dev + ns2.agentlair.dev',
-        'Wait 24-48h for propagation',
-        'GET /v1/stack/' + stackId + ' to check status',
-      ],
-    };
-
-    await env.KEYS.put(stackKey, JSON.stringify(stack));
-
-    stacks.push(stackId);
-    account.stacks = stacks;
-    const keyHash = await env.KEYS.get('account:' + account.id);
-    if (keyHash) await env.KEYS.put('key:' + keyHash, JSON.stringify(account));
-
-    return json(stack, 201);
+  // Idempotency check: if this domain already has a stack, return it (before tier limits)
+  const stackKey = 'stack:' + account.id + ':' + domain;
+  const existingStack = await c.env.KEYS.get(stackKey);
+  if (existingStack) {
+    return json(JSON.parse(existingStack));
   }
 
-  // GET /v1/stack — list stacks for account
-  if (path === '/v1/stack' && method === 'GET') {
-    const stackList = stacks.map((stackId: string) => ({ id: stackId }));
-    return json({ stacks: stackList, count: stackList.length });
-  }
-
-  // GET /v1/usage — show account usage stats
-  if (path === '/v1/usage' && method === 'GET') {
-    const now = new Date();
-    const today = now.toISOString().slice(0, 10);
-    const counterKey = 'rl:' + account.id + ':' + today;
-    const emailDailyKey = `email_daily:${account.id}:${today}`;
-
-    const [usedToday, emailDailyRaw] = await Promise.all([
-      env.KEYS.get(counterKey),
-      env.EMAILS ? env.EMAILS.get(emailDailyKey) : Promise.resolve(null),
-    ]);
-
-    const emailLimits = EMAIL_LIMITS[account.tier as keyof typeof EMAIL_LIMITS] || EMAIL_LIMITS.free;
-    const emailDailyUsed = parseInt(emailDailyRaw || '0');
-    const resetAt = new Date(now);
-    resetAt.setUTCDate(resetAt.getUTCDate() + 1);
-    resetAt.setUTCHours(0, 0, 0, 0);
-
-    return json({
-      account_id: account.id,
-      tier: account.tier,
-      period: today,
-      requests: { used: parseInt(usedToday || '0'), limit: account.tier === 'paid' ? 10000 : 100 },
-      stacks: { used: stacks.length, limit: account.tier === 'free' ? 1 : 999 },
-      emails: {
-        daily_used: emailDailyUsed,
-        daily_limit: emailLimits.daily,
-        daily_remaining: Math.max(0, emailLimits.daily - emailDailyUsed),
-        hourly_limit: emailLimits.hourly,
-        reset_at: resetAt.toISOString(),
-      },
-      status: 'active',
-    });
-  }
-
-  // GET /v1/billing — show billing info
-  if (path === '/v1/billing' && method === 'GET') {
-    return json({
-      account_id: account.id,
-      tier: account.tier,
-      plan: account.tier === 'free' ? 'Free Beta' : 'Pro',
-      next_invoice: null,
-      upgrade_url: 'https://agentlair.dev/pricing',
-      note: 'Free tier includes rate-limited email. When limits are exceeded, pay per-email via x402 (0.01 USDC on Base).',
-      x402: {
-        supported: true,
-        network: X402_CONFIG.network,
-        asset: X402_CONFIG.asset,
-        facilitator: X402_CONFIG.facilitator,
-        email_price: '0.01 USDC',
-        email_price_atomic: EMAIL_PAYMENT_AMOUNT,
-        how_it_works: 'When email rate limit is hit, API returns HTTP 402 with payment requirements. Send X-PAYMENT header with base64-encoded payment payload to bypass limits.',
-      },
-    });
-  }
-
-  // ── Observations ─────────────────────────────────────────────────────────────
-
-  if (!path.startsWith('/v1/observations')) return null;
-
-  // POST /v1/observations — write an observation
-  if (path === '/v1/observations' && method === 'POST') {
-    let body: ObservationCreateBody = {};
-    try { body = (await request.json()) as ObservationCreateBody; } catch {
-      return err('Invalid JSON body.', 400, 'invalid_body');
-    }
-
-    const { topic, content } = body;
-    const shared = body.shared === true ? 1 : 0;
-    const display_name = body.display_name || null;
-    if (!topic || !content) {
-      return err('Required: topic, content. Optional: shared (bool, default false), display_name (string, max 100 chars).', 400, 'missing_fields');
-    }
-    const agent_id = account.id;
-    if (typeof content !== 'string' || content.length > 10000) {
-      return err('content must be a string, max 10,000 characters.', 400, 'invalid_content');
-    }
-    if (display_name !== null && (typeof display_name !== 'string' || display_name.length > 100)) {
-      return err('display_name must be a string, max 100 characters.', 400, 'invalid_display_name');
-    }
-
-    try {
-      const id = Array.from(crypto.getRandomValues(new Uint8Array(8)))
-        .map(b => b.toString(16).padStart(2, '0')).join('');
-      const created_at = new Date().toISOString();
-
-      await tursoExecute(env,
-        'INSERT INTO shared_observations (id, agent_id, topic, content, created_at, account_id, shared, display_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        [id, agent_id, topic, content, created_at, account.id, String(shared), display_name],
-      );
-
-      return json({ id, agent_id, display_name, topic, shared: !!shared, created_at }, 201);
-    } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : String(e);
-      return err(`Failed to write observation: ${message}`, 502, 'turso_error');
-    }
-  }
-
-  // GET /v1/observations/topics — list distinct topics
-  if (path === '/v1/observations/topics' && method === 'GET') {
-    try {
-      const result = await tursoExecute(env,
-        'SELECT topic, COUNT(*) as count, MAX(created_at) as latest FROM shared_observations WHERE account_id = ? OR shared = 1 GROUP BY topic ORDER BY latest DESC',
-        [account.id],
-      );
-      return json({ topics: result.rows, count: result.rows.length });
-    } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : String(e);
-      return err(`Failed to list topics: ${message}`, 502, 'turso_error');
-    }
-  }
-
-  // GET /v1/observations — read observations (own + shared by default)
-  if (path === '/v1/observations' && method === 'GET') {
-    const topic = url.searchParams.get('topic');
-    const agent_id = url.searchParams.get('agent_id');
-    const since = url.searchParams.get('since');
-    const scope = url.searchParams.get('scope') || 'all';
-    const limit = Math.min(parseInt(url.searchParams.get('limit') || '50'), 200);
-
-    const conditions: string[] = [];
-    const args: string[] = [];
-
-    if (scope === 'mine') {
-      conditions.push('account_id = ?');
-      args.push(account.id);
-    } else if (scope === 'shared') {
-      conditions.push('shared = 1');
-    } else {
-      conditions.push('(account_id = ? OR shared = 1)');
-      args.push(account.id);
-    }
-
-    if (topic) { conditions.push('topic = ?'); args.push(topic); }
-    if (agent_id) { conditions.push('agent_id = ?'); args.push(agent_id); }
-    if (since) { conditions.push('created_at >= ?'); args.push(since); }
-
-    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-    args.push(String(limit));
-
-    try {
-      const result = await tursoExecute(env,
-        `SELECT id, agent_id, display_name, topic, content, created_at, shared FROM shared_observations ${where} ORDER BY created_at DESC LIMIT ?`,
-        args,
-      );
-
-      const observations = result.rows.map((r) => ({ ...r, shared: r.shared === '1' || r.shared === 1 }));
-
-      return json({
-        observations,
-        count: observations.length,
-        filters: { topic: topic || null, agent_id: agent_id || null, since: since || null, scope, limit },
+  if (stacks.length >= 1 && account.tier === 'free') {
+    // Free tier limit reached — allow bypass via x402 payment
+    const paymentHeader = c.req.raw.headers.get('X-PAYMENT');
+    if (!paymentHeader) {
+      return make402Response(SERVICE_PRICES.stack_create, {
+        stack_limit: {
+          current: stacks.length,
+          limit: 1,
+          tier: account.tier,
+          upgrade_url: 'https://agentlair.dev/pricing',
+          current_stacks: stacks,
+        },
       });
-    } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : String(e);
-      return err(`Failed to read observations: ${message}`, 502, 'turso_error');
     }
+    // Verify the x402 payment
+    const verification = await verifyX402Payment(paymentHeader, SERVICE_PRICES.stack_create);
+    if (!verification.valid) {
+      return new Response(JSON.stringify({
+        error: 'payment_invalid',
+        message: verification.error,
+      }), {
+        status: 402,
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'X-402-Version': String(X402_CONFIG.x402Version) },
+      });
+    }
+    // Payment verified — allow stack creation beyond free limit
   }
 
-  // Catch-all for other /v1/observations/* routes
+  const stackId = 'stk_' + nanoid(16);
+  const now = new Date().toISOString();
+  const stack = {
+    id: stackId,
+    domain,
+    status: 'provisioning',
+    account_id: account.id,
+    created_at: now,
+    email: 'contact@' + domain,
+    nameservers: ['ns1.agentlair.dev', 'ns2.agentlair.dev'],
+    note: 'Beta: DNS provisioning is stubbed. Full CF DNS integration coming Q2 2026.',
+    next_steps: [
+      'Update your domain nameservers to ns1.agentlair.dev + ns2.agentlair.dev',
+      'Wait 24-48h for propagation',
+      'GET /v1/stack/' + stackId + ' to check status',
+    ],
+  };
+
+  await c.env.KEYS.put(stackKey, JSON.stringify(stack));
+
+  stacks.push(stackId);
+  account.stacks = stacks;
+  const keyHash = await c.env.KEYS.get('account:' + account.id);
+  if (keyHash) await c.env.KEYS.put('key:' + keyHash, JSON.stringify(account));
+
+  return json(stack, 201);
+});
+
+// ── GET /v1/stack — list stacks for account ───────────────────────────────────
+
+stackRoutes.get('/stack', async (c) => {
+  const account = c.get('account');
+  if (!account) return err('Authentication required.', 401, 'unauthorized');
+
+  const stacks = account.stacks ?? [];
+  const stackList = stacks.map((stackId: string) => ({ id: stackId }));
+  return json({ stacks: stackList, count: stackList.length });
+});
+
+// ── GET /v1/usage — show account usage stats ──────────────────────────────────
+
+stackRoutes.get('/usage', async (c) => {
+  const account = c.get('account');
+  if (!account) return err('Authentication required.', 401, 'unauthorized');
+
+  const stacks = account.stacks ?? [];
+  const now = new Date();
+  const today = now.toISOString().slice(0, 10);
+  const counterKey = 'rl:' + account.id + ':' + today;
+  const emailDailyKey = `email_daily:${account.id}:${today}`;
+
+  const [usedToday, emailDailyRaw] = await Promise.all([
+    c.env.KEYS.get(counterKey),
+    c.env.EMAILS ? c.env.EMAILS.get(emailDailyKey) : Promise.resolve(null),
+  ]);
+
+  const emailLimits = EMAIL_LIMITS[account.tier as keyof typeof EMAIL_LIMITS] || EMAIL_LIMITS.free;
+  const emailDailyUsed = parseInt(emailDailyRaw || '0');
+  const resetAt = new Date(now);
+  resetAt.setUTCDate(resetAt.getUTCDate() + 1);
+  resetAt.setUTCHours(0, 0, 0, 0);
+
+  return json({
+    account_id: account.id,
+    tier: account.tier,
+    period: today,
+    requests: { used: parseInt(usedToday || '0'), limit: account.tier === 'paid' ? 10000 : 100 },
+    stacks: { used: stacks.length, limit: account.tier === 'free' ? 1 : 999 },
+    emails: {
+      daily_used: emailDailyUsed,
+      daily_limit: emailLimits.daily,
+      daily_remaining: Math.max(0, emailLimits.daily - emailDailyUsed),
+      hourly_limit: emailLimits.hourly,
+      reset_at: resetAt.toISOString(),
+    },
+    status: 'active',
+  });
+});
+
+// ── GET /v1/billing — show billing info ───────────────────────────────────────
+
+stackRoutes.get('/billing', async (c) => {
+  const account = c.get('account');
+  if (!account) return err('Authentication required.', 401, 'unauthorized');
+
+  return json({
+    account_id: account.id,
+    tier: account.tier,
+    plan: account.tier === 'free' ? 'Free Beta' : 'Pro',
+    next_invoice: null,
+    upgrade_url: 'https://agentlair.dev/pricing',
+    note: 'Free tier includes rate-limited services. When limits are exceeded, pay per-use via x402 (USDC on Base). No Stripe needed — agents pay autonomously.',
+    x402: {
+      supported: true,
+      network: X402_CONFIG.network,
+      asset: X402_CONFIG.asset,
+      facilitator: X402_CONFIG.facilitator,
+      how_it_works: 'When a service limit is hit, API returns HTTP 402 with payment requirements. Send X-PAYMENT header with base64-encoded payment payload to bypass limits.',
+      services: {
+        email_send: {
+          price: '0.01 USDC',
+          price_atomic: SERVICE_PRICES.email_send.amount,
+          trigger: 'Email rate limit exceeded (daily/hourly/burst)',
+          resource: SERVICE_PRICES.email_send.resource,
+        },
+        vault_write: {
+          price: '0.005 USDC',
+          price_atomic: SERVICE_PRICES.vault_write.amount,
+          trigger: 'Vault key limit reached on free tier',
+          resource: SERVICE_PRICES.vault_write.resource,
+        },
+        calendar_event: {
+          price: '0.005 USDC',
+          price_atomic: SERVICE_PRICES.calendar_event.amount,
+          trigger: 'Calendar event limit reached on free tier',
+          resource: SERVICE_PRICES.calendar_event.resource,
+        },
+        stack_create: {
+          price: '0.01 USDC',
+          price_atomic: SERVICE_PRICES.stack_create.amount,
+          trigger: 'Stack limit reached on free tier (1 stack free)',
+          resource: SERVICE_PRICES.stack_create.resource,
+        },
+      },
+    },
+  });
+});
+
+// ── POST /v1/observations — write an observation ──────────────────────────────
+
+stackRoutes.post('/observations', async (c) => {
+  const account = c.get('account');
+  if (!account) return err('Authentication required.', 401, 'unauthorized');
+
+  let body: ObservationCreateBody = {};
+  try { body = await c.req.json() as ObservationCreateBody; } catch {
+    return err('Invalid JSON body.', 400, 'invalid_body');
+  }
+
+  const { topic, content } = body;
+  const shared = body.shared === true ? 1 : 0;
+  const display_name = body.display_name || null;
+  if (!topic || !content) {
+    return err('Required: topic, content. Optional: shared (bool, default false), display_name (string, max 100 chars).', 400, 'missing_fields');
+  }
+  const agent_id = account.id;
+  if (typeof content !== 'string' || content.length > 10000) {
+    return err('content must be a string, max 10,000 characters.', 400, 'invalid_content');
+  }
+  if (display_name !== null && (typeof display_name !== 'string' || display_name.length > 100)) {
+    return err('display_name must be a string, max 100 characters.', 400, 'invalid_display_name');
+  }
+
+  try {
+    const id = Array.from(crypto.getRandomValues(new Uint8Array(8)))
+      .map(b => b.toString(16).padStart(2, '0')).join('');
+    const created_at = new Date().toISOString();
+
+    await tursoExecute(c.env,
+      'INSERT INTO shared_observations (id, agent_id, topic, content, created_at, account_id, shared, display_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [id, agent_id, topic, content, created_at, account.id, String(shared), display_name],
+    );
+
+    return json({ id, agent_id, display_name, topic, shared: !!shared, created_at }, 201);
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : String(e);
+    return err(`Failed to write observation: ${message}`, 502, 'turso_error');
+  }
+});
+
+// ── GET /v1/observations/topics — list distinct topics ────────────────────────
+// NOTE: Must be registered before GET /observations to avoid param ambiguity.
+
+stackRoutes.get('/observations/topics', async (c) => {
+  const account = c.get('account');
+  if (!account) return err('Authentication required.', 401, 'unauthorized');
+
+  try {
+    const result = await tursoExecute(c.env,
+      'SELECT topic, COUNT(*) as count, MAX(created_at) as latest FROM shared_observations WHERE account_id = ? OR shared = 1 GROUP BY topic ORDER BY latest DESC',
+      [account.id],
+    );
+    return json({ topics: result.rows, count: result.rows.length });
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : String(e);
+    return err(`Failed to list topics: ${message}`, 502, 'turso_error');
+  }
+});
+
+// ── GET /v1/observations — read observations (own + shared by default) ─────────
+
+stackRoutes.get('/observations', async (c) => {
+  const account = c.get('account');
+  if (!account) return err('Authentication required.', 401, 'unauthorized');
+
+  const topic = c.req.query('topic');
+  const agent_id = c.req.query('agent_id');
+  const since = c.req.query('since');
+  const scope = c.req.query('scope') || 'all';
+  const limit = Math.min(parseInt(c.req.query('limit') || '50'), 200);
+
+  const conditions: string[] = [];
+  const args: string[] = [];
+
+  if (scope === 'mine') {
+    conditions.push('account_id = ?');
+    args.push(account.id);
+  } else if (scope === 'shared') {
+    conditions.push('shared = 1');
+  } else {
+    conditions.push('(account_id = ? OR shared = 1)');
+    args.push(account.id);
+  }
+
+  if (topic) { conditions.push('topic = ?'); args.push(topic); }
+  if (agent_id) { conditions.push('agent_id = ?'); args.push(agent_id); }
+  if (since) { conditions.push('created_at >= ?'); args.push(since); }
+
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+  args.push(String(limit));
+
+  try {
+    const result = await tursoExecute(c.env,
+      `SELECT id, agent_id, display_name, topic, content, created_at, shared FROM shared_observations ${where} ORDER BY created_at DESC LIMIT ?`,
+      args,
+    );
+
+    const observations = result.rows.map((r) => ({ ...r, shared: r.shared === '1' || r.shared === 1 }));
+
+    return json({
+      observations,
+      count: observations.length,
+      filters: { topic: topic || null, agent_id: agent_id || null, since: since || null, scope, limit },
+    });
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : String(e);
+    return err(`Failed to read observations: ${message}`, 502, 'turso_error');
+  }
+});
+
+// ── Catch-all for /v1/observations/* — return available routes info ────────────
+
+stackRoutes.all('/observations/*', async (c) => {
+  const account = c.get('account');
+  if (!account) return err('Authentication required.', 401, 'unauthorized');
+
   return json({
     available: [
       'POST /v1/observations — write an observation (body: {topic, content, shared?, display_name?})',
@@ -266,4 +337,4 @@ export async function handleStackRoutes(
     ],
     note: 'Observations are account-scoped by default. Set shared: true when writing to make visible to all agents. Read with scope=mine|shared|all (default: all = own + shared).',
   }, 200);
-}
+});
