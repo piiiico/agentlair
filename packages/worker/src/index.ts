@@ -13,6 +13,7 @@ import { AGENT_CARD } from './a2a.js';
 import { authenticateAny } from './middleware/auth.js';
 import { checkRateLimit, checkPodRateLimit } from './middleware/ratelimit.js';
 import { detectAgent, AGENTLAIR_MANIFEST } from './middleware/agent-detect.js';
+import { securityHeaders } from './middleware/security-headers.js';
 import { encryptEmailField, encryptEmailE2E } from './platform-crypto.js';
 // x402 imports removed — catch-all api_request pricing eliminated. Service routes handle their own x402.
 
@@ -131,7 +132,12 @@ app.use('*', cors({
   maxAge: 86400,
 }));
 
-// ── 1.5. Astro static assets — proxy to CF Pages ────────────────────────────────
+// ── 1.5. Security Headers ────────────────────────────────────────────────────────
+// Must come after CORS so CORS headers are set first, security headers layer on top.
+
+app.use('*', securityHeaders());
+
+// ── 2. Astro static assets — proxy to CF Pages ───────────────────────────────────
 // These MUST come before any other route handlers so /_astro/*, /fonts/*, etc.
 // are always served from the Astro build.
 
