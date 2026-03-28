@@ -144,9 +144,6 @@ export async function handleEmailRoutes(
     if (localPartError) {
       return err(localPartError, 400, 'invalid_address');
     }
-    if (isReservedAddress(address)) {
-      return err('This address is reserved and cannot be claimed.', 403, 'address_reserved');
-    }
     if (!env.EMAILS) {
       return err('Email storage not available.', 503, 'email_unavailable');
     }
@@ -157,11 +154,17 @@ export async function handleEmailRoutes(
       }
     }
 
+    // H1 fix: unified error for reserved and already-claimed addresses
+    // to prevent address state enumeration.
+    if (isReservedAddress(address)) {
+      return err('This address is not available.', 409, 'address_unavailable');
+    }
+
     const ownerKey = `email-owner:${address}`;
     const pubKeyKvKey = `email-pubkey:${address}`;
     const currentOwner = await env.EMAILS.get(ownerKey);
     if (currentOwner && currentOwner !== account.id) {
-      return err('This address is already claimed by another account.', 409, 'address_taken');
+      return err('This address is not available.', 409, 'address_unavailable');
     }
 
     if (public_key) {
@@ -205,19 +208,12 @@ export async function handleEmailRoutes(
 
     const ownerKey = `email-owner:${address}`;
     const currentOwner = await env.EMAILS.get(ownerKey);
+    // M4 fix: no auto-claim on GET. Must explicitly POST /v1/email/claim first.
+    // H1 fix: unified error for unclaimed/reserved/other-owner (prevent enumeration).
     if (!currentOwner) {
-      if (isReservedAddress(address)) {
-        return err('This address is reserved and cannot be claimed.', 403, 'address_reserved');
-      }
-      const addrLimit = ADDRESS_LIMITS[account.tier as keyof typeof ADDRESS_LIMITS] || ADDRESS_LIMITS.free;
-      const owned = await countOwnedAddresses(env, account.id);
-      if (owned >= addrLimit) {
-        return err(`Address limit reached (${owned}/${addrLimit}). Cannot auto-claim new addresses.`, 403, 'address_limit');
-      }
-      await env.EMAILS.put(ownerKey, account.id);
-      await addToAccountAddresses(env, account.id, address);
+      return err('This address is not claimed. Use POST /v1/email/claim to register it first.', 404, 'address_not_claimed');
     } else if (currentOwner !== account.id) {
-      return err('This address is registered to another account.', 403, 'address_not_yours');
+      return err('This address is not available.', 409, 'address_unavailable');
     }
 
     const indexKey = `index:${address}`;
@@ -260,6 +256,7 @@ export async function handleEmailRoutes(
         archived: isArchived,
       };
       if (msg.e2e_encrypted) entry.e2e_encrypted = true;
+      if (msg.auth) entry.auth = msg.auth;
       messages.push(entry);
     }
 
@@ -427,8 +424,8 @@ export async function handleEmailRoutes(
     return json({
       addresses: myAddresses,
       count: myAddresses.length,
-      note: 'Claimed @agentlair.dev addresses for your account. Any address is available — first-touch registers it.',
-      how_to_claim: 'GET /v1/email/inbox?address=yourname@agentlair.dev auto-claims on first access. Or POST /v1/email/claim {"address":"..."} to reserve before emails arrive.',
+      note: 'Claimed @agentlair.dev addresses for your account.',
+      how_to_claim: 'POST /v1/email/claim {"address":"yourname@agentlair.dev"} to register a new address.',
     });
   }
 
@@ -588,7 +585,7 @@ export async function handleEmailRoutes(
           reset_at: emailRateCheck.reset_at,
         }), {
           status: 403,
-          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+          headers: { 'Content-Type': 'application/json' },
         });
       }
 
@@ -616,7 +613,7 @@ export async function handleEmailRoutes(
             : `AgentKit verification failed: ${('error' in agentkitResult && agentkitResult.error) || agentkitResult.reason}`,
         }), {
           status: 403,
-          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+          headers: { 'Content-Type': 'application/json' },
         });
       }
 
@@ -644,8 +641,6 @@ export async function handleEmailRoutes(
             status: 402,
             headers: {
               'Content-Type': 'application/json',
-              'Access-Control-Allow-Origin': '*',
-              'Access-Control-Expose-Headers': 'X-402-Version, X-Payment-Response',
               'X-402-Version': String(X402_CONFIG.x402Version),
               'X-RateLimit-Limit': String(emailRateCheck.limit),
               'X-RateLimit-Remaining': '0',
@@ -662,7 +657,7 @@ export async function handleEmailRoutes(
             message: verification.error,
           }), {
             status: 402,
-            headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'X-402-Version': String(X402_CONFIG.x402Version) },
+            headers: { 'Content-Type': 'application/json', 'X-402-Version': String(X402_CONFIG.x402Version) },
           });
         }
 
@@ -1226,7 +1221,7 @@ export async function handleEmailRoutes(
       available: [
         'POST /v1/email/claim — register an @agentlair.dev address to your account',
         'GET /v1/email/addresses — list your claimed addresses',
-        'GET /v1/email/inbox?address={addr}&limit={n} — read inbox (auto-claims on first access)',
+        'GET /v1/email/inbox?address={addr}&limit={n} — read inbox (address must be claimed first)',
         'GET /v1/email/messages/{id}?address={addr} — read + mark as read',
         'PATCH /v1/email/messages/{id}?address={addr} — update (body: {"read":true})',
         'DELETE /v1/email/messages/{id}?address={addr} — delete message',
@@ -1242,7 +1237,7 @@ export async function handleEmailRoutes(
         'GET /v1/email/webhooks?address={addr} — list webhooks for your account',
         'DELETE /v1/email/webhooks/{id} — remove a webhook',
       ],
-      note: 'Any @agentlair.dev address works without pre-provisioning. First access auto-registers ownership.',
+      note: 'Use POST /v1/email/claim to register an @agentlair.dev address before accessing its inbox.',
     }, 200);
   }
 
@@ -1258,11 +1253,12 @@ export async function handleEmailRoutes(
       return err('Only @agentlair.dev addresses can be created.', 400, 'invalid_address');
     }
     if (!env.EMAILS) return err('Email storage not available.', 503, 'email_unavailable');
-    if (isReservedAddress(address)) return err('This address is reserved and cannot be claimed.', 403, 'address_reserved');
+    // H1 fix: unified error for reserved and already-claimed (prevent enumeration)
+    if (isReservedAddress(address)) return err('This address is not available.', 409, 'address_unavailable');
     const ownerKey = `email-owner:${address}`;
     const currentOwner = await env.EMAILS.get(ownerKey);
     if (currentOwner && currentOwner !== account.id) {
-      return err('Address already claimed by another account.', 409, 'address_taken');
+      return err('This address is not available.', 409, 'address_unavailable');
     }
     if (!currentOwner) await env.EMAILS.put(ownerKey, account.id);
     return json({ address, created: true, already_owned: !!currentOwner, account_id: account.id }, currentOwner ? 200 : 201);
@@ -1280,10 +1276,11 @@ export async function handleEmailRoutes(
       if (!env.EMAILS) return err('Email storage not available.', 503, 'email_unavailable');
       const ownerKey = `email-owner:${inboxAddr}`;
       const currentOwner = await env.EMAILS.get(ownerKey);
+      // M4 fix: no auto-claim on GET. Must explicitly POST /v1/email/claim first.
+      // H1 fix: unified error for unclaimed/reserved/other-owner (prevent enumeration).
       if (!currentOwner) {
-        if (isReservedAddress(inboxAddr)) return err('This address is reserved and cannot be claimed.', 403, 'address_reserved');
-        await env.EMAILS.put(ownerKey, account.id);
-      } else if (currentOwner !== account.id) return err('This address belongs to another account.', 403, 'address_not_yours');
+        return err('This address is not claimed. Use POST /v1/email/claim to register it first.', 404, 'address_not_claimed');
+      } else if (currentOwner !== account.id) return err('This address is not available.', 409, 'address_unavailable');
       const indexKey = `index:${inboxAddr}`;
       const indexRaw = await env.EMAILS.get(indexKey);
       if (!indexRaw) return json({ messages: [], total: 0, address: inboxAddr });

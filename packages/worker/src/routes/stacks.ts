@@ -78,7 +78,7 @@ stackRoutes.post('/stack', async (c) => {
         message: verification.error,
       }), {
         status: 402,
-        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'X-402-Version': String(X402_CONFIG.x402Version) },
+        headers: { 'Content-Type': 'application/json', 'X-402-Version': String(X402_CONFIG.x402Version) },
       });
     }
     // Payment verified — settle and track spend
@@ -128,7 +128,6 @@ stackRoutes.post('/stack', async (c) => {
       status: 201,
       headers: {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
         'X-Payment-Response': stackPaymentReceipt,
       },
     });

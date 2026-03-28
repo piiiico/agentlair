@@ -113,8 +113,6 @@ export function make402Response(service: ServicePaymentConfig, extra?: Record<st
     status: 402,
     headers: {
       'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Expose-Headers': 'X-402-Version, X-Payment-Response',
       'X-402-Version': String(X402_CONFIG.x402Version),
     },
   });

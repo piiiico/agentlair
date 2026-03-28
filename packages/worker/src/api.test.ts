@@ -100,12 +100,12 @@ describe('public routes', () => {
     const res = await fetch(`${BASE_URL}/v1/email/claim`, {
       method: 'OPTIONS',
       headers: {
-        Origin: 'https://example.com',
+        Origin: 'https://agentlair.dev',
         'Access-Control-Request-Method': 'POST',
       },
     });
     expect(res.status).toBe(204);
-    expect(res.headers.get('Access-Control-Allow-Origin')).toBe('*');
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBe('https://agentlair.dev');
   });
 });
 
@@ -260,27 +260,27 @@ describe('auth: agent-register', () => {
     }
   });
 
-  test('POST /v1/auth/agent-register — rejects reserved address (403)', async () => {
+  test('POST /v1/auth/agent-register — rejects reserved address (409)', async () => {
     const r = await req('/v1/auth/agent-register', {
       method: 'POST',
       body: JSON.stringify({ address: 'postmaster@agentlair.dev' }),
     });
-    // 403 = reserved address, 429 = rate limited before validation
-    expect([403, 429]).toContain(r.status);
-    if (r.status === 403) {
-      expect(r.body.error).toBe('address_reserved');
+    // 409 = address unavailable, 429 = rate limited before validation
+    expect([409, 429]).toContain(r.status);
+    if (r.status === 409) {
+      expect(r.body.error).toBe('address_unavailable');
     }
   });
 
-  test('POST /v1/auth/agent-register — rejects reserved address via name (403)', async () => {
+  test('POST /v1/auth/agent-register — rejects reserved address via name (409)', async () => {
     const r = await req('/v1/auth/agent-register', {
       method: 'POST',
       body: JSON.stringify({ name: 'postmaster' }),
     });
-    // 403 = reserved address, 429 = rate limited before validation
-    expect([403, 429]).toContain(r.status);
-    if (r.status === 403) {
-      expect(r.body.error).toBe('address_reserved');
+    // 409 = address unavailable, 429 = rate limited before validation
+    expect([409, 429]).toContain(r.status);
+    if (r.status === 409) {
+      expect(r.body.error).toBe('address_unavailable');
     }
   });
 
@@ -685,7 +685,7 @@ describe('authenticated API', () => {
         body: JSON.stringify({ address: claimedAddress }),
       }, apiKey2);
       expect(r.status).toBe(409);
-      expect(r.body.error).toBe('address_taken');
+      expect(r.body.error).toBe('address_unavailable');
     });
 
     test('POST /v1/email/claim — without auth returns 401', async () => {
@@ -719,7 +719,8 @@ describe('authenticated API', () => {
     test('GET /v1/email/inbox — another account cannot read our inbox', async () => {
       if (!apiKey2) return; // Skip: no secondary key available
       const r = await req(`/v1/email/inbox?address=${claimedAddress}`, {}, apiKey2);
-      expect(r.status).toBe(403);
+      expect(r.status).toBe(409);
+      expect(r.body.error).toBe('address_unavailable');
     });
 
     test('GET /v1/email/inbox — non-agentlair.dev address returns 400', async () => {

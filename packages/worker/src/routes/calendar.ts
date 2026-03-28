@@ -258,7 +258,6 @@ export async function handleCalendarRoutes(
         'Content-Type': 'text/calendar; charset=utf-8',
         'Content-Disposition': 'inline; filename="agentlair.ics"',
         'Cache-Control': 'no-cache',
-        'Access-Control-Allow-Origin': '*',
       },
     });
   }
@@ -408,7 +407,7 @@ export async function handleCalendarRoutes(
           message: verification.error,
         }), {
           status: 402,
-          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'X-402-Version': String(X402_CONFIG.x402Version) },
+          headers: { 'Content-Type': 'application/json', 'X-402-Version': String(X402_CONFIG.x402Version) },
         });
       }
       // Payment verified — allow event creation beyond limit

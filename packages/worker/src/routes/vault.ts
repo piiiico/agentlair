@@ -323,7 +323,7 @@ export async function handleVaultRoutes(
               message: verification.error,
             }), {
               status: 402,
-              headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'X-402-Version': String(X402_CONFIG.x402Version) },
+              headers: { 'Content-Type': 'application/json', 'X-402-Version': String(X402_CONFIG.x402Version) },
             });
           }
           // Payment verified — settle and track spend
@@ -385,7 +385,7 @@ export async function handleVaultRoutes(
         created_at: createdAt,
         updated_at: now,
       });
-      const vaultResponseHeaders: Record<string, string> = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+      const vaultResponseHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
       if (vaultPaymentReceipt) vaultResponseHeaders['X-Payment-Response'] = vaultPaymentReceipt;
       return new Response(vaultResponseBody, { status: isNew ? 201 : 200, headers: vaultResponseHeaders });
     }

@@ -12,5 +12,14 @@ export function securityHeaders() {
     c.header('X-Frame-Options', 'DENY');
     c.header('Referrer-Policy', 'strict-origin-when-cross-origin');
     c.header('X-Permitted-Cross-Domain-Policies', 'none');
+
+    // Content-Security-Policy: split by response content type
+    const contentType = c.res.headers.get('Content-Type') || '';
+    if (contentType.includes('text/html')) {
+      c.header('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data: https:");
+    } else {
+      // JSON and all other API responses: strictest possible
+      c.header('Content-Security-Policy', "default-src 'none'");
+    }
   };
 }

@@ -122,6 +122,13 @@ export interface Pod {
   rate_limits?: PodRateLimits | null;
 }
 
+export interface EmailAuthResult {
+  spf: string;
+  dkim: string;
+  dmarc: string;
+  authenticated: boolean;
+}
+
 export interface EmailMessage {
   id: string;
   to: string;
@@ -136,6 +143,7 @@ export interface EmailMessage {
   in_reply_to?: string;
   references?: string;
   headers?: Record<string, string>;
+  auth?: EmailAuthResult;
   [key: string]: unknown;
 }
 

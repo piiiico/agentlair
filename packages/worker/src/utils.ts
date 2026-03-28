@@ -45,9 +45,6 @@ export function json(data: unknown, status?: number, extraHeaders?: Record<strin
     status: status || 200,
     headers: {
       'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-PAYMENT',
-      'Access-Control-Expose-Headers': 'X-402-Version, X-Payment-Response',
       'X-Powered-By': 'AgentLair',
       ...(extraHeaders || {}),
     },

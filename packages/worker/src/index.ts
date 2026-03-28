@@ -124,7 +124,7 @@ const app = new Hono<HonoEnv>();
 // ── 1. CORS ─────────────────────────────────────────────────────────────────────
 
 app.use('*', cors({
-  origin: '*',
+  origin: ['https://agentlair.dev', 'https://*.agentlair.dev'],
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Authorization', 'Content-Type', 'X-PAYMENT', 'X-AGENTKIT'],
   exposeHeaders: ['X-402-Version', 'X-Payment-Response'],
@@ -161,7 +161,6 @@ app.get('/vault', async (c) => {
         'X-Detection-Confidence': detection.confidence,
         'X-Detection-Signals': detection.signals.join(','),
         'Cache-Control': 'no-store',
-        'Access-Control-Allow-Origin': '*',
       },
     });
   }
@@ -179,7 +178,6 @@ app.get('/getting-started', async (c) => {
         'X-Detection-Confidence': detection.confidence,
         'X-Detection-Signals': detection.signals.join(','),
         'Cache-Control': 'no-store',
-        'Access-Control-Allow-Origin': '*',
       },
     });
   }
@@ -197,7 +195,6 @@ app.get('/', async (c) => {
         'X-Detection-Confidence': detection.confidence,
         'X-Detection-Signals': detection.signals.join(','),
         'Cache-Control': 'no-store',
-        'Access-Control-Allow-Origin': '*',
       },
     });
   }
@@ -213,7 +210,7 @@ app.get('/api', (c) => {
   if (acceptHtml) {
     return new Response(SCALAR_DOCS_HTML, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=3600', 'X-Powered-By': 'AgentLair' } });
   }
-  return new Response(JSON.stringify(OPENAPI_SPEC), { status: 200, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'public, max-age=3600' } });
+  return new Response(JSON.stringify(OPENAPI_SPEC), { status: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=3600' } });
 });
 
 app.get('/health', () => json({ status: 'ok', timestamp: new Date().toISOString(), version: '0.18.0' }));
@@ -225,7 +222,7 @@ app.on(['GET', 'HEAD'], '/docs', () =>
 app.get('/.well-known/agent.json', () =>
   new Response(JSON.stringify(AGENT_CARD, null, 2), {
     status: 200,
-    headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'public, max-age=3600' },
+    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=3600' },
   })
 );
 
@@ -363,7 +360,6 @@ app.use('/v1/*', async (c: Context<HonoEnv>, next: Next): Promise<void | Respons
           if (!podRl.allowed) {
             const headers: Record<string, string> = {
               'Content-Type': 'application/json',
-              'Access-Control-Allow-Origin': '*',
             };
             if (podRl.retry_after) headers['Retry-After'] = podRl.retry_after;
             if (podRl.rl_limit != null) headers['X-RateLimit-Limit'] = String(podRl.rl_limit);
@@ -446,6 +442,70 @@ interface CfEmailMessage {
   raw: ReadableStream<Uint8Array>;
 }
 
+// ─── Email Authentication: DMARC/SPF/DKIM validation ─────────────────────────
+// Parses the Authentication-Results header provided by Cloudflare Email Routing.
+// Returns structured results for SPF, DKIM, and DMARC checks.
+
+interface AuthResult {
+  spf: 'pass' | 'fail' | 'softfail' | 'neutral' | 'none' | 'temperror' | 'permerror' | 'unknown';
+  dkim: 'pass' | 'fail' | 'none' | 'temperror' | 'permerror' | 'unknown';
+  dmarc: 'pass' | 'fail' | 'none' | 'temperror' | 'permerror' | 'unknown';
+  authenticated: boolean;         // true if SPF=pass OR DKIM=pass
+  spoofed_internal: boolean;      // true if From: is @agentlair.dev but didn't pass auth
+  raw_header: string | null;      // original header for debugging
+}
+
+function parseAuthenticationResults(headers: Headers, fromAddr: string): AuthResult {
+  const raw = headers.get('Authentication-Results') || headers.get('authentication-results') || null;
+  const result: AuthResult = {
+    spf: 'unknown',
+    dkim: 'unknown',
+    dmarc: 'unknown',
+    authenticated: false,
+    spoofed_internal: false,
+    raw_header: raw,
+  };
+
+  if (!raw) return result;
+
+  // Parse semicolon-delimited fields from Authentication-Results
+  // Format: "mx.cloudflare.net; dkim=pass ...; spf=pass ...; dmarc=pass ..."
+  const lower = raw.toLowerCase();
+
+  // Extract SPF result
+  const spfMatch = lower.match(/\bspf\s*=\s*(pass|fail|softfail|neutral|none|temperror|permerror)\b/);
+  if (spfMatch) result.spf = spfMatch[1] as AuthResult['spf'];
+  else result.spf = 'none';
+
+  // Extract DKIM result
+  const dkimMatch = lower.match(/\bdkim\s*=\s*(pass|fail|none|temperror|permerror)\b/);
+  if (dkimMatch) result.dkim = dkimMatch[1] as AuthResult['dkim'];
+  else result.dkim = 'none';
+
+  // Extract DMARC result
+  const dmarcMatch = lower.match(/\bdmarc\s*=\s*(pass|fail|none|temperror|permerror)\b/);
+  if (dmarcMatch) result.dmarc = dmarcMatch[1] as AuthResult['dmarc'];
+  else result.dmarc = 'none';
+
+  // Message is authenticated if at least SPF or DKIM passes
+  result.authenticated = result.spf === 'pass' || result.dkim === 'pass';
+
+  // Detect spoofed @agentlair.dev senders:
+  // Internal addresses should NEVER arrive through external email routing.
+  // Any email claiming to be from @agentlair.dev that arrives via CF Email Routing
+  // is either spoofed or misconfigured. Flag it regardless of SPF/DKIM.
+  const fromLower = fromAddr.toLowerCase();
+  const isInternalSender = fromLower.includes('@agentlair.dev');
+  if (isInternalSender) {
+    // Internal emails are sent via Resend API, not through inbound SMTP.
+    // Any @agentlair.dev sender arriving here is spoofed.
+    result.spoofed_internal = true;
+    result.authenticated = false;
+  }
+
+  return result;
+}
+
 // ─── Cloudflare Email Workers: inbound delivery ─────────────────────────────────
 // Triggered by Cloudflare Email Routing when an @agentlair.dev message arrives.
 // Stores encrypted message body in EMAILS KV and fires registered webhooks.
@@ -460,6 +520,23 @@ async function handleInboundEmail(message: CfEmailMessage, env: Env, ctx: Execut
     const subject = message.headers.get('Subject') || '';
     const messageId = message.headers.get('Message-ID') || ('inbound_' + nanoid(20));
     const now = new Date().toISOString();
+
+    // ── DMARC/SPF/DKIM validation ──────────────────────────────────────────
+    const authResult = parseAuthenticationResults(message.headers, fromAddr);
+
+    // Reject spoofed @agentlair.dev senders — these NEVER arrive via inbound SMTP legitimately
+    if (authResult.spoofed_internal) {
+      // Log the rejection attempt for monitoring
+      if (env.EMAILS) {
+        ctx.waitUntil(env.EMAILS.put('debug:rejected-spoofed-internal', JSON.stringify({
+          from: fromAddr, to: toAddr, subject,
+          auth: { spf: authResult.spf, dkim: authResult.dkim, dmarc: authResult.dmarc },
+          rejected_at: now,
+        })));
+      }
+      // Silently drop — do not store, do not deliver, do not fire webhooks
+      return;
+    }
 
     // Read email body from raw stream (only documented API on CF EmailMessage)
     let rawBody = '';
@@ -608,6 +685,14 @@ async function handleInboundEmail(message: CfEmailMessage, env: Env, ctx: Execut
     if (normalizedReferences) msg.references = normalizedReferences;
     msg.thread_id = threadId;
 
+    // ── Attach email authentication results ──────────────────────────────
+    msg.auth = {
+      spf: authResult.spf,
+      dkim: authResult.dkim,
+      dmarc: authResult.dmarc,
+      authenticated: authResult.authenticated,
+    };
+
     if (env.EMAILS) {
       try {
         await env.EMAILS.put(msgKey, JSON.stringify(msg), { expirationTtl: 30 * 24 * 3600 });
@@ -656,7 +741,11 @@ async function handleInboundEmail(message: CfEmailMessage, env: Env, ctx: Execut
           const payload = {
             event: 'email.received',
             address: toAddr,
-            message: { message_id: messageId, from: fromAddr, subject, body_preview: msg!.body_preview, received_at: now },
+            message: {
+              message_id: messageId, from: fromAddr, subject,
+              body_preview: msg!.body_preview, received_at: now,
+              auth: { spf: authResult.spf, dkim: authResult.dkim, dmarc: authResult.dmarc, authenticated: authResult.authenticated },
+            },
           };
           await Promise.allSettled(hookIds.map(async (hookId: string) => {
             const hookRaw = await env.EMAILS.get(`webhook:${hookId}`);
@@ -720,7 +809,6 @@ export default {
         status: 503,
         headers: {
           'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
           'Retry-After': '60',
         },
       });

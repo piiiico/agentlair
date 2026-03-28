@@ -111,7 +111,6 @@ export async function handleAuthRoutes(
           status: 429,
           headers: {
             'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*',
             'Retry-After': '3600',
           },
         });
@@ -188,7 +187,6 @@ export async function handleAuthRoutes(
           status: 429,
           headers: {
             'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*',
             'Retry-After': '3600',
           },
         });
@@ -219,7 +217,6 @@ export async function handleAuthRoutes(
           status: 429,
           headers: {
             'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*',
             'Retry-After': '3600',
           },
         });
@@ -248,12 +245,12 @@ export async function handleAuthRoutes(
           return err(localPartError, 400, 'invalid_address');
         }
         if (isReservedAddress(address)) {
-          return err('This address is reserved and cannot be claimed.', 403, 'address_reserved');
+          return err('This address is not available.', 409, 'address_unavailable');
         }
         if (!env.EMAILS) return err('Email service unavailable.', 503, 'service_unavailable');
         const existing = await env.EMAILS.get('email-owner:' + address);
         if (existing) {
-          return err('This address is already taken.', 409, 'address_taken');
+          return err('This address is not available.', 409, 'address_unavailable');
         }
         emailAddress = address;
       } else if (name) {
@@ -266,7 +263,7 @@ export async function handleAuthRoutes(
         const candidate = `${sanitized}@agentlair.dev`;
         // Check reserved BEFORE any KV lookup
         if (isReservedAddress(candidate)) {
-          return err('This address is reserved and cannot be claimed.', 403, 'address_reserved');
+          return err('This address is not available.', 409, 'address_unavailable');
         }
         if (!env.EMAILS) return err('Email service unavailable.', 503, 'service_unavailable');
         const existing = await env.EMAILS.get('email-owner:' + candidate);
@@ -276,7 +273,7 @@ export async function handleAuthRoutes(
           const fallback = `${sanitized.slice(0, 25)}-${suffix}@agentlair.dev`;
           const fallbackExisting = await env.EMAILS.get('email-owner:' + fallback);
           if (fallbackExisting) {
-            return err('Could not find an available address for this name. Specify an explicit address.', 409, 'address_taken');
+            return err('This address is not available.', 409, 'address_unavailable');
           }
           emailAddress = fallback;
         } else {
@@ -632,11 +629,9 @@ export async function handleAuthRoutes(
 
     const responseHeaders: Record<string, string> = {
       'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*',
     };
     if (settlement.settled && settlement.receipt) {
       responseHeaders['X-Payment-Response'] = settlement.receipt;
-      responseHeaders['Access-Control-Expose-Headers'] = 'X-Payment-Response';
     }
 
     return new Response(JSON.stringify({
