@@ -1,0 +1,170 @@
+---
+layout: ../../../layouts/BasicLayout.astro
+title: "Vault Security Model — AgentLair"
+description: "How AgentLair Vault protects your secrets: client-side encryption, what the server sees, audit trail, and threat model."
+---
+
+# Vault Security Model
+
+A precise description of what Vault protects, how it's implemented, and where the limits are.
+
+---
+
+## Crypto stack
+
+| Layer | Algorithm | Implementation |
+|-------|-----------|----------------|
+| Seed generation | CSPRNG (32 bytes) | `crypto.getRandomValues()` |
+| Key derivation | HKDF-SHA-256 | Web Crypto API |
+| Passphrase hardening | PBKDF2-SHA-256, 600K iterations | Web Crypto API |
+| Encryption | AES-256-GCM | Web Crypto API |
+| IV generation | CSPRNG (12 bytes per call) | `crypto.getRandomValues()` |
+| Auth tag | 128 bits (AES-GCM default) | Web Crypto API |
+| Ciphertext encoding | base64url | No-dependency implementation |
+| API key storage | SHA-256 (server-side) | Web Crypto API |
+
+**No native dependencies.** The `@agentlair/vault-crypto` library uses only the Web Crypto API, which is available natively in Node 18+, Bun, Deno, and modern browsers. No OpenSSL, no libsodium, no trust in compiled code.
+
+---
+
+## Key derivation detail
+
+For each vault key name, a unique AES-256-GCM key is derived:
+
+```
+HKDF-SHA-256(
+  ikm  = master_seed,         // 32 bytes
+  salt = [0x00 * 32],         // 32 zero bytes (deterministic)
+  info = "agentlair:vault:v1:{keyName}",
+  len  = 32                   // 256-bit output
+)
+```
+
+**Zero salt:** HKDF with zero salt is a standard practice when the IKM (input key material) is already high-entropy random. The zero salt trades information-theoretic security for determinism — necessary since the same seed must always produce the same key for a given key name. Per RFC 5869, zero salt is equivalent to HMAC with the hash length as salt.
+
+**Per-key isolation:** Each key name produces a distinct derived key. Knowing the ciphertext and derived key for `openai-key` reveals nothing about `stripe-key`, even with full knowledge of the derivation algorithm.
+
+---
+
+## What the server stores
+
+For each vault entry:
+
+```
+key:        openai-key          (plaintext — key names are not encrypted)
+ciphertext: aeGx8kF...ZpQr     (opaque — server cannot decrypt)
+metadata:   { "service": "openai" }  (plaintext — not encrypted)
+version:    2                   (plaintext)
+timestamps: created_at, updated_at
+```
+
+For API keys:
+
+```
+api_key_hash: SHA-256(api_key)  (one-way — original key not stored)
+account_id:   internal identifier
+tier:         free | paid
+```
+
+**What we cannot compute from stored data:**
+- The master seed (never sent)
+- Any derived AES key (not stored, not transmitted)
+- The plaintext for any ciphertext (no key = no decryption)
+
+---
+
+## Threat model
+
+### What Vault protects against
+
+**KV store breach.** If an attacker dumps AgentLair's KV namespace, they get opaque ciphertexts. Without the master seed (which never left your agent), these are computationally indistinguishable from random data. AES-256 with 128-bit auth tag: brute force is not viable.
+
+**AgentLair employee access.** Same as a KV breach — we see ciphertexts we cannot decrypt. There's no privileged decryption API or escrow key.
+
+**Passive network interception.** HTTPS in transit. The ciphertext is what's transmitted — even plaintext HTTP would only expose already-encrypted blobs (not recommended, but worth noting).
+
+**Cross-account access.** Every API call resolves to an `account_id` via the hashed API key. Vault reads and writes are scoped to the authenticated account. There's no admin endpoint that bypasses account scoping.
+
+**API key compromise without seed.** If an attacker steals your API key but not your seed, they can read your ciphertexts — and decrypt nothing. Rotate the API key to cut off access.
+
+---
+
+### What Vault does not protect against
+
+**Combined API key + seed compromise.** If an attacker has both your API key and your seed, they have what your agent has — full access. This is the expected security boundary. Protect the seed with at least the same care as the API key.
+
+**Compromised client runtime.** If the agent process itself is compromised (container escape, memory read, stolen env vars), the attacker has the seed and API key from memory. Vault cannot help here — this is a runtime compromise, not a storage compromise.
+
+**Malicious worker code.** If an attacker compromised the AgentLair server code (not just KV), they could alter the `PUT` endpoint to log the incoming ciphertext before storage. However: (1) they'd only get ciphertext for *new writes*, not existing entries, and (2) they'd have ciphertext without the seed — same problem as a KV breach.
+
+**AES-GCM nonce reuse.** If the 12-byte IV were reused for the same key, AES-GCM security degrades catastrophically. Vault generates fresh IVs with CSPRNG on every `encrypt()` call. Collision probability: negligible for 2^48 calls under the birthday bound.
+
+---
+
+## Audit trail
+
+Every vault operation is logged in the AgentLair audit log with:
+
+- `account_id`
+- Operation type (read, write, delete, list)
+- Key name
+- Timestamp
+- Request metadata (IP, User-Agent)
+
+Audit log entries do not include ciphertext values or plaintext. They are append-only — entries cannot be deleted via the API.
+
+Access to your audit log: available in the dashboard (coming soon) and via API.
+
+---
+
+## Recovery security
+
+The recovery flow uses single-use magic links:
+
+```
+Token:         40-byte CSPRNG string
+Token storage: SHA-256(token) in KV — original token not stored
+TTL:           15 minutes
+Use:           Single-use — deleted on verification
+```
+
+The recovery email contains the token as a query parameter. An attacker who intercepts the email has 15 minutes to use it. After use or expiry, the token hash is deleted.
+
+**Email-based recovery is the weakest link.** If an attacker controls the recovery email account, they can request a recovery link and receive the encrypted seed blob. The blob is still encrypted with your passphrase — they'd need both email access and passphrase knowledge to recover your secrets.
+
+**For higher assurance:** Don't use email recovery. Store the seed in a separate secrets manager, hardware security module, or encrypted backup outside AgentLair.
+
+---
+
+## npm package integrity
+
+The `@agentlair/vault-crypto` library source is available at [github.com/piiiico/agentlair](https://github.com/piiiico/agentlair) under `/packages/vault-crypto/`.
+
+The library:
+- Has zero runtime dependencies
+- Uses only Web Crypto API (no third-party crypto)
+- Is written in TypeScript with published type definitions
+- Can be audited completely in a single file (`src/index.ts`)
+
+If you're concerned about supply chain risk, read the source (it's under 300 lines) and vendor it into your project.
+
+---
+
+## Algorithm choices
+
+**Why AES-256-GCM over ChaCha20-Poly1305?**
+AES-256-GCM is natively accelerated by AES-NI instructions (present in all modern CPUs and server environments). Web Crypto API's AES-GCM implementation uses this acceleration. ChaCha20 is better for environments without AES-NI (older mobile, some embedded), but agents typically run on hardware that has it.
+
+**Why HKDF over direct key stretching?**
+The master seed is already high-entropy random (32 bytes from CSPRNG). HKDF's role here is key *diversification*, not stretching. It transforms one master key into multiple independent derived keys — one per vault key name.
+
+**Why PBKDF2 over Argon2 for passphrase derivation?**
+Web Crypto API (available natively everywhere) supports PBKDF2 but not Argon2 or bcrypt. Adding Argon2 would require a compiled dependency — incompatible with the zero-dependency constraint. 600,000 PBKDF2-SHA-256 iterations meets OWASP 2023 recommendations and adds significant brute-force cost.
+
+---
+
+## Disclosure
+
+To report a security issue, email `security@agentlair.dev`. Response within 24 hours.
+
+We don't have a formal bug bounty program yet, but we take security reports seriously and will acknowledge responsible disclosure publicly.

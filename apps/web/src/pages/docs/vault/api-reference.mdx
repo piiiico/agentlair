@@ -1,0 +1,413 @@
+---
+layout: ../../../layouts/BasicLayout.astro
+title: "Vault API Reference — AgentLair"
+description: "Complete REST API reference for AgentLair Vault. All endpoints with request/response examples and error codes."
+---
+
+# Vault API Reference
+
+Base URL: `https://api.agentlair.dev`
+
+All authenticated endpoints require `Authorization: Bearer <api_key>` header.
+
+---
+
+## Authentication
+
+### Create account
+
+Create a new API key pair. No email or personal information required.
+
+```
+POST /v1/auth/keys
+```
+
+No request body required.
+
+**Response `201`:**
+
+```json
+{
+  "api_key": "al_live_abc123...",
+  "backup_key": "al_bak_xyz789...",
+  "created_at": "2026-03-27T12:00:00Z"
+}
+```
+
+**Notes:**
+- Neither key can be retrieved after this response — save them immediately
+- `api_key` is your primary credential
+- `backup_key` restores access if you lose the primary
+- API keys are SHA-256 hashed server-side — we store hashes, not keys
+
+---
+
+## Vault CRUD
+
+### Store a secret
+
+Create or update an encrypted secret. Idempotent: calling again creates a new version.
+
+```
+PUT /v1/vault/{key}
+Authorization: Bearer <api_key>
+Content-Type: application/json
+```
+
+**Path params:**
+- `key` — Secret name. Pattern: `[A-Za-z0-9_\-.]{1,128}`. Examples: `openai-key`, `stripe.secret`, `my_db_password_v2`
+
+**Request body:**
+
+```json
+{
+  "ciphertext": "aeGx8kFZpQr...",
+  "metadata": { "tag": "production", "service": "openai" }
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `ciphertext` | string | Yes | Encrypted blob. Any string up to tier limit (16 KB free / 64 KB paid). |
+| `metadata` | object | No | Arbitrary JSON metadata (max 4 KB). Not encrypted — visible to server. |
+
+**Response `201` (new key):**
+
+```json
+{
+  "key": "openai-key",
+  "stored": true,
+  "version": 1,
+  "created_at": "2026-03-27T12:00:00Z",
+  "updated_at": "2026-03-27T12:00:00Z"
+}
+```
+
+**Response `200` (update):**
+
+```json
+{
+  "key": "openai-key",
+  "stored": true,
+  "version": 2,
+  "created_at": "2026-03-27T12:00:00Z",
+  "updated_at": "2026-03-27T13:00:00Z"
+}
+```
+
+**Notes:**
+- Free tier: max 10 keys, 3 versions per key, 16 KB blob
+- When version limit is hit, oldest version is pruned automatically
+- When key limit is hit on free tier, returns `402` — pay via x402 to proceed
+
+---
+
+### Retrieve a secret
+
+Fetch the latest (or a specific) version of an encrypted secret.
+
+```
+GET /v1/vault/{key}
+Authorization: Bearer <api_key>
+```
+
+**Query params:**
+- `version` (optional) — Specific version number. Omit for latest.
+
+**Response `200`:**
+
+```json
+{
+  "key": "openai-key",
+  "ciphertext": "aeGx8kFZpQr...",
+  "value": "aeGx8kFZpQr...",
+  "metadata": { "tag": "production" },
+  "version": 2,
+  "latest_version": 2,
+  "created_at": "2026-03-27T12:00:00Z",
+  "updated_at": "2026-03-27T13:00:00Z"
+}
+```
+
+**Notes:**
+- `ciphertext` and `value` are identical — `value` is kept for backward compatibility
+- If a requested version was pruned, returns `404` with `version_not_found` error
+
+**Response `404`:**
+
+```json
+{
+  "error": "not_found",
+  "message": "Key not found"
+}
+```
+
+---
+
+### List all keys
+
+Fetch metadata for all vault keys. Does not return ciphertext values.
+
+```
+GET /v1/vault/
+Authorization: Bearer <api_key>
+```
+
+**Response `200`:**
+
+```json
+{
+  "keys": [
+    {
+      "key": "openai-key",
+      "version": 2,
+      "metadata": { "tag": "production" },
+      "created_at": "2026-03-27T12:00:00Z",
+      "updated_at": "2026-03-27T13:00:00Z"
+    },
+    {
+      "key": "stripe-secret",
+      "version": 1,
+      "metadata": null,
+      "created_at": "2026-03-27T11:00:00Z",
+      "updated_at": "2026-03-27T11:00:00Z"
+    }
+  ],
+  "count": 2,
+  "limit": 10,
+  "tier": "free"
+}
+```
+
+---
+
+### Delete a secret
+
+Permanently delete a secret and all its versions.
+
+```
+DELETE /v1/vault/{key}
+Authorization: Bearer <api_key>
+```
+
+**Response `200`:**
+
+```json
+{
+  "key": "openai-key",
+  "deleted": true
+}
+```
+
+**Response `404`:**
+
+```json
+{
+  "error": "not_found",
+  "message": "Key not found"
+}
+```
+
+---
+
+## Recovery
+
+Recovery lets you retrieve encrypted seeds if you lose your API keys. Vault stores your passphrase-encrypted seed blob, then emails you a magic link to retrieve it.
+
+### Register recovery email
+
+Associate a recovery email with your account and store an encrypted seed backup.
+
+```
+POST /v1/vault/recovery-email
+Authorization: Bearer <api_key>
+Content-Type: application/json
+```
+
+**Request body:**
+
+```json
+{
+  "email": "you@example.com",
+  "encrypted_seed": "aeGx8kF..."
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `email` | string | Yes | Recovery email address |
+| `encrypted_seed` | string | Yes | Passphrase-encrypted seed blob (from `VaultCrypto.encryptSeedBackup()`) |
+
+**Response `200`:**
+
+```json
+{
+  "registered": true,
+  "email": "you@example.com"
+}
+```
+
+---
+
+### Store encrypted seed (anonymous)
+
+Store an encrypted seed without an API key (for bootstrapping recovery before first login).
+
+```
+POST /v1/vault/store
+Content-Type: application/json
+```
+
+**Request body:**
+
+```json
+{
+  "encrypted_seed": "aeGx8kF...",
+  "recovery_email": "you@example.com"
+}
+```
+
+**Response `200`:**
+
+```json
+{
+  "vault_id": "vlt_abc123...",
+  "stored_at": "2026-03-27T12:00:00Z",
+  "message": "Encrypted seed stored. Use POST /v1/vault/recover with your recovery email to retrieve it."
+}
+```
+
+**Rate limit:** 5 store operations per email per day.
+
+---
+
+### Request recovery link
+
+Send a magic link to retrieve stored encrypted seeds.
+
+```
+POST /v1/vault/recover
+Content-Type: application/json
+```
+
+**Request body:**
+
+```json
+{
+  "email": "you@example.com"
+}
+```
+
+**Response `200`:**
+
+```json
+{
+  "sent": true,
+  "message": "Recovery link sent. Check your inbox — expires in 15 minutes."
+}
+```
+
+**Notes:**
+- Returns `200` even if the email isn't registered (prevents email enumeration)
+- Rate limit: 3 attempts per email per hour
+
+---
+
+### Verify recovery token
+
+Verify the magic link token and retrieve encrypted seeds.
+
+```
+GET /v1/vault/recover/verify?token=<token>
+```
+
+**Response `200`:**
+
+```json
+{
+  "entries": [
+    {
+      "vault_id": "vlt_abc123...",
+      "encrypted_seed": "aeGx8kF...",
+      "created_at": "2026-03-27T12:00:00Z"
+    }
+  ],
+  "account_entries": [
+    {
+      "account_id": "acc_xyz...",
+      "encrypted_seed": "aeGx8kF..."
+    }
+  ]
+}
+```
+
+**Notes:**
+- Token is single-use — it's deleted on successful verification
+- Token expires 15 minutes after the recovery email is sent
+
+**Response `400` (invalid/expired):**
+
+```json
+{
+  "error": "invalid_token",
+  "message": "Invalid or expired recovery token."
+}
+```
+
+---
+
+## x402 Autonomous Payments
+
+When a free-tier account hits the key limit (`max_keys = 10`), the API returns `402 Payment Required`. Agents can pay autonomously using the x402 protocol.
+
+**Response `402`:**
+
+```json
+{
+  "error": "payment_required",
+  "message": "Vault key limit reached on free tier.",
+  "x402_version": 1,
+  "accepts": [
+    {
+      "scheme": "exact",
+      "network": "base",
+      "maxAmountRequired": "1000",
+      "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      "payTo": "0x...",
+      "description": "Vault write — 1 extra key"
+    }
+  ]
+}
+```
+
+Retry the `PUT` request with `X-PAYMENT: <payment_header>` added.
+
+---
+
+## Error codes
+
+| Code | HTTP | Meaning |
+|------|------|---------|
+| `invalid_ciphertext` | 400 | Missing or non-string ciphertext field |
+| `payload_too_large` | 400 | Ciphertext exceeds tier size limit |
+| `metadata_too_large` | 400 | Metadata exceeds 4 KB |
+| `invalid_version` | 400 | Version query param is not a positive integer |
+| `not_found` | 404 | Key doesn't exist |
+| `version_not_found` | 404 | Specific version was pruned or never existed |
+| `method_not_allowed` | 405 | HTTP method not supported for this endpoint |
+| `payment_required` | 402 | Free tier limit reached — pay via x402 |
+| `rate_limited` | 429 | Too many requests (per-key, per-account, or per-email) |
+| `unauthorized` | 401 | Missing or invalid API key |
+
+---
+
+## Rate limits
+
+| Scope | Free tier | Paid tier |
+|-------|-----------|-----------|
+| API calls per day | 100 | 10,000 |
+| Max keys | 10 | Unlimited |
+| Versions per key | 3 | 100 |
+| Blob size | 16 KB | 64 KB |
+| Recovery emails per day | 5 | 5 |
+| Recovery attempts per hour | 3 | 3 |

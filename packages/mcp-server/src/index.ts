@@ -31,7 +31,7 @@ import {
 
 const AGENTLAIR_BASE = "https://agentlair.dev";
 const SERVER_NAME = "agentlair";
-const SERVER_VERSION = "1.0.0";
+const SERVER_VERSION = "1.1.1";
 
 // ─── API Client ───────────────────────────────────────────────────────────────
 

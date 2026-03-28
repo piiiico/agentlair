@@ -34,7 +34,7 @@ async function getAccountAddresses(env: Env, accountId: string): Promise<string[
 }
 import { decryptEmailField } from '../platform-crypto.js';
 import { getEmailProvider } from '../email-provider.js';
-import { X402_CONFIG, EMAIL_PAYMENT_REQUIRED_RESPONSE, verifyX402Payment, settleX402Payment } from '../x402.js';
+import { X402_CONFIG, EMAIL_PAYMENT_REQUIRED_RESPONSE, verifyX402Payment, settleX402Payment, trackX402Spend, autoUpgradeIfThreshold, SERVICE_PRICES } from '../x402.js';
 import { verifyAgentKit, recordAgentkitUsage, AGENTKIT_FREE_TRIAL_USES } from '../middleware/agentkit.js';
 
 // ─── Request body types ─────────────────────────────────────────────────────
@@ -786,6 +786,13 @@ export async function handleEmailRoutes(
         const settlement = await settleX402Payment(x402PaymentHeader);
         if (settlement.settled && settlement.receipt) {
           responseHeaders['X-Payment-Response'] = settlement.receipt;
+        }
+        // Track spend and auto-upgrade if threshold reached (fire-and-forget)
+        try {
+          const spend = await trackX402Spend(env, account.id, SERVICE_PRICES.email_send.amount);
+          await autoUpgradeIfThreshold(env, account, spend);
+        } catch {
+          // Non-critical — don't fail the send
         }
       }
 

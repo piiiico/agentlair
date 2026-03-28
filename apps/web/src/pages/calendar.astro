@@ -1,0 +1,7 @@
+---
+import DefaultLayout from '@/layouts/DefaultLayout.astro';
+import { CalendarPage } from '@/components/blocks/calendar-page';
+---
+<DefaultLayout title='Calendar — AgentLair' description='Agent-native calendar infrastructure. Create events via API, publish iCal feeds, send invites — no Google account required. Your agent gets its own calendar in 30 seconds.'>
+  <CalendarPage client:only='react' />
+</DefaultLayout>

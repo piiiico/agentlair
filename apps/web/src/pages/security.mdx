@@ -1,0 +1,294 @@
+---
+layout: ../layouts/BasicLayout.astro
+title: "Security at AgentLair — What We Protect and What We Don't"
+description: "A technical overview of AgentLair's security architecture: E2E encryption, encryption at rest, API key auth, vault design, and what we explicitly don't protect against."
+---
+
+# Security at AgentLair: What We Protect and What We Don't
+
+AgentLair handles email and secrets for AI agents. If you're evaluating whether to trust us with your agent's data, this page tells you exactly how security works under the hood — including the parts we can't protect you from.
+
+> **Linkable reference** — If you're a ClawHub skill author, link directly to this page from your skill's description. Use the section anchors for targeted references (e.g., `/security#for-skill-and-plugin-evaluators`).
+
+## For Skill and Plugin Evaluators
+
+If you're reviewing an AgentLair skill in ClawHub, a VS Code extension, or an MCP marketplace, you may see a warning like *"this skill sends data to an external endpoint"* from static analysis or security scanners. That warning is technically accurate. Here's what's actually happening.
+
+### Why this skill connects to agentlair.dev
+
+AgentLair skills are not local plugins that wrap a local library. They are thin clients for a cloud-backed agent primitive:
+
+- **The email skill** calls `api.agentlair.dev` to send and receive email on behalf of your agent. There is no way to deliver email without a mail server — the network call is the service.
+- **The vault skill** calls `api.agentlair.dev` to store and retrieve encrypted blobs. The server is a remote KV store. Your agent encrypts secrets locally; the ciphertext is what travels over the wire.
+
+This is the same architectural pattern as using Stripe for payments or Twilio for SMS. The external endpoint is the service, not a side channel.
+
+### What data leaves your environment
+
+| Skill | What is transmitted | What AgentLair receives |
+|---|---|---|
+| Email (send) | To/from address, subject, body | Plaintext body (encrypted at rest on arrival) |
+| Email (receive) | API key + address lookup | Encrypted blob (you decrypt if E2E is enabled) |
+| Vault (write) | API key + **pre-encrypted ciphertext** | Opaque blob — never plaintext |
+| Vault (read) | API key + key name | The same encrypted blob you stored |
+
+### What we cannot see
+
+**Vault:** Every write to AgentLair Vault is encrypted client-side before the request leaves your agent. Your master seed and the plaintext secret never reach our servers. We store opaque bytes. Without your seed or passphrase, we cannot decrypt any vault entry — not under legal process, not under a breach, not ever.
+
+**Email body with E2E:** When end-to-end encryption is enabled, email bodies are encrypted with your X25519 public key before storage. We hold ciphertext. We have no private key and cannot decrypt.
+
+**Email body without E2E:** Bodies are encrypted at rest with a platform-level AES-256-GCM key. We hold this key and could theoretically decrypt in a server compromise scenario — this is the documented limitation. Email body content is never sent to any third-party analytics or logging system.
+
+## Threat Model
+
+### What we protect against
+
+- **AgentLair reading your data.** With E2E encryption enabled, email bodies are encrypted with your public key before storage. We hold ciphertext. We can't read it.
+- **Data exposure from a KV store breach.** All email bodies are encrypted at rest with a platform-level AES-256-GCM key, even without E2E. An attacker who dumps the store gets encrypted blobs.
+- **Cross-user data access.** Every API call authenticates via hashed API key and resolves to an `account_id`. Inbox access, sending, webhooks, and vault operations are all scoped to the authenticated account.
+- **Credential theft after key compromise.** API keys are SHA-256 hashed before storage. If the key store leaks, attackers get hashes, not keys. You can rotate keys and activate backups instantly via the API.
+- **Spam and abuse.** Multi-layer rate limiting: per-address daily/hourly/burst limits, bounce-rate suspension, per-account request caps.
+
+### What we explicitly don't protect against
+
+> **Honest Limitation**
+>
+> A fully compromised AgentLair server can intercept plaintext for new messages — even with E2E enabled. If an attacker controls the worker code, they could swap out the encryption step and store plaintext instead. E2E protects stored data and protects against passive breaches, but it does not protect against an active attacker who controls the server. This is true of any web service that performs encryption server-side on incoming data.
+>
+> Vault secrets are safe in this scenario — they're encrypted client-side before reaching AgentLair. We never see the plaintext.
+
+- **Compromised client.** If your agent's runtime is compromised (container escape, stolen env vars), the attacker has your API key and master seed. That's game over for that agent's data — same as any credential theft.
+- **Social engineering of recovery emails.** Vault recovery relies on email magic links. If an attacker controls the recovery email account, they can access encrypted vault entries (still encrypted — they'd need the passphrase to decrypt).
+
+## E2E Encryption
+
+AgentLair offers optional end-to-end encryption for email bodies. When enabled, the server **never sees plaintext** — bodies are encrypted before storage and can only be decrypted by the agent holding the private key.
+
+### The crypto stack
+
+| Layer | Algorithm | Implementation |
+|---|---|---|
+| Key exchange | X25519 ECDH | `@noble/curves` (audited, no native deps) |
+| Key derivation | HKDF-SHA-256 | Web Crypto API |
+| Encryption | AES-256-GCM | Web Crypto API |
+| RNG | CSPRNG | `crypto.getRandomValues()` |
+
+### How it works
+
+```
+Agent                                AgentLair
+│                                      │
+│  1. Generate 32-byte master seed     │
+│     (CSPRNG, never sent to server)   │
+│                                      │
+│  2. Derive X25519 key pair           │
+│     HKDF(seed, "agentlair:           │
+│      x25519-keypair:{index}")        │
+│                                      │
+│  3. Register public key  ──────────▶ │  Store public key
+│                                      │
+│               Inbound email arrives  │
+│                                      │
+│                                      │  4. Generate ephemeral X25519 key
+│                                      │  5. ECDH(ephemeral, recipient_pub)
+│                                      │  6. HKDF → AES-256-GCM key
+│                                      │  7. Encrypt body, store ciphertext
+│                                      │
+│  8. GET message  ──────────────────▶ │
+│  ◀───  { ciphertext, ephemeral_pub } │
+│                                      │
+│  9. ECDH(private_key, ephemeral_pub) │
+│  10. HKDF → AES key → Decrypt        │
+```
+
+The ciphertext format is compact: `[32B ephemeral_pub][12B IV][ciphertext+tag]`, base64url-encoded. No custom wire format — standard primitives, standard serialization.
+
+### Key rotation without data loss
+
+Keys are derived deterministically from a master seed + index. Index 0 is your first key, index 1 is after rotation, and so on. Old keys are retained in your account's key history, so messages encrypted to previous keys remain decryptable. You derive the corresponding private key from the same seed at the old index.
+
+> **Design choice**
+>
+> We chose X25519 + HKDF + AES-256-GCM because it's the same stack used by Signal and WireGuard. No exotic primitives. The `@noble/curves` library is audited, has zero dependencies, and runs everywhere — Cloudflare Workers, Bun, Node, Deno, browsers.
+
+## Encryption at Rest
+
+Independently of E2E, **all stored email bodies are encrypted at rest** with a platform-level key using AES-256-GCM. This is a server-side encryption layer — AgentLair holds the key.
+
+This protects against:
+- KV store breach (attacker dumps data, gets encrypted blobs)
+- Accidental data exposure (misconfigured access, logs)
+
+It does **not** protect against a compromised server (which holds the key). That's what E2E is for.
+
+When both layers are active, the data path is:
+
+```
+plaintext → E2E encrypt (agent's key) → platform encrypt (server key) → KV store
+KV store → platform decrypt → E2E ciphertext → return to agent → agent decrypts
+```
+
+Two independent keys, two independent layers. Compromising one doesn't break the other.
+
+## API Key Authentication
+
+### How keys work
+
+1. `POST /v1/auth/keys` generates a key: `al_live_` + 32 random characters (CSPRNG)
+2. The key is SHA-256 hashed. Only the hash is stored in KV.
+3. The raw key is returned once and never stored server-side.
+4. Every authenticated request: hash the provided key, look up the hash.
+
+Key format example: `al_live_Ax7bQ9...`. The `al_live_` prefix aids debugging and secret scanning without reducing entropy.
+
+### Key lifecycle
+
+| Operation | Endpoint | What happens |
+|---|---|---|
+| Create | `POST /v1/auth/keys` | New account + active key |
+| Rotate | `POST /v1/auth/keys/rotate` | Old key revoked, new key active |
+| Backup | `POST /v1/auth/keys/generate-backup` | Dormant key, can't auth yet |
+| Activate backup | `POST /v1/auth/keys/activate-backup` | Backup → active, old → revoked |
+
+At most one active key and one backup key exist at any time. Revoked keys are kept in the audit trail but cannot authenticate.
+
+### User isolation
+
+Every resource is namespaced by `account_id`:
+
+- Email addresses: `email-owner:{address} → account_id`
+- Messages: `msg:{address}:{message_id}` (address acts as shard, ownership verified on access)
+- Vault entries: `vault:{account_id}:{key}:{version}`
+- Outbox: `outbox:{account_id}:{timestamp}:{msg_id}`
+- Webhooks: scoped by account_id at registration
+
+There is no admin API, no superuser key, no backdoor. AgentLair operators interact with data only through the same API.
+
+## Vault: Encrypted Secret Storage
+
+Vault is a zero-knowledge secret store for agents. The core principle: **client encrypts, server stores blobs, server never sees plaintext.**
+
+### How it works
+
+1. Your agent generates an encryption key (from a master seed or passphrase).
+2. Encrypt the secret locally with AES-256-GCM.
+3. `PUT /v1/vault/{key}` with the ciphertext. AgentLair stores an opaque blob.
+4. `GET /v1/vault/{key}` returns the blob. Your agent decrypts locally.
+
+```
+Your Agent                        AgentLair Vault
+│                                    │
+│  encrypt(secret) → ciphertext      │
+│  PUT /v1/vault/my-key  ──────────▶ │  store opaque blob
+│                                    │  (cannot decrypt)
+│  GET /v1/vault/my-key  ──────────▶ │
+│  ◀──  ciphertext                   │
+│  decrypt(ciphertext) → secret      │
+```
+
+### Recovery
+
+When everything fails — container destroyed, API key lost, agent gone — recovery works through a registered email:
+
+1. `POST /v1/vault/recover` with your recovery email address
+2. AgentLair sends a single-use magic link (15 minute TTL)
+3. The link returns all your encrypted vault entries
+4. Decrypt with your passphrase or master seed
+5. Spin up a new agent with recovered secrets
+
+No support ticket. No human at AgentLair involved. The recovery endpoint returns the same response regardless of whether the email exists — no enumeration possible.
+
+> **Key point**
+>
+> Recovery returns encrypted blobs. Even if an attacker compromises the recovery email, they still need the passphrase or master seed to decrypt the secrets. This is defense in depth — email compromise alone is not enough.
+
+### Recommended client-side crypto
+
+We document (but don't enforce) a recommended encryption scheme:
+
+- **Master seed:** 32 bytes from CSPRNG
+- **Per-secret key:** `HKDF-SHA256(master_seed, key_name)` → 32-byte AES key
+- **Encryption:** AES-256-GCM with random 12-byte IV
+- **Seed backup:** Encrypt master seed with a passphrase via PBKDF2 (600,000 iterations). Store the encrypted seed in Vault under `_master_seed_backup`.
+
+Use whatever crypto you trust. Vault stores opaque bytes — it doesn't care about the algorithm.
+
+## Open-Source Crypto
+
+The client-side encryption library — `@agentlair/vault-crypto` — is MIT-licensed and available on GitHub:
+
+**[github.com/piiiico/agentlair — packages/vault-crypto](https://github.com/piiiico/agentlair/tree/main/packages/vault-crypto)**
+
+You can read the source, run the tests, and audit every line. There are zero runtime dependencies — only the built-in Web Crypto API. The library works in Node.js (≥18), Bun, Deno, Cloudflare Workers, and browsers.
+
+```bash
+# Audit it yourself
+git clone https://github.com/piiiico/agentlair
+cd packages/vault-crypto
+bun test
+```
+
+The crypto stack is intentionally conservative: HKDF-SHA-256 for key derivation, PBKDF2-SHA-256 (600,000 iterations) for passphrase hardening, AES-256-GCM for encryption. No external crypto libraries — just the same Web Crypto API primitives used in browsers and server runtimes.
+
+## Email Authentication
+
+All outbound email sent through AgentLair is authenticated at the DNS level. This means recipients' mail servers can cryptographically verify that an email claiming to be from your AgentLair address was actually sent by us, and not forged.
+
+| Standard | What it does | Status |
+|---|---|---|
+| **SPF** | Lists authorized mail servers for the sending domain | ✓ Configured |
+| **DKIM** | Cryptographic signature on every outbound message | ✓ Signed per-message |
+| **DMARC** | Policy that tells receivers how to handle SPF/DKIM failures | ✓ Policy enforced |
+
+**What this means for you:**
+
+- Emails sent through AgentLair won't be flagged as spoofed or sent to spam due to authentication failures.
+- If a bad actor tries to forge email *from* your AgentLair address without an API key, receiving mail servers will reject or quarantine it.
+- AgentLair's deliverability reputation is shared infrastructure — the bounce-rate limits exist to protect it.
+
+**What this does not guarantee:**
+
+- Authentication doesn't prevent spam if your agent sends unwanted content. Rate limits and bounce-rate enforcement are the abuse controls, not authentication.
+- Authentication is at the domain level. Your agent's sending reputation depends on recipient engagement with your emails, not just authentication headers.
+
+## Rate Limiting & Abuse Prevention
+
+| Limit | Free tier | Pro tier |
+|---|---|---|
+| Emails per day | 10 | 1,000 |
+| Emails per hour | 5 | 200 |
+| Burst (per minute) | 3 | 60 |
+| API requests per day | 100 | 10,000 |
+| Bounce rate threshold | >10% after 10 sends → suspended | |
+
+All limits are tracked per-address (email) or per-account (API). Bounce rate suspension is automatic — addresses with high bounce rates are blocked for 30 days. This protects AgentLair's deliverability reputation, which protects every agent using the platform.
+
+## What's Not Covered
+
+Transparency means saying the quiet parts out loud:
+
+- **No end-to-end encryption for metadata.** Email subjects, sender/recipient addresses, and timestamps are stored in plaintext. E2E covers the body only. This is a deliberate trade-off — metadata enables inbox listing, search, and webhooks.
+- **No forward secrecy.** If your master seed is compromised, all past messages encrypted with keys derived from it can be decrypted. The deterministic key derivation that enables key rotation and recovery is the same property that prevents forward secrecy.
+- **Cloudflare is in the trust chain.** AgentLair runs on Cloudflare Workers. Cloudflare terminates TLS and could theoretically inspect traffic. If your threat model excludes Cloudflare, AgentLair isn't the right choice.
+- **Vault metadata is not encrypted.** The `metadata` field on vault entries (labels, algorithm hints) is stored in plaintext. Never put sensitive information in metadata.
+
+## Infrastructure
+
+| Component | Provider | Purpose |
+|---|---|---|
+| Compute | Cloudflare Workers | API + email processing |
+| Storage | Cloudflare KV | Keys, emails, vault entries |
+| Email delivery | Resend | Outbound SMTP (DKIM/SPF/DMARC) |
+| Email reception | Cloudflare Email Routing | Inbound MX handling |
+| TLS | Cloudflare | Automatic HTTPS |
+
+**No servers, no SSH.** The entire service runs on Cloudflare Workers — a serverless edge platform where there are no virtual machines, no containers, and no persistent processes to attack. AgentLair operators have no SSH or shell access to the runtime environment. Code is deployed as a Worker bundle; there is no "server" to log into.
+
+**KV storage with TTLs.** Email messages are stored with a configurable time-to-live (default: 7 days). After expiry, Cloudflare automatically purges the entry. This is enforced at the storage layer, not by application logic — a compromised Worker cannot override it. Vault entries have no expiry by default but can be deleted by the owning account at any time.
+
+**Attack surface.** There are no databases, no VMs, no containers to patch, and no long-running processes with accumulated state. The attack surface is: the Worker code, the KV namespace, and the API keys. We keep all three minimal by design.
+
+## Reporting Security Issues
+
+Found something? Email [security@agentlair.dev](mailto:security@agentlair.dev). We take reports seriously and will respond within 48 hours. If you've found a data isolation or authentication bypass, we'd rather hear about it from you than discover it ourselves.

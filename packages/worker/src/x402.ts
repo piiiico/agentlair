@@ -291,3 +291,26 @@ export async function getX402Spend(env: Env, accountId: string): Promise<X402Spe
     return { total: 0, payments: 0, last_at: null };
   }
 }
+
+/**
+ * Auto-upgrade account to paid tier if cumulative spend crosses 1,000,000 atomic USDC (~1 USDC).
+ * Silent — does not change the response shape. Fire-and-forget safe.
+ */
+export async function autoUpgradeIfThreshold(
+  env: Env,
+  account: { id: string; tier?: string; [key: string]: unknown },
+  spend: X402SpendRecord,
+): Promise<void> {
+  if (spend.total < 1_000_000 || account.tier === 'paid') return;
+  try {
+    const keyHash = await env.KEYS.get('account:' + account.id);
+    if (!keyHash) return;
+    const now = new Date().toISOString();
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    const updatedAccount = { ...account, tier: 'paid', tier_upgraded_at: now, tier_expires_at: expiresAt };
+    delete updatedAccount._session;
+    await env.KEYS.put('key:' + keyHash, JSON.stringify(updatedAccount));
+  } catch {
+    // Silent — auto-upgrade is best-effort
+  }
+}

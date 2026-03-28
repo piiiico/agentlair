@@ -1,0 +1,108 @@
+---
+layout: ../../../layouts/BasicLayout.astro
+title: "AgentLair Vault — Docs"
+description: "Zero-knowledge encrypted credential storage for AI agents. Client-side AES-256-GCM. Edge-deployed on Cloudflare."
+---
+
+# AgentLair Vault
+
+**The credential store AI agents actually use.**
+
+Zero-knowledge. Edge-deployed. 30-second setup. Your secrets are encrypted before they leave your agent — we never see them.
+
+---
+
+## What Vault is
+
+Vault is a zero-knowledge encrypted key-value store purpose-built for AI agents. Agents store API keys, tokens, credentials, and any sensitive data — encrypted client-side, opaque to the server.
+
+The key property: **AgentLair cannot read your secrets**. Ever. The server receives ciphertext and stores ciphertext. Decryption happens only inside your agent.
+
+---
+
+## When to use Vault
+
+| Situation | Vault helps |
+|-----------|-------------|
+| Agent needs an OpenAI API key at runtime | Store encrypted, fetch and decrypt per-call |
+| Multiple agents share a credential | Scope per-agent via separate API keys |
+| Secrets rotating frequently | Versioned storage, always fetch latest |
+| MCP server needs credentials | Programmatic fetch, never in context window |
+| `.env` files feel wrong in production | They are. Vault is the upgrade. |
+
+---
+
+## How it works
+
+```
+Your agent                           AgentLair server
+    │                                      │
+    │  1. Generate seed (32 random bytes)  │
+    │     Never sent to server             │
+    │                                      │
+    │  2. Derive AES key from seed         │
+    │     HKDF-SHA-256(seed, key-name)     │
+    │                                      │
+    │  3. Encrypt plaintext                │
+    │     AES-256-GCM, random IV           │
+    │                                      │
+    │  4. PUT /v1/vault/{key}  ──────────▶ │  Stores opaque ciphertext
+    │     {ciphertext: "aeGx8kF..."}       │  Cannot decrypt it
+    │                                      │
+    │  5. GET /v1/vault/{key}  ◀────────── │  Returns ciphertext
+    │     Decrypt locally                  │
+    │     → original plaintext             │
+```
+
+Server stores: `aeGx8kF...ZpQr` (meaningless without your seed)
+
+Your agent decrypts: `sk-proj-abc123...`
+
+---
+
+## Docs sections
+
+- **[Quickstart](/docs/vault/quickstart)** — Get an API key, store a secret, fetch it back. Under 5 minutes.
+- **[Concepts](/docs/vault/concepts)** — Seeds, per-key derivation, versioning, recovery.
+- **[API Reference](/docs/vault/api-reference)** — All endpoints with request/response examples.
+- **[Security Model](/docs/vault/security)** — Encryption stack, what the server sees, audit trail.
+
+---
+
+## Quick example
+
+```bash
+# 1. Get an API key (no sign-up)
+API_KEY=$(curl -s -X POST https://api.agentlair.dev/v1/auth/keys | jq -r .api_key)
+
+# 2. Install the crypto library
+bun add @agentlair/vault-crypto
+
+# 3. Encrypt and store
+bun run -e "
+import { VaultCrypto } from '@agentlair/vault-crypto'
+const seed = VaultCrypto.generateSeed()
+const vc = VaultCrypto.fromSeed(seed)
+const ct = await vc.encrypt('sk-proj-abc123', 'openai-key')
+await fetch('https://api.agentlair.dev/v1/vault/openai-key', {
+  method: 'PUT',
+  headers: { Authorization: 'Bearer $API_KEY', 'Content-Type': 'application/json' },
+  body: JSON.stringify({ ciphertext: ct })
+})
+console.log('Stored. Seed (back this up!):', vc.seedHex())
+"
+```
+
+→ [Full quickstart](/docs/vault/quickstart)
+
+---
+
+## Pricing
+
+| Tier | Keys | Versions | Blob size | Calls/day | Price |
+|------|------|----------|-----------|-----------|-------|
+| Free | 10 | 3 | 16 KB | 100 | $0 |
+| Paid | Unlimited | 100 | 64 KB | 10,000 | $9/month |
+| x402 | Pay per call | — | — | Unlimited | $0.001/call |
+
+Free tier requires no credit card. Paid tier coming soon. x402 lets agents pay autonomously — no human billing setup needed.

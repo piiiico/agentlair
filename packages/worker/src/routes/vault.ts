@@ -16,7 +16,7 @@
 import { nanoid, sha256hex, json, err } from '../utils.js';
 import type { Env, RouteContext, VaultIndexEntry } from '../types.js';
 import { sendVaultRecoveryEmail } from '../middleware/auth.js';
-import { SERVICE_PRICES, X402_CONFIG, verifyX402Payment, make402Response } from '../x402.js';
+import { SERVICE_PRICES, X402_CONFIG, verifyX402Payment, settleX402Payment, make402Response, trackX402Spend, autoUpgradeIfThreshold } from '../x402.js';
 
 const VAULT_LIMITS = {
   free:  { max_keys: 10, max_versions: 3, max_blob_size: 16384 },   // 16 KB
@@ -299,6 +299,7 @@ export async function handleVaultRoutes(
       const currentVersion = latestRaw ? parseInt(latestRaw) : 0;
       const isNew = currentVersion === 0;
 
+      let vaultPaymentReceipt: string | undefined;
       if (isNew) {
         const index = await getVaultIndex();
         if (index.length >= limits.max_keys) {
@@ -325,7 +326,21 @@ export async function handleVaultRoutes(
               headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'X-402-Version': String(X402_CONFIG.x402Version) },
             });
           }
-          // Payment verified — allow the write beyond limit
+          // Payment verified — settle and track spend
+          try {
+            const settlement = await settleX402Payment(paymentHeader, SERVICE_PRICES.vault_write);
+            if (settlement.settled && settlement.receipt) {
+              vaultPaymentReceipt = settlement.receipt;
+            }
+          } catch {
+            // Settlement is non-critical — proceed
+          }
+          try {
+            const spend = await trackX402Spend(env, account.id, SERVICE_PRICES.vault_write.amount);
+            await autoUpgradeIfThreshold(env, account, spend);
+          } catch {
+            // Non-critical
+          }
         }
       }
 
@@ -363,13 +378,16 @@ export async function handleVaultRoutes(
       }
       await saveVaultIndex(index);
 
-      return json({
+      const vaultResponseBody = JSON.stringify({
         key: vaultKey,
         stored: true,
         version: newVersion,
         created_at: createdAt,
         updated_at: now,
-      }, isNew ? 201 : 200);
+      });
+      const vaultResponseHeaders: Record<string, string> = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+      if (vaultPaymentReceipt) vaultResponseHeaders['X-Payment-Response'] = vaultPaymentReceipt;
+      return new Response(vaultResponseBody, { status: isNew ? 201 : 200, headers: vaultResponseHeaders });
     }
 
     // GET /v1/vault/{key} — retrieve an encrypted blob

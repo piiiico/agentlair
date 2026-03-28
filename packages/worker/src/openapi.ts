@@ -2,7 +2,7 @@
 
 export const API_DISCOVERY = {
   name: 'AgentLair API',
-  version: '0.18.0',
+  version: '0.18.1',
   docs: 'https://agentlair.dev/api',
   status: 'operational',
   endpoints: {
@@ -63,7 +63,7 @@ export const OPENAPI_SPEC = {
   "openapi": "3.1.0",
   "info": {
     "title": "AgentLair API",
-    "version": "0.18.0",
+    "version": "0.18.1",
     "description": "AgentLair is an identity infrastructure layer for AI agents — email inboxes, encrypted secret storage,\nshared observations, and cross-agent coordination. All at your own domain.\n\n## Authentication\nMost endpoints require an API key passed as a Bearer token:\n```\nAuthorization: Bearer al_live_<your_key>\n```\nSession tokens (from magic link login) are also accepted: `Authorization: Bearer session_<token>`\n\n## Rate Limits\nFree tier: 100 API requests/day, 10 emails/day. Paid tier: 10,000/day.\nWhen email limits are exceeded, the API returns HTTP 402 with x402 payment requirements\n(0.01 USDC on Base via the x402 protocol).\n\n## Minimal Payloads\nAppend `?verbose=false` to any request to strip human-readable guidance fields (`message`, `note`, `hint`, `warning`, etc.) from all JSON responses. Only machine-actionable fields are returned. Recommended for agents to reduce token usage.\n",
     "contact": {
       "url": "https://agentlair.dev"
@@ -283,6 +283,10 @@ export const OPENAPI_SPEC = {
           },
           "read": {
             "type": "boolean"
+          },
+          "archived": {
+            "type": "boolean",
+            "description": "Whether the message has been archived (default false)"
           },
           "e2e_encrypted": {
             "type": "boolean",
@@ -511,7 +515,7 @@ export const OPENAPI_SPEC = {
                     },
                     "version": {
                       "type": "string",
-                      "example": "0.18.0"
+                      "example": "0.18.1"
                     }
                   }
                 }
@@ -1602,6 +1606,9 @@ export const OPENAPI_SPEC = {
                 "properties": {
                   "read": {
                     "type": "boolean"
+                  },
+                  "archived": {
+                    "type": "boolean"
                   }
                 }
               }
@@ -1623,6 +1630,9 @@ export const OPENAPI_SPEC = {
                       "type": "string"
                     },
                     "read": {
+                      "type": "boolean"
+                    },
+                    "archived": {
                       "type": "boolean"
                     }
                   }

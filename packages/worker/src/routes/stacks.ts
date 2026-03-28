@@ -12,7 +12,7 @@ import { Hono } from 'hono';
 import { json, err, nanoid } from '../utils.js';
 import type { HonoEnv } from '../types.js';
 import { EMAIL_LIMITS } from '../middleware/ratelimit.js';
-import { X402_CONFIG, SERVICE_PRICES, verifyX402Payment, make402Response, getX402Spend } from '../x402.js';
+import { X402_CONFIG, SERVICE_PRICES, verifyX402Payment, settleX402Payment, make402Response, getX402Spend, trackX402Spend, autoUpgradeIfThreshold } from '../x402.js';
 import { tursoExecute } from '../email-provider.js';
 
 // ─── Request body types ─────────────────────────────────────────────────────
@@ -55,6 +55,7 @@ stackRoutes.post('/stack', async (c) => {
     return json(JSON.parse(existingStack));
   }
 
+  let stackPaymentReceipt: string | undefined;
   if (stacks.length >= 1 && account.tier === 'free') {
     // Free tier limit reached — allow bypass via x402 payment
     const paymentHeader = c.req.raw.headers.get('X-PAYMENT');
@@ -80,7 +81,21 @@ stackRoutes.post('/stack', async (c) => {
         headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'X-402-Version': String(X402_CONFIG.x402Version) },
       });
     }
-    // Payment verified — allow stack creation beyond free limit
+    // Payment verified — settle and track spend
+    try {
+      const settlement = await settleX402Payment(paymentHeader, SERVICE_PRICES.stack_create);
+      if (settlement.settled && settlement.receipt) {
+        stackPaymentReceipt = settlement.receipt;
+      }
+    } catch {
+      // Settlement is non-critical — proceed
+    }
+    try {
+      const spend = await trackX402Spend(c.env, account.id, SERVICE_PRICES.stack_create.amount);
+      await autoUpgradeIfThreshold(c.env, account, spend);
+    } catch {
+      // Non-critical
+    }
   }
 
   const stackId = 'stk_' + nanoid(16);
@@ -108,6 +123,16 @@ stackRoutes.post('/stack', async (c) => {
   const keyHash = await c.env.KEYS.get('account:' + account.id);
   if (keyHash) await c.env.KEYS.put('key:' + keyHash, JSON.stringify(account));
 
+  if (stackPaymentReceipt) {
+    return new Response(JSON.stringify(stack), {
+      status: 201,
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+        'X-Payment-Response': stackPaymentReceipt,
+      },
+    });
+  }
   return json(stack, 201);
 });
 
