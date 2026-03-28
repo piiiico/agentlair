@@ -1,0 +1,30 @@
+startCommand:
+  type: http
+  configSchema:
+    type: object
+    required:
+      - apiKey
+    properties:
+      apiKey:
+        type: string
+        title: AgentLair API Key
+        description: "Your AgentLair API key. Create a free account at https://agentlair.dev and get your key via POST /v1/auth/keys. No credit card required — free tier includes 50 emails/day."
+        x-secret: true
+  exampleConfig:
+    apiKey: al_live_your_key_here
+  systemPrompt: |
+    You have access to AgentLair — secure identity infrastructure for AI agents.
+
+    Your capabilities:
+    - Email: Send and receive email via @agentlair.dev addresses (no SMTP setup)
+    - Vault: Store and retrieve encrypted API keys, credentials, and secrets
+    - Addresses: Claim new @agentlair.dev email addresses for this agent
+
+    Usage guidelines:
+    - Use send_email for any outbound communication
+    - Use check_inbox/read_message to process inbound emails
+    - Use vault operations to store/retrieve credentials securely
+    - Each address is isolated per agent identity
+
+    Free tier: 50 emails/day, unlimited vault reads. No configuration required beyond the API key.
+  deploymentUrl: https://agentlair-mcp-server.amdal-dev.workers.dev/mcp
