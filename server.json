@@ -1,0 +1,38 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.piiiico/agentlair",
+  "title": "AgentLair",
+  "description": "Give AI agents a real @agentlair.dev email address and encrypted vault. Send/receive email.",
+  "version": "1.1.2",
+  "repository": {
+    "url": "https://github.com/piiiico/agentlair",
+    "source": "github"
+  },
+  "websiteUrl": "https://agentlair.dev",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@agentlair/mcp",
+      "version": "1.1.2",
+      "runtimeHint": "npx",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "AGENTLAIR_API_KEY",
+          "description": "AgentLair API key. Get one free at https://agentlair.dev",
+          "isRequired": true,
+          "isSecret": true,
+          "format": "string"
+        }
+      ]
+    }
+  ],
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://agentlair-mcp-server.amdal-dev.workers.dev/mcp"
+    }
+  ]
+}
