@@ -1,7 +1,7 @@
 {
   "name": "AgentLair",
   "description": "Give AI agents a real email address and credential vault — no SMTP, no DNS, no config. Claim @agentlair.dev addresses and send/receive email via REST. Includes encrypted vault for secrets management.",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "license": "MIT",
   "homepage": "https://agentlair.dev",
   "repository": "https://github.com/piiiico/agentlair",
