@@ -47,7 +47,10 @@ Or visit [agentlair.dev](https://agentlair.dev) to sign up.
 
 #### Claude Desktop / Claude Code
 
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
+Add to your Claude config file:
+- **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+- **Linux:** `~/.config/claude/claude_desktop_config.json`
 
 ```json
 {
@@ -159,6 +162,8 @@ Send an email from a claimed address.
 ```
 
 Optional: `html`, `cc`, `in_reply_to` (for threading).
+
+> **Free tier note:** Outgoing emails require human approval before delivery. The response will include a `draft_id` and a status of `queued_for_approval`. Approve via the AgentLair dashboard or `POST /v1/email/drafts/{draft_id}/send`. Paid tier bypasses approval.
 
 #### `check_inbox`
 Check incoming messages.
