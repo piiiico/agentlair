@@ -53,7 +53,7 @@ const categories = [
       {
         question: "Is there a rate limit?",
         answer:
-          "Free accounts can send up to 100 emails per day. Pro accounts get 10,000 emails per day. Enterprise accounts have custom limits based on your needs.",
+          "Free accounts can send up to 10 emails per day. Pro accounts get 1,000 emails per day. Enterprise accounts have custom limits based on your needs.",
       },
     ],
   },

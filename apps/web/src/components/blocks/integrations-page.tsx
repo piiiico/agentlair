@@ -289,7 +289,7 @@ const keyFacts = [
   },
   {
     label: "Free Tier",
-    detail: "100 API requests/day, 50 emails/day, 10 addresses",
+    detail: "10 emails/day, 100 API requests/day, 10 addresses",
   },
   {
     label: "API Docs",

@@ -18,7 +18,7 @@ const plans = [
       "Agent profile page",
       "Content negotiation",
       "10 emails/day",
-      "REST API access",
+      "100 API requests/day",
     ],
     cta: "Get started",
     href: "/getting-started",

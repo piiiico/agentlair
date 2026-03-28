@@ -68,11 +68,11 @@ export function GettingStarted() {
 
       <section className="pb-28 lg:pb-32">
         <div className="container max-w-3xl space-y-6">
-          {/* Step 1: Create your account */}
-          <StepCard number={1} title="Create your account">
+          {/* Step 1: Register your agent */}
+          <StepCard number={1} title="Register your agent">
             <p>
-              Get an API key that identifies your agent. No email, no credit
-              card, no verification.
+              One call gives your agent an API key and a dedicated email
+              address. No email, no credit card, no verification.
             </p>
 
             <BrowserTip>
@@ -84,13 +84,18 @@ export function GettingStarted() {
                 homepage signup
               </a>{" "}
               and click <strong className="text-foreground">"Create Free Account"</strong>.
-              Your key appears immediately.
+              Your key and address appear immediately.
             </BrowserTip>
 
             <CodeBlock
-              code={`# Terminal:
-curl -X POST https://agentlair.dev/v1/auth/keys
-→ { "api_key": "al_live_k7x9m2p4...", "tier": "free" }`}
+              code={`curl -X POST https://agentlair.dev/v1/auth/agent-register \\
+  -H "Content-Type: application/json" \\
+  -d '{"name": "my-agent"}'
+→ {
+    "api_key": "al_live_k7x9m2p4...",
+    "email_address": "my-agent@agentlair.dev",
+    "account_id": "acct_..."
+  }`}
               language="bash"
               title="Terminal"
             />
@@ -98,58 +103,20 @@ curl -X POST https://agentlair.dev/v1/auth/keys
             <Tip>
               <strong className="text-foreground">Save your API key!</strong>{" "}
               It's shown only once. If you lose it, set a recovery email (step
-              5) to regain access via the dashboard.
-            </Tip>
-          </StepCard>
-
-          {/* Step 2: Claim an email address */}
-          <StepCard number={2} title="Claim an email address">
-            <p>
-              Pick any available{" "}
-              <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-xs">
-                name@agentlair.dev
-              </code>{" "}
-              address. First come, first served.
-            </p>
-
-            <BrowserTip>
-              After creating your account on the homepage, the claim form
-              appears automatically. Or use the{" "}
-              <a
-                href="/dashboard"
-                className="text-primary underline underline-offset-4"
-              >
-                dashboard
-              </a>{" "}
-              &rarr; "Claim New Address".
-            </BrowserTip>
-
-            <CodeBlock
-              code={`curl -X POST https://agentlair.dev/v1/email/claim \\
-  -H "Authorization: Bearer YOUR_API_KEY" \\
-  -H "Content-Type: application/json" \\
-  -d '{"address": "my-agent@agentlair.dev"}'
-→ { "address": "my-agent@agentlair.dev", "claimed": true }`}
-              language="bash"
-              title="Terminal"
-            />
-
-            <Tip>
-              <strong className="text-foreground">Naming tips:</strong> Use
-              descriptive names like{" "}
+              4) to regain access via the dashboard. Use descriptive names like{" "}
               <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-xs">
                 research-agent
-              </code>
-              ,{" "}
+              </code>{" "}
+              or{" "}
               <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-xs">
                 outreach-bot
               </code>
-              , or your project name. You get 10 addresses on the free tier.
+              . You can register up to 10 agents on the free tier.
             </Tip>
           </StepCard>
 
-          {/* Step 3: Send your first email */}
-          <StepCard number={3} title="Send your first email">
+          {/* Step 2: Send your first email */}
+          <StepCard number={2} title="Send your first email">
             <p>
               Send a test email to yourself to verify everything works.
             </p>
@@ -180,8 +147,8 @@ curl -X POST https://agentlair.dev/v1/auth/keys
             />
           </StepCard>
 
-          {/* Step 4: Check your inbox */}
-          <StepCard number={4} title="Check your inbox">
+          {/* Step 3: Check your inbox */}
+          <StepCard number={3} title="Check your inbox">
             <p>
               Reply to the email you just sent, then check your agent's inbox.
             </p>
@@ -205,8 +172,8 @@ curl -X POST https://agentlair.dev/v1/auth/keys
             />
           </StepCard>
 
-          {/* Step 5: Set a recovery email (optional) */}
-          <StepCard number={5} title="Set a recovery email" optional>
+          {/* Step 4: Set a recovery email (optional) */}
+          <StepCard number={4} title="Set a recovery email" optional>
             <p>
               Attach a personal email to your account. This enables magic-link
               dashboard login and key recovery.
@@ -235,8 +202,8 @@ curl -X POST https://agentlair.dev/v1/auth/keys
             />
           </StepCard>
 
-          {/* Step 6: Store secrets in Vault (optional) */}
-          <StepCard number={6} title="Store secrets in Vault" optional>
+          {/* Step 5: Store secrets in Vault (optional) */}
+          <StepCard number={5} title="Store secrets in Vault" optional>
             <p>
               Keep your agent's API keys and credentials safe across container
               restarts. Client-side encrypted &mdash; AgentLair never sees the
@@ -298,8 +265,8 @@ const plain = await vc.decrypt(
             </Tip>
           </StepCard>
 
-          {/* Step 7: Set up Agent Calendar (optional) */}
-          <StepCard number={7} title="Set up your Agent Calendar" optional>
+          {/* Step 6: Set up Agent Calendar (optional) */}
+          <StepCard number={6} title="Set up your Agent Calendar" optional>
             <p>
               Every agent address has a built-in calendar. Create events via
               REST, then share a public iCal URL &mdash; humans subscribe in
