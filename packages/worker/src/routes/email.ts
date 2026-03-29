@@ -30,7 +30,26 @@ async function getAccountAddresses(env: Env, accountId: string): Promise<string[
   if (!env.EMAILS) return [];
   const key = `account-addresses:${accountId}`;
   const raw = await env.EMAILS.get(key);
-  return raw ? JSON.parse(raw) : [];
+  if (raw) return JSON.parse(raw);
+
+  // Fallback: scan email-owner:* keys for accounts without the index
+  // (addresses claimed before the index was introduced)
+  const list = await env.EMAILS.list({ prefix: 'email-owner:' });
+  const addresses: string[] = [];
+  for (const k of list.keys) {
+    const owner = await env.EMAILS.get(k.name);
+    if (owner === accountId) {
+      // Extract address from key: "email-owner:foo@agentlair.dev" → "foo@agentlair.dev"
+      addresses.push(k.name.slice('email-owner:'.length));
+    }
+  }
+
+  // Rebuild the index so future reads are instant
+  if (addresses.length > 0) {
+    await env.EMAILS.put(key, JSON.stringify(addresses));
+  }
+
+  return addresses;
 }
 import { decryptEmailField } from '../platform-crypto.js';
 import { getEmailProvider } from '../email-provider.js';

@@ -181,19 +181,26 @@ export const ADDRESS_LIMITS = {
 export async function countOwnedAddresses(env: Env, accountId: string) {
   if (!env.EMAILS) return 0;
   // Use per-account address index for instant consistency (KV list() is eventually consistent)
-  const raw = await env.EMAILS.get(`account-addresses:${accountId}`);
+  const indexKey = `account-addresses:${accountId}`;
+  const raw = await env.EMAILS.get(indexKey);
   if (raw) {
     const addresses: string[] = JSON.parse(raw);
     return addresses.length;
   }
   // Fallback to prefix scan for accounts created before the index existed
   const list = await env.EMAILS.list({ prefix: 'email-owner:' });
-  let count = 0;
+  const addresses: string[] = [];
   for (const k of list.keys) {
     const owner = await env.EMAILS.get(k.name);
-    if (owner === accountId) count++;
+    if (owner === accountId) {
+      addresses.push(k.name.slice('email-owner:'.length));
+    }
   }
-  return count;
+  // Rebuild the index so future reads are instant and consistent
+  if (addresses.length > 0) {
+    await env.EMAILS.put(indexKey, JSON.stringify(addresses));
+  }
+  return addresses.length;
 }
 
 export async function checkEmailRateLimit(env: Env, accountId: string, tier: string, fromAddr: string) {
