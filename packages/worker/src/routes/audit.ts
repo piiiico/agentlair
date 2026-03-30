@@ -1,6 +1,7 @@
 // ─── Audit Routes ────────────────────────────────────────────────────────────
 // Handles: GET /v1/audit/log — query audit trail with filters and pagination
 //          GET /v1/audit/verification-key — return Ed25519 public key
+//          GET /v1/attestations — return audit entries as CAF attestations
 //
 // All routes require authentication (mounted after auth middleware in index.ts).
 
@@ -9,6 +10,7 @@ import type { HonoEnv } from '../types.js';
 import { json, err } from '../utils.js';
 import { ed25519 } from '@noble/curves/ed25519.js';
 import type { AuditEntry } from '../middleware/audit.js';
+import { auditEntryToCAF } from '../caf.js';
 
 export const auditRoutes = new Hono<HonoEnv>();
 
@@ -76,6 +78,70 @@ auditRoutes.get('/log', async (c) => {
   } catch (e) {
     console.error('Audit log query failed:', e instanceof Error ? e.message : String(e));
     return err('Failed to query audit log.', 500, 'audit_query_error');
+  }
+});
+
+// ─── GET /attestations ───────────────────────────────────────────────────────
+// Return audit entries converted to CAF (Commitment Attestation Format).
+// Query params: account=, from=, to=, limit= (default 50, max 1000)
+
+auditRoutes.get('/attestations', async (c) => {
+  const account = c.get('account');
+  if (!account) return err('Authentication required.', 401, 'unauthorized');
+
+  if (!c.env.AUDIT) {
+    return err('Audit trail not enabled for this instance.', 503, 'audit_unavailable');
+  }
+
+  if (!c.env.AUDIT_SIGNING_KEY) {
+    return err('Audit signing key not configured.', 503, 'audit_unavailable');
+  }
+
+  // Parse query params
+  const url = new URL(c.req.url);
+  const accountParam = url.searchParams.get('account');
+  const from = url.searchParams.get('from');
+  const to = url.searchParams.get('to');
+  const limitParam = parseInt(url.searchParams.get('limit') || '50', 10);
+  const limit = Math.min(Math.max(1, isNaN(limitParam) ? 50 : limitParam), 1000);
+
+  // IDOR guard: reject if account param provided and doesn't match authenticated account
+  if (accountParam && accountParam !== account.id) {
+    return err('Account parameter does not match authenticated account.', 403, 'forbidden');
+  }
+
+  // Build query — always filter to authenticated account
+  const conditions: string[] = ['account_id = ?'];
+  const params: (string | number)[] = [account.id];
+
+  if (from) { conditions.push('timestamp >= ?'); params.push(from); }
+  if (to) { conditions.push('timestamp <= ?'); params.push(to); }
+
+  const whereClause = conditions.join(' AND ');
+  const sql = `SELECT * FROM audit_log WHERE ${whereClause} ORDER BY timestamp DESC LIMIT ?`;
+  params.push(limit);
+
+  try {
+    const queryResult = await c.env.AUDIT.prepare(sql)
+      .bind(...params)
+      .all<AuditEntry>();
+
+    const entries = (queryResult.results || []).map((entry) => ({
+      ...entry,
+      details: entry.details
+        ? (typeof entry.details === 'string' ? JSON.parse(entry.details) : entry.details)
+        : null,
+    }));
+
+    // Convert each AuditEntry to CAF attestation
+    const attestations = await Promise.all(
+      entries.map(entry => auditEntryToCAF(entry, c.env.AUDIT_SIGNING_KEY!)),
+    );
+
+    return json({ attestations, count: attestations.length });
+  } catch (e) {
+    console.error('Attestations query failed:', e instanceof Error ? e.message : String(e));
+    return err('Failed to query attestations.', 500, 'attestations_query_error');
   }
 });
 
