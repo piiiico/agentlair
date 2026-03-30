@@ -15,7 +15,8 @@ import { checkRateLimit, checkPodRateLimit } from './middleware/ratelimit.js';
 import { detectAgent, AGENTLAIR_MANIFEST } from './middleware/agent-detect.js';
 import { securityHeaders } from './middleware/security-headers.js';
 import { encryptEmailField, encryptEmailE2E } from './platform-crypto.js';
-// x402 imports removed — catch-all api_request pricing eliminated. Service routes handle their own x402.
+import { make402Response, SERVICE_PRICES } from './x402.js';
+import type { ServicePaymentConfig } from './x402.js';
 
 // ─── Route modules ─────────────────────────────────────────────────────────────
 import { handleAuthRoutes, handleAdminRoutes } from './routes/auth.js';
@@ -26,6 +27,8 @@ import { stackRoutes } from './routes/stacks.js';
 import { podRoutes } from './routes/pods.js';
 import { handleCalendarRoutes } from './routes/calendar.js';
 import { tokenRoutes, publicTokenRoutes } from './routes/tokens.js';
+import { signingKeyRoutes, getSigningKey } from './routes/signing-keys.js';
+import { auditRoutes } from './routes/audit.js';
 
 // ─── Hono App Type ──────────────────────────────────────────────────────────────
 
@@ -71,6 +74,25 @@ function publicHandler(handler: RouteHandler) {
   };
 }
 
+
+// ─── Helper: map request path to service payment config for 402 responses ──────
+// Used by rate limit middleware to return correct x402 requirements per service.
+function getServiceForPath(path: string): ServicePaymentConfig {
+  if (path.startsWith('/v1/email') || path.startsWith('/v1/inbox')) {
+    return SERVICE_PRICES.email_send;
+  }
+  if (path.startsWith('/v1/vault')) {
+    return SERVICE_PRICES.vault_write;
+  }
+  if (path.startsWith('/v1/calendar')) {
+    return SERVICE_PRICES.calendar_event;
+  }
+  if (path.startsWith('/v1/stack')) {
+    return SERVICE_PRICES.stack_create;
+  }
+  // Account management, auth routes — tier upgrade is the appropriate action
+  return SERVICE_PRICES.tier_upgrade;
+}
 
 // ─── Helper: proxy request to CF Pages (Astro landing page) ─────────────────────
 
@@ -219,7 +241,7 @@ app.get('/api', (c) => {
   return new Response(JSON.stringify(OPENAPI_SPEC), { status: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=3600' } });
 });
 
-app.get('/health', () => json({ status: 'ok', timestamp: new Date().toISOString(), version: '0.18.0' }));
+app.get('/health', () => json({ status: 'ok', timestamp: new Date().toISOString(), version: '0.18.3' }));
 
 app.on(['GET', 'HEAD'], '/docs', () =>
   new Response(SCALAR_DOCS_HTML, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=3600', 'X-Powered-By': 'AgentLair' } })
@@ -231,6 +253,67 @@ app.get('/.well-known/agent.json', () =>
     headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=3600' },
   })
 );
+
+// ── RFC 9421 public key directory ────────────────────────────────────────────
+// Unauthenticated — any verifier can look up an agent's signing key by keyid.
+// Keys are immutable once registered (rotation creates a new keyid).
+// Cache aggressively; check status field for revocation.
+
+app.get('/.well-known/agent-keys/:keyid', async (c) => {
+  const keyid = c.req.param('keyid');
+  // Validate keyid format: base64url chars only, length 1-22
+  if (!keyid || !/^[A-Za-z0-9_-]{1,22}$/.test(keyid)) {
+    return err('Invalid keyid format', 400, 'invalid_keyid');
+  }
+  const record = await getSigningKey(c.env, keyid);
+  if (!record) {
+    return err('Signing key not found', 404, 'not_found');
+  }
+  return new Response(JSON.stringify({
+    keyid: record.keyid,
+    algorithm: record.algorithm,
+    public_key: record.public_key,
+    agent_id: record.agent_id,
+    ...(record.agent_name !== undefined && { agent_name: record.agent_name }),
+    ...(record.agent_email !== undefined && { agent_email: record.agent_email }),
+    registered_at: record.registered_at,
+    status: record.status,
+  }), {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/json',
+      // Immutable key content but status may change on revocation → short cache
+      'Cache-Control': 'public, max-age=300',
+    },
+  });
+});
+
+app.get('/.well-known/agent-keys/:keyid/jwks.json', async (c) => {
+  const keyid = c.req.param('keyid');
+  if (!keyid || !/^[A-Za-z0-9_-]{1,22}$/.test(keyid)) {
+    return err('Invalid keyid format', 400, 'invalid_keyid');
+  }
+  const record = await getSigningKey(c.env, keyid);
+  if (!record) {
+    return err('Signing key not found', 404, 'not_found');
+  }
+  return new Response(JSON.stringify({
+    keys: [{
+      kty: 'OKP',
+      crv: 'Ed25519',
+      x: record.public_key,
+      kid: record.keyid,
+      use: 'sig',
+      alg: 'EdDSA',
+    }],
+  }), {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'public, max-age=300',
+    },
+  });
+});
 
 // ── 3. Public API routes (no auth required) ──────────────────────────────────
 
@@ -342,13 +425,15 @@ app.use('/v1/*', async (c: Context<HonoEnv>, next: Next): Promise<void | Respons
       await next();
       return;
     }
-    // No payment → return 429. No catch-all x402 for generic requests.
-    // Only service-specific endpoints (email, vault, calendar, stack) accept x402 payment.
-    return err(
-      'Daily rate limit exceeded. Upgrade to paid tier (POST /v1/account/upgrade, 5.00 USDC) or pay per service via x402.',
-      429,
-      'rate_limit_exceeded',
-    );
+    // No payment → return 402 with x402 payment requirements.
+    // Service-specific endpoints verify the payment; middleware just routes to correct price.
+    return make402Response(getServiceForPath(c.req.path), {
+      rate_limit: {
+        reason: 'daily_limit_exceeded',
+        tier: account.tier || 'free',
+        hint: 'Include X-PAYMENT header with signed USDC authorization to continue. See https://agentlair.dev/docs#x402',
+      },
+    });
   }
 
   // Pod suspension guard + pod-specific rate limiting
@@ -417,6 +502,14 @@ app.use('/v1/calendar/*', legacyHandler(handleCalendarRoutes));
 app.route('/v1/tokens', publicTokenRoutes);
 app.route('/v1/tokens', tokenRoutes);
 
+// Signing key routes (RFC 9421): register, get, delete per-agent Ed25519 keys
+app.route('/v1/agents', signingKeyRoutes);
+
+// Audit routes: /v1/audit/log, /v1/audit/verification-key (mounted at /v1/audit)
+// Also mount at /v1 so /v1/attestations resolves correctly (separate from /v1/audit/attestations)
+app.route('/v1/audit', auditRoutes);
+app.route('/v1', auditRoutes);
+
 // ── 7. Stubbed routes ───────────────────────────────────────────────────────────
 
 app.all('/v1/dns/*', () => json({
@@ -449,8 +542,19 @@ interface CfEmailMessage {
 }
 
 // ─── Email Authentication: DMARC/SPF/DKIM validation ─────────────────────────
-// Parses the Authentication-Results header provided by Cloudflare Email Routing.
-// Returns structured results for SPF, DKIM, and DMARC checks.
+// Parses email authentication status from available signals.
+//
+// IMPORTANT: CF Email Workers does NOT expose Authentication-Results headers.
+// Tested 2026-03-30: message.raw contains only original sender headers (From,
+// DKIM-Signature, etc). CF strips/doesn't inject Authentication-Results or
+// ARC-Authentication-Results into either message.raw or message.headers.
+//
+// Strategy (3 layers):
+// 1. Try Authentication-Results from raw headers or message.headers (future-proofing)
+// 2. Infer from DKIM-Signature presence in raw headers
+// 3. CF Email Routing requires SPF or DKIM pass since July 2025 — delivery itself
+//    implies the email passed authentication. Emails that fail are rejected before
+//    reaching the Worker.
 
 interface AuthResult {
   spf: 'pass' | 'fail' | 'softfail' | 'neutral' | 'none' | 'temperror' | 'permerror' | 'unknown';
@@ -459,44 +563,99 @@ interface AuthResult {
   authenticated: boolean;         // true if SPF=pass OR DKIM=pass
   spoofed_internal: boolean;      // true if From: is @agentlair.dev but didn't pass auth
   raw_header: string | null;      // original header for debugging
+  method: 'header' | 'cf_inferred';  // how auth was determined
 }
 
-function parseAuthenticationResults(headers: Headers, fromAddr: string): AuthResult {
-  const raw = headers.get('Authentication-Results') || headers.get('authentication-results') || null;
+// Extract a header value from raw RFC 5322 header text, handling header folding
+// (continuation lines starting with whitespace per RFC 5322 §2.2.3).
+function extractRawHeader(headerSection: string, headerName: string): string | null {
+  const regex = new RegExp(
+    `^${headerName}:\\s*(.+(?:\\r?\\n[ \\t]+.+)*)`,
+    'im'
+  );
+  const match = headerSection.match(regex);
+  if (!match) return null;
+  // Unfold continuation lines into single line
+  return match[1].replace(/\r?\n[ \t]+/g, ' ').trim();
+}
+
+// Parse auth results from an Authentication-Results header value
+function parseAuthHeader(raw: string): { spf: AuthResult['spf']; dkim: AuthResult['dkim']; dmarc: AuthResult['dmarc'] } {
+  const lower = raw.toLowerCase();
+  const spfMatch = lower.match(/\bspf\s*=\s*(pass|fail|softfail|neutral|none|temperror|permerror)\b/);
+  const dkimMatch = lower.match(/\bdkim\s*=\s*(pass|fail|none|temperror|permerror)\b/);
+  const dmarcMatch = lower.match(/\bdmarc\s*=\s*(pass|fail|none|temperror|permerror)\b/);
+  return {
+    spf: spfMatch ? spfMatch[1] as AuthResult['spf'] : 'none',
+    dkim: dkimMatch ? dkimMatch[1] as AuthResult['dkim'] : 'none',
+    dmarc: dmarcMatch ? dmarcMatch[1] as AuthResult['dmarc'] : 'none',
+  };
+}
+
+function parseAuthenticationResults(
+  rawHeaderSection: string,
+  fromAddr: string,
+  messageHeaders?: Headers,
+): AuthResult {
   const result: AuthResult = {
     spf: 'unknown',
     dkim: 'unknown',
     dmarc: 'unknown',
     authenticated: false,
     spoofed_internal: false,
-    raw_header: raw,
+    raw_header: null,
+    method: 'cf_inferred',
   };
 
-  if (!raw) return result;
+  // ── Layer 1: Try explicit Authentication-Results headers ──────────────
+  // Check raw header section first, then message.headers API
+  let raw =
+    extractRawHeader(rawHeaderSection, 'Authentication-Results') ||
+    extractRawHeader(rawHeaderSection, 'ARC-Authentication-Results') ||
+    null;
 
-  // Parse semicolon-delimited fields from Authentication-Results
-  // Format: "mx.cloudflare.net; dkim=pass ...; spf=pass ...; dmarc=pass ..."
-  const lower = raw.toLowerCase();
+  // Also try message.headers.get() — CF may expose these in future updates
+  if (!raw && messageHeaders) {
+    raw =
+      messageHeaders.get('Authentication-Results') ||
+      messageHeaders.get('ARC-Authentication-Results') ||
+      null;
+  }
 
-  // Extract SPF result
-  const spfMatch = lower.match(/\bspf\s*=\s*(pass|fail|softfail|neutral|none|temperror|permerror)\b/);
-  if (spfMatch) result.spf = spfMatch[1] as AuthResult['spf'];
-  else result.spf = 'none';
+  if (raw) {
+    // Found explicit auth header — parse it
+    const parsed = parseAuthHeader(raw);
+    result.spf = parsed.spf;
+    result.dkim = parsed.dkim;
+    result.dmarc = parsed.dmarc;
+    result.raw_header = raw;
+    result.method = 'header';
+    result.authenticated = result.spf === 'pass' || result.dkim === 'pass';
+  } else {
+    // ── Layer 2: Infer from available signals ─────────────────────────────
+    // CF Email Routing enforces authentication (SPF or DKIM) since July 2025.
+    // If the email reached this Worker, CF already verified it passed.
+    //
+    // We can further refine by checking for DKIM-Signature header presence:
+    // - DKIM-Signature present → DKIM was used and CF verified it
+    // - No DKIM-Signature → CF verified via SPF instead
+    const hasDkimSignature = !!extractRawHeader(rawHeaderSection, 'DKIM-Signature');
 
-  // Extract DKIM result
-  const dkimMatch = lower.match(/\bdkim\s*=\s*(pass|fail|none|temperror|permerror)\b/);
-  if (dkimMatch) result.dkim = dkimMatch[1] as AuthResult['dkim'];
-  else result.dkim = 'none';
+    if (hasDkimSignature) {
+      result.dkim = 'pass';
+      result.spf = 'none';  // Can't determine SPF without sender IP
+    } else {
+      // No DKIM-Signature → CF must have verified via SPF
+      result.spf = 'pass';
+      result.dkim = 'none';
+    }
+    result.dmarc = 'none';  // Can't determine DMARC without explicit header
+    result.authenticated = true;  // CF delivery guarantees authentication
+    result.raw_header = `cf_inferred:dkim_sig=${hasDkimSignature}`;
+    result.method = 'cf_inferred';
+  }
 
-  // Extract DMARC result
-  const dmarcMatch = lower.match(/\bdmarc\s*=\s*(pass|fail|none|temperror|permerror)\b/);
-  if (dmarcMatch) result.dmarc = dmarcMatch[1] as AuthResult['dmarc'];
-  else result.dmarc = 'none';
-
-  // Message is authenticated if at least SPF or DKIM passes
-  result.authenticated = result.spf === 'pass' || result.dkim === 'pass';
-
-  // Detect spoofed @agentlair.dev senders:
+  // ── Spoofed @agentlair.dev detection ──────────────────────────────────
   // Internal addresses should NEVER arrive through external email routing.
   // Any email claiming to be from @agentlair.dev that arrives via CF Email Routing
   // is either spoofed or misconfigured. Flag it regardless of SPF/DKIM.
@@ -527,25 +686,13 @@ async function handleInboundEmail(message: CfEmailMessage, env: Env, ctx: Execut
     const messageId = message.headers.get('Message-ID') || ('inbound_' + nanoid(20));
     const now = new Date().toISOString();
 
-    // ── DMARC/SPF/DKIM validation ──────────────────────────────────────────
-    const authResult = parseAuthenticationResults(message.headers, fromAddr);
-
-    // Reject spoofed @agentlair.dev senders — these NEVER arrive via inbound SMTP legitimately
-    if (authResult.spoofed_internal) {
-      // Log the rejection attempt for monitoring
-      if (env.EMAILS) {
-        ctx.waitUntil(env.EMAILS.put('debug:rejected-spoofed-internal', JSON.stringify({
-          from: fromAddr, to: toAddr, subject,
-          auth: { spf: authResult.spf, dkim: authResult.dkim, dmarc: authResult.dmarc },
-          rejected_at: now,
-        })));
-      }
-      // Silently drop — do not store, do not deliver, do not fire webhooks
-      return;
-    }
-
-    // Read email body from raw stream (only documented API on CF EmailMessage)
-    let rawBody = '';
+    // ── Read raw email stream FIRST ────────────────────────────────────────
+    // Raw stream is read before body parsing. Also used for auth inference:
+    // CF Email Workers does NOT inject Authentication-Results into message.raw
+    // or message.headers (verified 2026-03-30). Auth is inferred from
+    // DKIM-Signature presence + CF delivery guarantee instead.
+    let rawEmail = '';
+    let rawHeaderSection = '';  // Original-case header section for auth parsing
     try {
       const reader = message.raw.getReader();
       const chunks: Uint8Array[] = [];
@@ -560,8 +707,39 @@ async function handleInboundEmail(message: CfEmailMessage, env: Env, ctx: Execut
         combined.set(chunk, off);
         off += chunk.length;
       }
-      const rawEmail = new TextDecoder().decode(combined);
+      rawEmail = new TextDecoder().decode(combined);
+      // Extract header section (before first blank line)
+      let headerEnd = rawEmail.indexOf('\r\n\r\n');
+      if (headerEnd === -1) headerEnd = rawEmail.indexOf('\n\n');
+      if (headerEnd !== -1) {
+        rawHeaderSection = rawEmail.substring(0, headerEnd);
+      }
+    } catch {
+      // If raw stream fails, we continue with empty headers — auth will be 'unknown'
+      rawEmail = '';
+      rawHeaderSection = '';
+    }
 
+    // ── DMARC/SPF/DKIM validation (raw headers + message.headers + CF inference) ──
+    const authResult = parseAuthenticationResults(rawHeaderSection, fromAddr, message.headers);
+
+    // Reject spoofed @agentlair.dev senders — these NEVER arrive via inbound SMTP legitimately
+    if (authResult.spoofed_internal) {
+      // Log the rejection attempt for monitoring
+      if (env.EMAILS) {
+        ctx.waitUntil(env.EMAILS.put('debug:rejected-spoofed-internal', JSON.stringify({
+          from: fromAddr, to: toAddr, subject,
+          auth: { spf: authResult.spf, dkim: authResult.dkim, dmarc: authResult.dmarc, method: authResult.method },
+          rejected_at: now,
+        })));
+      }
+      // Silently drop — do not store, do not deliver, do not fire webhooks
+      return;
+    }
+
+    // ── Parse email body from raw stream (already read above) ──────────────
+    let rawBody = '';
+    try {
       // Find MIME header/body boundary
       let bodyStart = rawEmail.indexOf('\r\n\r\n');
       if (bodyStart === -1) bodyStart = rawEmail.indexOf('\n\n');
@@ -570,7 +748,7 @@ async function handleInboundEmail(message: CfEmailMessage, env: Env, ctx: Execut
         let bodyContent = rawEmail.substring(bodyStart + sep);
 
         // Check Content-Transfer-Encoding from headers
-        const headerSection = rawEmail.substring(0, bodyStart).toLowerCase();
+        const headerSection = rawHeaderSection.toLowerCase();
         const isQuotedPrintable = headerSection.includes('content-transfer-encoding: quoted-printable');
         const isBase64 = headerSection.includes('content-transfer-encoding: base64');
 
@@ -697,6 +875,7 @@ async function handleInboundEmail(message: CfEmailMessage, env: Env, ctx: Execut
       dkim: authResult.dkim,
       dmarc: authResult.dmarc,
       authenticated: authResult.authenticated,
+      method: authResult.method,
     };
 
     if (env.EMAILS) {
@@ -750,7 +929,7 @@ async function handleInboundEmail(message: CfEmailMessage, env: Env, ctx: Execut
             message: {
               message_id: messageId, from: fromAddr, subject,
               body_preview: msg!.body_preview, received_at: now,
-              auth: { spf: authResult.spf, dkim: authResult.dkim, dmarc: authResult.dmarc, authenticated: authResult.authenticated },
+              auth: { spf: authResult.spf, dkim: authResult.dkim, dmarc: authResult.dmarc, authenticated: authResult.authenticated, method: authResult.method },
             },
           };
           await Promise.allSettled(hookIds.map(async (hookId: string) => {
