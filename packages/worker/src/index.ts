@@ -10,12 +10,13 @@ import type { Env, Account, RouteContext, RouteHandler } from './types.js';
 import { InboxNotifier } from './durable-objects/inbox-notifier.js';
 import { API_DISCOVERY, OPENAPI_SPEC, SCALAR_DOCS_HTML } from './openapi.js';
 import { AGENT_CARD } from './a2a.js';
+import { LLMS_TXT } from './llms-txt.js';
 import { authenticateAny } from './middleware/auth.js';
 import { checkRateLimit, checkPodRateLimit } from './middleware/ratelimit.js';
 import { detectAgent, AGENTLAIR_MANIFEST } from './middleware/agent-detect.js';
 import { securityHeaders } from './middleware/security-headers.js';
 import { encryptEmailField, encryptEmailE2E } from './platform-crypto.js';
-import { make402Response, SERVICE_PRICES } from './x402.js';
+import { make402Response, SERVICE_PRICES, verifyX402Payment, settleX402Payment, trackX402Spend, autoUpgradeIfThreshold } from './x402.js';
 import type { ServicePaymentConfig } from './x402.js';
 
 // ─── Route modules ─────────────────────────────────────────────────────────────
@@ -77,7 +78,11 @@ function publicHandler(handler: RouteHandler) {
 
 // ─── Helper: map request path to service payment config for 402 responses ──────
 // Used by rate limit middleware to return correct x402 requirements per service.
-function getServiceForPath(path: string): ServicePaymentConfig {
+// Read (GET) requests use the cheaper general_read price; writes use per-service pricing.
+function getServiceForPath(path: string, method?: string): ServicePaymentConfig {
+  if (method === 'GET') {
+    return SERVICE_PRICES.general_read;
+  }
   if (path.startsWith('/v1/email') || path.startsWith('/v1/inbox')) {
     return SERVICE_PRICES.email_send;
   }
@@ -92,6 +97,21 @@ function getServiceForPath(path: string): ServicePaymentConfig {
   }
   // Account management, auth routes — tier upgrade is the appropriate action
   return SERVICE_PRICES.tier_upgrade;
+}
+
+// ─── x402 self-handling routes ──────────────────────────────────────────────────
+// These routes verify + settle x402 payments in their own handler code.
+// The middleware must NOT double-verify for these — just pass through.
+const SELF_HANDLING_X402: Array<[string, string]> = [
+  ['POST', '/v1/email/send'],
+  ['POST', '/v1/vault'],
+  ['POST', '/v1/calendar/events'],
+  ['POST', '/v1/stack'],
+  ['POST', '/v1/account/upgrade'],
+];
+
+function hasOwnX402Handler(method: string, path: string): boolean {
+  return SELF_HANDLING_X402.some(([m, p]) => method === m && path.startsWith(p));
 }
 
 // ─── Helper: proxy request to CF Pages (Astro landing page) ─────────────────────
@@ -251,6 +271,13 @@ app.get('/.well-known/agent.json', () =>
   new Response(JSON.stringify(AGENT_CARD, null, 2), {
     status: 200,
     headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=3600' },
+  })
+);
+
+app.get('/llms.txt', () =>
+  new Response(LLMS_TXT, {
+    status: 200,
+    headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=3600' },
   })
 );
 
@@ -416,18 +443,58 @@ app.use('/v1/*', async (c: Context<HonoEnv>, next: Next): Promise<void | Respons
   // Rate limit: unified account-level daily check
   const allowed = await checkRateLimit(c.env, account.id, account.tier || 'free');
   if (!allowed) {
-    // x402: any request with X-PAYMENT bypasses the general rate limit.
-    // The service handler (email, vault, calendar, stack) will do final x402 verification.
-    // Auth already prevents unauthenticated abuse — a garbage payment will be
-    // rejected downstream, not here.
     const xPayment = c.req.header('X-PAYMENT');
     if (xPayment) {
+      // Routes that verify+settle x402 in their own handler — pass through
+      if (hasOwnX402Handler(c.req.method, c.req.path)) {
+        await next();
+        return;
+      }
+
+      // All other routes: middleware verifies and settles the payment
+      const service = getServiceForPath(c.req.path, c.req.method);
+      const verification = await verifyX402Payment(xPayment, service);
+      if (!verification.valid) {
+        return make402Response(service, {
+          rate_limit: {
+            reason: 'payment_verification_failed',
+            error: verification.error,
+            hint: 'X-PAYMENT header is invalid or expired. See https://agentlair.dev/docs#x402',
+          },
+        });
+      }
+
+      // Settle the payment before serving the request
+      const settlement = await settleX402Payment(xPayment, service);
+      if (!settlement.settled) {
+        return make402Response(service, {
+          rate_limit: {
+            reason: 'payment_settlement_failed',
+            error: settlement.error,
+          },
+        });
+      }
+
+      // Track spend and auto-upgrade (fire-and-forget)
+      if (account.id) {
+        c.executionCtx.waitUntil((async () => {
+          try {
+            const spend = await trackX402Spend(c.env, account.id, service.amount);
+            await autoUpgradeIfThreshold(c.env, account, spend);
+          } catch { /* non-critical */ }
+        })());
+      }
+
+      // Add settlement receipt to response
+      if (settlement.receipt) {
+        c.header('X-Payment-Response', settlement.receipt);
+      }
+
       await next();
       return;
     }
     // No payment → return 402 with x402 payment requirements.
-    // Service-specific endpoints verify the payment; middleware just routes to correct price.
-    return make402Response(getServiceForPath(c.req.path), {
+    return make402Response(getServiceForPath(c.req.path, c.req.method), {
       rate_limit: {
         reason: 'daily_limit_exceeded',
         tier: account.tier || 'free',

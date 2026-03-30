@@ -56,6 +56,12 @@ export const SERVICE_PRICES: Record<string, ServicePaymentConfig> = {
     description: 'AgentLair tier upgrade — 5.00 USDC for 30 days of paid tier (10K req/day, 1K emails/day, 999 stacks).',
     mimeType: 'application/json',
   },
+  general_read: {
+    amount: '1000', // 0.001 USDC
+    resource: 'https://agentlair.dev/v1',
+    description: 'AgentLair API read — 0.001 USDC per request when rate limit exceeded.',
+    mimeType: 'application/json',
+  },
 } as const;
 
 // ─── Backward-compatible email exports ────────────────────────────────────────
