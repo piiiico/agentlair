@@ -4,3 +4,6 @@ dist/
 *.tsbuildinfo
 dist-check/
 bun.lock
+.pipeline/
+apps/web.bak/
+mcp-publisher/
