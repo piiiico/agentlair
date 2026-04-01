@@ -20,9 +20,14 @@ Status:   GET https://agentlair.dev/health
 All protected endpoints require an API key passed as a Bearer token:
   Authorization: Bearer al_live_<your_key>
 
-Self-registration (no email required):
+Agent self-registration (zero human intervention):
+  POST /v1/register
+  → Recommended for autonomous agents. Returns api_key, email_address, account_id.
+  → Body: {"address":"yourname@agentlair.dev"} or {"name":"yourname"} or {}
+  → Rate limit: 5 registrations per IP per hour.
+
+Legacy registration endpoint (still works):
   POST /v1/auth/agent-register
-  → Returns api_key immediately. Recommended for autonomous agents.
 
 Create API key (returns master_seed — save it for recovery):
   POST /v1/auth/keys         Body: {"label": "my-agent"}

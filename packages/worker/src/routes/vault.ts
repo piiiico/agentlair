@@ -336,7 +336,7 @@ export async function handleVaultRoutes(
             // Settlement is non-critical — proceed
           }
           try {
-            const spend = await trackX402Spend(env, account.id, SERVICE_PRICES.vault_write.amount);
+            const spend = await trackX402Spend(env, account.id, SERVICE_PRICES.vault_write.amount, { payer: verification.payer, service: 'vault_write' });
             await autoUpgradeIfThreshold(env, account, spend);
           } catch {
             // Non-critical

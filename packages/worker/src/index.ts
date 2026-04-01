@@ -16,7 +16,7 @@ import { checkRateLimit, checkPodRateLimit } from './middleware/ratelimit.js';
 import { detectAgent, AGENTLAIR_MANIFEST } from './middleware/agent-detect.js';
 import { securityHeaders } from './middleware/security-headers.js';
 import { encryptEmailField, encryptEmailE2E } from './platform-crypto.js';
-import { make402Response, SERVICE_PRICES, verifyX402Payment, settleX402Payment, trackX402Spend, autoUpgradeIfThreshold } from './x402.js';
+import { make402Response, SERVICE_PRICES, verifyX402Payment, settleX402Payment, trackX402Spend, autoUpgradeIfThreshold, getGlobalRevenue } from './x402.js';
 import type { ServicePaymentConfig } from './x402.js';
 
 // ─── Route modules ─────────────────────────────────────────────────────────────
@@ -30,6 +30,8 @@ import { handleCalendarRoutes } from './routes/calendar.js';
 import { tokenRoutes, publicTokenRoutes } from './routes/tokens.js';
 import { signingKeyRoutes, getSigningKey } from './routes/signing-keys.js';
 import { auditRoutes } from './routes/audit.js';
+import { handleRegisterRoute } from './routes/register.js';
+import { handleRegisterVerifyRoute } from './routes/register-verify.js';
 
 // ─── Hono App Type ──────────────────────────────────────────────────────────────
 
@@ -78,10 +80,10 @@ function publicHandler(handler: RouteHandler) {
 
 // ─── Helper: map request path to service payment config for 402 responses ──────
 // Used by rate limit middleware to return correct x402 requirements per service.
-// Read (GET) requests use the cheaper general_read price; writes use per-service pricing.
+// Specific write paths get per-service pricing; everything else falls back to general_api.
 function getServiceForPath(path: string, method?: string): ServicePaymentConfig {
   if (method === 'GET') {
-    return SERVICE_PRICES.general_read;
+    return SERVICE_PRICES.general_api;
   }
   if (path.startsWith('/v1/email') || path.startsWith('/v1/inbox')) {
     return SERVICE_PRICES.email_send;
@@ -95,8 +97,8 @@ function getServiceForPath(path: string, method?: string): ServicePaymentConfig 
   if (path.startsWith('/v1/stack')) {
     return SERVICE_PRICES.stack_create;
   }
-  // Account management, auth routes — tier upgrade is the appropriate action
-  return SERVICE_PRICES.tier_upgrade;
+  // Fallback: any unmatched path (inbox reads, message reads, outbox, etc.) — 0.001 USDC
+  return SERVICE_PRICES.general_api;
 }
 
 // ─── x402 self-handling routes ──────────────────────────────────────────────────
@@ -281,6 +283,27 @@ app.get('/llms.txt', () =>
   })
 );
 
+app.get('/.well-known/mcp/server.json', () =>
+  new Response(JSON.stringify({
+    name: 'AgentLair',
+    description: 'Persistent identity for AI agents — email, vault, audit, calendar',
+    version: '1',
+    register: 'POST https://agentlair.dev/v1/register',
+    endpoints: {
+      register: 'POST /v1/register',
+      send_email: 'POST /v1/email/send',
+      read_email: 'GET /v1/email/inbox',
+      store_secret: 'POST /v1/vault/secrets',
+      get_secret: 'GET /v1/vault/secrets/{key}',
+      audit_log: 'GET /v1/audit',
+    },
+    docs: 'https://agentlair.dev/api',
+    llms_txt: 'https://agentlair.dev/llms.txt',
+  }, null, 2), {
+    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=3600' },
+  })
+);
+
 // ── RFC 9421 public key directory ────────────────────────────────────────────
 // Unauthenticated — any verifier can look up an agent's signing key by keyid.
 // Keys are immutable once registered (rotation creates a new keyid).
@@ -342,6 +365,107 @@ app.get('/.well-known/agent-keys/:keyid/jwks.json', async (c) => {
   });
 });
 
+// ── Verifiable Intent integration: agent public key endpoints ─────────────────
+// These enable VI credential providers to bind AgentLair agents to consumer
+// authorization chains via cnf.jwk. Two access patterns:
+//
+//   1. GET /v1/agents/:id/public-key
+//      Lookup by account ID (acc_xxx) — used by VI when agent_id is known.
+//      Returns single JWK for the agent's active signing key.
+//
+//   2. GET /agents/:name/.well-known/jwks.json
+//      DID Web resolution: did:web:agentlair.dev:agents:{name}
+//      Resolves to https://agentlair.dev/agents/{name}/.well-known/jwks.json
+//      VI credential providers use this to fetch the JWK Set via DID.
+
+app.get('/v1/agents/:id/public-key', async (c) => {
+  const agentId = c.req.param('id');
+  // Validate account ID format: acc_ prefix + alphanumeric
+  if (!agentId || !/^acc_[A-Za-z0-9_-]{1,32}$/.test(agentId)) {
+    return err('Invalid agent ID format. Expected acc_{id}.', 400, 'invalid_agent_id');
+  }
+
+  // Look up the agent's active signing key by account ID
+  const indexRaw = await c.env.KEYS.get('signing-key-by-account:' + agentId);
+  if (!indexRaw) {
+    return err('No signing key registered for this agent.', 404, 'no_signing_key');
+  }
+
+  const { keyid } = JSON.parse(indexRaw) as { keyid: string };
+  const record = await getSigningKey(c.env, keyid);
+  if (!record) {
+    return err('Signing key record not found.', 404, 'signing_key_not_found');
+  }
+
+  // Return JWK for the active signing key (RFC 7517 + RFC 8037 for OKP/Ed25519)
+  return new Response(JSON.stringify({
+    kty: 'OKP',
+    crv: 'Ed25519',
+    x: record.public_key,
+    kid: record.keyid,
+    use: 'sig',
+    alg: 'EdDSA',
+    // VI-specific: agent identity context
+    agent_id: record.agent_id,
+    ...(record.agent_name !== undefined && { agent_name: record.agent_name }),
+    status: record.status,
+  }), {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'public, max-age=300',
+    },
+  });
+});
+
+// DID Web JWKS endpoint for Verifiable Intent cnf.jwk binding.
+// did:web:agentlair.dev:agents:{name} resolves to this URL per DID Web spec.
+app.get('/agents/:name/.well-known/jwks.json', async (c) => {
+  const name = c.req.param('name');
+  // Validate name: lowercase alphanumeric + hyphens only
+  if (!name || !/^[a-z0-9][a-z0-9-]{0,29}$/.test(name)) {
+    return err('Invalid agent name format.', 400, 'invalid_agent_name');
+  }
+
+  // Resolve name → accountId via email address (name@agentlair.dev is canonical)
+  const emailAddress = `${name}@agentlair.dev`;
+  const accountId = await c.env.EMAILS.get('email-owner:' + emailAddress);
+  if (!accountId) {
+    return err('Agent not found.', 404, 'agent_not_found');
+  }
+
+  // Look up active signing key
+  const indexRaw = await c.env.KEYS.get('signing-key-by-account:' + accountId);
+  if (!indexRaw) {
+    return err('No signing key registered for this agent.', 404, 'no_signing_key');
+  }
+
+  const { keyid } = JSON.parse(indexRaw) as { keyid: string };
+  const record = await getSigningKey(c.env, keyid);
+  if (!record) {
+    return err('Signing key record not found.', 404, 'signing_key_not_found');
+  }
+
+  // Return JWKS (RFC 7517 JWK Set) — only active keys exposed
+  return new Response(JSON.stringify({
+    keys: [{
+      kty: 'OKP',
+      crv: 'Ed25519',
+      x: record.public_key,
+      kid: record.keyid,
+      use: 'sig',
+      alg: 'EdDSA',
+    }],
+  }), {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/json',
+      // Short cache: key status may change on revocation
+      'Cache-Control': 'public, max-age=300',
+    },
+  });
+});
+
 // ── 3. Public API routes (no auth required) ──────────────────────────────────
 
 // Auth: login, verify, key creation, agent-register
@@ -350,6 +474,9 @@ app.use('/v1/auth/verify', publicHandler(handleAuthRoutes));
 app.use('/v1/auth/keys', publicHandler(handleAuthRoutes));
 app.use('/v1/keys', publicHandler(handleAuthRoutes));
 app.use('/v1/auth/agent-register', publicHandler(handleAuthRoutes));
+
+// Agent self-provisioning: canonical registration endpoint
+app.post('/v1/register', publicHandler(handleRegisterRoute));
 
 // Vault: store, recover, recover/verify
 app.use('/v1/vault/store', publicHandler(handleVaultRoutes));
@@ -370,6 +497,38 @@ app.get('/v1/admin/account/:id', async (c) => {
   const response = await handleAdminRoutes(c.req.raw, c.env);
   if (response) return response;
   return err('Not found.', 404, 'not_found');
+});
+app.get('/v1/admin/revenue', async (c) => {
+  const authHeader = c.req.header('Authorization') || '';
+  const adminKey = authHeader.replace(/^Bearer\s+/i, '').trim();
+  if (!c.env.ADMIN_KEY || !adminKey || adminKey !== c.env.ADMIN_KEY) {
+    return err('Unauthorized. Admin key required.', 403, 'admin_unauthorized');
+  }
+  const revenue = await getGlobalRevenue(c.env);
+  const totalUsdc = (revenue.total / 1_000_000).toFixed(6);
+  const uniquePayers = Object.keys(revenue.by_payer).length;
+  const uniqueAccounts = Object.keys(revenue.by_account).length;
+  // Format by_service with human-readable USDC amounts
+  const serviceBreakdown: Record<string, { total_usdc: string; payments: number }> = {};
+  for (const [svc, data] of Object.entries(revenue.by_service)) {
+    serviceBreakdown[svc] = { total_usdc: (data.total / 1_000_000).toFixed(6), payments: data.payments };
+  }
+  const payerBreakdown: Record<string, { total_usdc: string; payments: number; first_at: string; last_at: string }> = {};
+  for (const [addr, data] of Object.entries(revenue.by_payer)) {
+    payerBreakdown[addr] = { total_usdc: (data.total / 1_000_000).toFixed(6), payments: data.payments, first_at: data.first_at, last_at: data.last_at };
+  }
+  return json({
+    total_usdc: totalUsdc,
+    total_atomic: revenue.total,
+    total_payments: revenue.payments,
+    unique_payers: uniquePayers,
+    unique_accounts: uniqueAccounts,
+    first_payment_at: revenue.first_at,
+    last_payment_at: revenue.last_at,
+    by_service: serviceBreakdown,
+    by_payer: payerBreakdown,
+    by_account: revenue.by_account,
+  });
 });
 
 // ── 4. WebSocket: real-time inbox notifications ─────────────────────────────────
@@ -477,9 +636,11 @@ app.use('/v1/*', async (c: Context<HonoEnv>, next: Next): Promise<void | Respons
 
       // Track spend and auto-upgrade (fire-and-forget)
       if (account.id) {
+        const payerAddr = verification.payer;
+        const serviceName = Object.entries(SERVICE_PRICES).find(([, v]) => v === service)?.[0] || 'general_api';
         c.executionCtx.waitUntil((async () => {
           try {
-            const spend = await trackX402Spend(c.env, account.id, service.amount);
+            const spend = await trackX402Spend(c.env, account.id, service.amount, { payer: payerAddr, service: serviceName });
             await autoUpgradeIfThreshold(c.env, account, spend);
           } catch { /* non-critical */ }
         })());
@@ -537,6 +698,9 @@ app.use('/v1/*', async (c: Context<HonoEnv>, next: Next): Promise<void | Respons
 });
 
 // ── 6. Protected API routes (auth required) ─────────────────────────────────────
+
+// Register verify: OTP verification to unlock restricted accounts (requires auth)
+app.post('/v1/register/verify', legacyHandler(handleRegisterVerifyRoute));
 
 // Auth routes: key management, account info, E2E key rotation
 // These prefixes are handled by handleAuthRoutes (protected branch)

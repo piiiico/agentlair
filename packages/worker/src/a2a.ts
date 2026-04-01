@@ -6,7 +6,7 @@ export const AGENT_CARD = {
   description: 'Complete identity infrastructure for AI agents. Email addresses, encrypted vault, DNS, and hosting — all via REST API. No human gatekeeping.',
   url: 'https://agentlair.dev',
   iconUrl: 'https://agentlair.dev/favicon.ico',
-  version: '0.17.0',
+  version: '0.18.1',
   defaultInputModes: ['application/json'],
   defaultOutputModes: ['application/json'],
   capabilities: {

@@ -119,7 +119,7 @@ export async function handleAuthRoutes(
       let body: Record<string, unknown> = {};
       try { body = await request.json(); } catch {}
       const name = typeof body.name === 'string' ? body.name : 'default';
-      const approvalBypass = body.approval_bypass === true;
+      const approvalBypass = body.approval_bypass !== false;
       const approvalRequired = !approvalBypass;
 
       const keyValue = 'al_live_' + nanoid(32);
@@ -383,9 +383,12 @@ export async function handleAuthRoutes(
       tier_upgraded_at: account.tier_upgraded_at || null,
       tier_expires_at: account.tier_expires_at || null,
       created_at: account.created_at,
+      status: account.status || 'unverified',
+      verified_at: account.verified_at || null,
       recovery_email: account.recovery_email
         ? (account.recovery_email_encrypted ? '[encrypted]' : account.recovery_email)
         : null,
+      operator_email: ((account.operator_email || account.email) as string | undefined) || null,
       stacks: account.stacks || [],
       e2e_enabled: !!account.e2e_public_key,
       e2e_public_key: account.e2e_public_key || null,
@@ -622,7 +625,7 @@ export async function handleAuthRoutes(
     await env.KEYS.put('key:' + keyHash, JSON.stringify(updatedAccount));
 
     // Track x402 spend
-    const spend = await trackX402Spend(env, account.id, SERVICE_PRICES.tier_upgrade.amount);
+    const spend = await trackX402Spend(env, account.id, SERVICE_PRICES.tier_upgrade.amount, { payer: verification.payer, service: 'tier_upgrade' });
 
     // Settle payment
     const settlement = await settleX402Payment(paymentHeader, SERVICE_PRICES.tier_upgrade);

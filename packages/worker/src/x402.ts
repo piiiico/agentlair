@@ -56,10 +56,10 @@ export const SERVICE_PRICES: Record<string, ServicePaymentConfig> = {
     description: 'AgentLair tier upgrade — 5.00 USDC for 30 days of paid tier (10K req/day, 1K emails/day, 999 stacks).',
     mimeType: 'application/json',
   },
-  general_read: {
+  general_api: {
     amount: '1000', // 0.001 USDC
-    resource: 'https://agentlair.dev/v1',
-    description: 'AgentLair API read — 0.001 USDC per request when rate limit exceeded.',
+    resource: 'https://agentlair.dev/v1/*',
+    description: 'AgentLair API request — 0.001 USDC per request beyond free tier.',
     mimeType: 'application/json',
   },
 } as const;
@@ -265,23 +265,177 @@ export interface X402SpendRecord {
   total: number;       // cumulative atomic USDC
   payments: number;    // total payment count
   last_at: string | null;
+  payers?: Record<string, number>; // payer wallet address → payment count
 }
 
+// ─── Known/Internal Payer Addresses ─────────────────────────────────────────
+// Wallet addresses we recognize (our own agents, test wallets, etc.)
+// Payments from unknown addresses trigger an alert.
+const KNOWN_PAYER_ADDRESSES: Set<string> = new Set([
+  '0x90EE1EbcCFA2021711C595E1410e22401570B4AC'.toLowerCase(), // AgentLair payTo / internal
+]);
+
 /** Record an x402 payment for an account. Returns updated spend record. */
-export async function trackX402Spend(env: Env, accountId: string, amount: string): Promise<X402SpendRecord> {
+export async function trackX402Spend(
+  env: Env,
+  accountId: string,
+  amount: string,
+  opts?: { payer?: string; service?: string },
+): Promise<X402SpendRecord> {
   const key = `x402-spend:${accountId}`;
+  const payer = opts?.payer?.toLowerCase() || undefined;
   try {
     const raw = await env.KEYS.get(key);
     const current: X402SpendRecord = raw
       ? JSON.parse(raw)
-      : { total: 0, payments: 0, last_at: null };
+      : { total: 0, payments: 0, last_at: null, payers: {} };
     current.total += parseInt(amount);
     current.payments += 1;
     current.last_at = new Date().toISOString();
+    if (payer) {
+      if (!current.payers) current.payers = {};
+      current.payers[payer] = (current.payers[payer] || 0) + 1;
+    }
     await env.KEYS.put(key, JSON.stringify(current), { expirationTtl: 86400 * 365 });
+
+    // Track in global revenue ledger
+    await trackGlobalRevenue(env, amount, accountId, payer, opts?.service);
+
+    // Alert on new/unknown payer
+    if (payer && !KNOWN_PAYER_ADDRESSES.has(payer)) {
+      await alertNewPayer(env, payer, accountId, amount, opts?.service);
+    }
+
     return current;
   } catch {
     return { total: parseInt(amount), payments: 1, last_at: new Date().toISOString() };
+  }
+}
+
+// ─── Global Revenue Tracking ────────────────────────────────────────────────
+// Single KV key tracking aggregate revenue across all accounts.
+
+export interface GlobalRevenueRecord {
+  total: number;            // cumulative atomic USDC
+  payments: number;         // total payment count
+  first_at: string | null;
+  last_at: string | null;
+  by_service: Record<string, { total: number; payments: number }>;
+  by_payer: Record<string, { total: number; payments: number; first_at: string; last_at: string }>;
+  by_account: Record<string, { total: number; payments: number }>;
+}
+
+const GLOBAL_REVENUE_KEY = 'x402-revenue:global';
+
+async function trackGlobalRevenue(
+  env: Env,
+  amount: string,
+  accountId: string,
+  payer?: string,
+  service?: string,
+): Promise<void> {
+  try {
+    const raw = await env.KEYS.get(GLOBAL_REVENUE_KEY);
+    const record: GlobalRevenueRecord = raw
+      ? JSON.parse(raw)
+      : { total: 0, payments: 0, first_at: null, last_at: null, by_service: {}, by_payer: {}, by_account: {} };
+    const now = new Date().toISOString();
+    const amt = parseInt(amount);
+    record.total += amt;
+    record.payments += 1;
+    if (!record.first_at) record.first_at = now;
+    record.last_at = now;
+
+    // By service
+    const svc = service || 'unknown';
+    if (!record.by_service[svc]) record.by_service[svc] = { total: 0, payments: 0 };
+    record.by_service[svc].total += amt;
+    record.by_service[svc].payments += 1;
+
+    // By payer
+    if (payer) {
+      if (!record.by_payer[payer]) record.by_payer[payer] = { total: 0, payments: 0, first_at: now, last_at: now };
+      record.by_payer[payer].total += amt;
+      record.by_payer[payer].payments += 1;
+      record.by_payer[payer].last_at = now;
+    }
+
+    // By account
+    if (!record.by_account[accountId]) record.by_account[accountId] = { total: 0, payments: 0 };
+    record.by_account[accountId].total += amt;
+    record.by_account[accountId].payments += 1;
+
+    await env.KEYS.put(GLOBAL_REVENUE_KEY, JSON.stringify(record), { expirationTtl: 86400 * 365 });
+  } catch {
+    // Non-critical — don't fail the payment
+  }
+}
+
+/** Get global revenue data (for admin endpoint). */
+export async function getGlobalRevenue(env: Env): Promise<GlobalRevenueRecord> {
+  try {
+    const raw = await env.KEYS.get(GLOBAL_REVENUE_KEY);
+    return raw
+      ? JSON.parse(raw)
+      : { total: 0, payments: 0, first_at: null, last_at: null, by_service: {}, by_payer: {}, by_account: {} };
+  } catch {
+    return { total: 0, payments: 0, first_at: null, last_at: null, by_service: {}, by_payer: {}, by_account: {} };
+  }
+}
+
+// ─── New Payer Alert ────────────────────────────────────────────────────────
+// Tracks seen payer addresses in KV. When a never-before-seen payer pays,
+// sends an email alert to the operator.
+
+async function alertNewPayer(
+  env: Env,
+  payer: string,
+  accountId: string,
+  amount: string,
+  service?: string,
+): Promise<void> {
+  const seenKey = `x402-payer-seen:${payer}`;
+  try {
+    const existing = await env.KEYS.get(seenKey);
+    if (existing) return; // Already seen — no alert
+
+    // Mark as seen (before sending alert to avoid duplicate alerts on race)
+    const now = new Date().toISOString();
+    await env.KEYS.put(seenKey, JSON.stringify({
+      first_seen: now,
+      first_account: accountId,
+      first_service: service || 'unknown',
+    }), { expirationTtl: 86400 * 365 });
+
+    // Send email alert via Resend (if configured)
+    if (!env.RESEND_API_KEY) return;
+    const usdcAmount = (parseInt(amount) / 1_000_000).toFixed(6);
+    await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${env.RESEND_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: 'AgentLair Revenue <noreply@agentlair.dev>',
+        to: ['hakon@amdal.dev'],
+        subject: `[AgentLair] New payer: ${payer.slice(0, 10)}...${payer.slice(-6)}`,
+        text: [
+          `New x402 payer detected on AgentLair.`,
+          ``,
+          `Payer:   ${payer}`,
+          `Account: ${accountId}`,
+          `Amount:  ${usdcAmount} USDC`,
+          `Service: ${service || 'unknown'}`,
+          `Time:    ${now}`,
+          ``,
+          `This is the first payment from this wallet address.`,
+          `View on BaseScan: https://basescan.org/address/${payer}`,
+        ].join('\n'),
+      }),
+    });
+  } catch {
+    // Non-critical — don't fail the payment for an alert
   }
 }
 

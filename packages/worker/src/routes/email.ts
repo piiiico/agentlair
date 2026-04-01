@@ -533,6 +533,23 @@ export async function handleEmailRoutes(
       return err('You do not own this sender address. Claim it first via POST /v1/email/claim.', 403, 'not_your_address');
     }
 
+    // ── Restricted mode check ─────────────────────────────────────────────────
+    // Accounts in restricted mode can only email their registered operator.
+    if (account.status === 'restricted') {
+      const operatorEmail = (account.operator_email || account.email) as string | undefined;
+      const toAddrsForCheck = Array.isArray(to) ? to : [to];
+      const allRecipientsAllowed = operatorEmail && toAddrsForCheck.every(
+        (r) => typeof r === 'string' && r.toLowerCase() === operatorEmail.toLowerCase(),
+      );
+      if (!allRecipientsAllowed) {
+        return err(
+          'Account is in restricted mode. Outbound email is limited to your registered operator email. POST /v1/register/verify with your OTP to unlock.',
+          403,
+          'restricted_mode',
+        );
+      }
+    }
+
     // ── Approval gate (P1 OWASP ASI01) ───────────────────────────────────────
     // Backward compat: keys without approval_required field default to false.
     // New keys default to approval_required: true — send saves as draft instead.
@@ -594,6 +611,7 @@ export async function handleEmailRoutes(
     let agentkitHumanId: string | null = null;
     let agentkitUsageCount = 0;
     let x402PaymentHeader: string | null = null;
+    let x402Payer: string | undefined;
 
     if (!emailRateCheck.allowed) {
       if (emailRateCheck.reason === 'address_suspended') {
@@ -680,6 +698,7 @@ export async function handleEmailRoutes(
           });
         }
 
+        x402Payer = verification.payer;
         paidViaX402 = true;
       }
     }
@@ -803,7 +822,7 @@ export async function handleEmailRoutes(
         }
         // Track spend and auto-upgrade if threshold reached (fire-and-forget)
         try {
-          const spend = await trackX402Spend(env, account.id, SERVICE_PRICES.email_send.amount);
+          const spend = await trackX402Spend(env, account.id, SERVICE_PRICES.email_send.amount, { payer: x402Payer, service: 'email_send' });
           await autoUpgradeIfThreshold(env, account, spend);
         } catch {
           // Non-critical — don't fail the send
@@ -893,6 +912,22 @@ export async function handleEmailRoutes(
     const addrOwner = await env.EMAILS.get(`email-owner:${normalizedFromAddr}`);
     if (!addrOwner || addrOwner !== account.id) {
       return err('You do not own this sender address. Claim it first via POST /v1/email/claim.', 403, 'not_your_address');
+    }
+
+    // ── Restricted mode check (drafts) ────────────────────────────────────────
+    if (account.status === 'restricted') {
+      const operatorEmail = (account.operator_email || account.email) as string | undefined;
+      const toAddrsForCheck = Array.isArray(to) ? to : [to];
+      const allRecipientsAllowed = operatorEmail && toAddrsForCheck.every(
+        (r) => typeof r === 'string' && r.toLowerCase() === operatorEmail.toLowerCase(),
+      );
+      if (!allRecipientsAllowed) {
+        return err(
+          'Account is in restricted mode. Outbound email is limited to your registered operator email. POST /v1/register/verify with your OTP to unlock.',
+          403,
+          'restricted_mode',
+        );
+      }
     }
 
     const toAddrs = Array.isArray(to) ? to : [to];

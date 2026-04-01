@@ -91,7 +91,7 @@ stackRoutes.post('/stack', async (c) => {
       // Settlement is non-critical — proceed
     }
     try {
-      const spend = await trackX402Spend(c.env, account.id, SERVICE_PRICES.stack_create.amount);
+      const spend = await trackX402Spend(c.env, account.id, SERVICE_PRICES.stack_create.amount, { payer: verification.payer, service: 'stack_create' });
       await autoUpgradeIfThreshold(c.env, account, spend);
     } catch {
       // Non-critical

@@ -43,12 +43,19 @@ export interface Account {
   email_count?: number;
   email_limit?: number;
   stacks?: string[];
+  // Account verification status
+  status?: 'restricted' | 'unverified' | 'verified';
+  // Operator email (copied from recovery_email at registration, never encrypted)
+  operator_email?: string;
   // Pod fields — present when account is a pod virtual account
   type?: 'account' | 'pod';
   pod_id?: string;
   parent_id?: string;
   // Dashboard session token (set when auth via session token)
   _session?: string;
+  // RFC 9421 signing key fields (set when agent has registered an Ed25519 signing key)
+  signing_key_public?: string;  // base64url-encoded 32-byte Ed25519 public key
+  signing_keyid?: string;        // base64url(SHA-256(pubkey)).slice(0, 22)
   [key: string]: unknown;
 }
 
