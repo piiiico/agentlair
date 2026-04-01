@@ -115,3 +115,7 @@ const imageURL = new URL(finalImage, Astro.url);
 <meta property="twitter:description" content={finalDescription} />
 <meta property="twitter:image" content={imageURL} />
 {SITE_METADATA.twitter.creator && <meta property="twitter:creator" content={SITE_METADATA.twitter.creator} />}
+
+<!-- Cloudflare Web Analytics -->
+<script defer src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "43a71bba4ef84fa1830283a6e9b69fa9"}'></script>
+<!-- End Cloudflare Web Analytics -->

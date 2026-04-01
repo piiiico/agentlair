@@ -1,0 +1,27 @@
+---
+import { getCollection } from 'astro:content';
+import BaseHead from '@/components/BaseHead.astro';
+import { Navbar } from '@/components/blocks/navbar';
+import { Footer } from '@/components/blocks/footer';
+import { BlogPosts } from '@/components/blocks/blog-posts';
+
+const posts = (await getCollection('blog')).sort(
+  (a, b) => b.data.pubDate.valueOf() - a.data.pubDate.valueOf()
+);
+---
+
+<html lang="en">
+  <head>
+    <BaseHead
+      title="Blog | AgentLair"
+      description="Insights on AI agent infrastructure, security, and the future of autonomous systems."
+    />
+  </head>
+  <body class="h-screen antialiased">
+    <Navbar client:only="react" />
+    <main class="pt-32 pb-20">
+      <BlogPosts posts={posts} client:load />
+    </main>
+    <Footer />
+  </body>
+</html>

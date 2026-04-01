@@ -2,7 +2,7 @@ export const SITE_TITLE = "AgentLair — The Infrastructure Platform for AI Agen
 export const SITE_DESCRIPTION =
   "Email, encrypted vault, calendar, multi-tenant pods, and real-time coordination for AI agents — all through a simple REST API.";
 
-export const GITHUB_URL = "https://github.com/hawkaa/agentlair";
+export const GITHUB_URL = "https://github.com/piiiico/agentlair";
 
 export const SITE_METADATA = {
   title: {
