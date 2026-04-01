@@ -8,16 +8,16 @@ description: "Log agent actions locally or ship them to AgentLair for persistent
 
 A lightweight, framework-agnostic agent action logger. Log locally by default. Connect to AgentLair for persistent, queryable audit trails.
 
-Zero runtime dependencies. Works in Node ≥ 18, Bun, Deno, and modern browsers.
+Available as [`@piiiico/agent-logger`](https://github.com/piiiico/agent-logger) on npm — zero runtime dependencies, works in Node ≥ 18, Bun, Deno, and modern browsers.
 
 ---
 
 ## Install
 
 ```bash
-npm install @agentlair/audit-logger
+npm install @piiiico/agent-logger
 # or
-bun add @agentlair/audit-logger
+bun add @piiiico/agent-logger
 ```
 
 ---
@@ -25,24 +25,35 @@ bun add @agentlair/audit-logger
 ## Quick start
 
 ```typescript
-import { auditLog } from '@agentlair/audit-logger';
+import { auditLog } from "@piiiico/agent-logger";
 
 // Logs to console — no config needed
 await auditLog({
-  agent: 'my-agent',
-  action: 'tool_call',
-  tool: 'web_search',
-  input: 'latest AI news',
-  output: results,
+  agent: "customer-support-bot",
+  action: "respond",
+  tool: "knowledge_base_search",
+  input: { query: "How do I cancel my subscription?" },
+  output: { answer: "Go to Settings → Billing → Cancel." },
 });
-```
-
-**Output:**
-```
-[audit 14:32:01] my-agent → tool_call [web_search]
+// → {"agent":"customer-support-bot","action":"respond",...,"timestamp":"2026-04-01T12:00:00.000Z"}
 ```
 
 No API key, no sign-up, no configuration required for local logging.
+
+---
+
+## Pre-bound logger
+
+`createAuditLogger` binds the agent name so you don't repeat it on every call:
+
+```typescript
+import { createAuditLogger } from "@piiiico/agent-logger";
+
+const log = createAuditLogger("inventory-agent");
+
+await log({ action: "check_stock", tool: "db_query", input: { sku: "ABC-123" } });
+await log({ action: "reorder", output: { orderId: "PO-9999" } });
+```
 
 ---
 
@@ -56,13 +67,26 @@ export AGENTLAIR_API_KEY=aal_...
 
 That's it. All `auditLog()` calls will now also POST to AgentLair asynchronously — non-blocking, fire-and-forget. Your agent's performance is unaffected.
 
+Or pass the key explicitly:
+
+```typescript
+import { createAuditLogger } from "@piiiico/agent-logger";
+
+const log = createAuditLogger("my-agent", {
+  transport: "agentlair",
+  agentlairApiKey: process.env.AGENTLAIR_API_KEY,
+});
+
+await log({ action: "tool_call", tool: "web_search", input: "latest AI news" });
+```
+
 Get a free API key at [agentlair.dev](https://agentlair.dev).
 
 ---
 
 ## API
 
-### `auditLog(entry)` — module-level convenience
+### `auditLog(entry, opts?)` — module-level convenience
 
 The simplest way to log. Uses a shared module-level logger instance.
 
@@ -78,38 +102,16 @@ await auditLog({
 });
 ```
 
-### `configureLogger(options)` — configure the shared logger
+### Transports
 
-Call once at startup to configure the module-level logger.
+| Transport | When used | Config |
+|---|---|---|
+| `"console"` (default) | Always — great for dev and log aggregators | — |
+| `"file"` | Append to a local file | `filePath: "./audit.log"` |
+| `"agentlair"` | Ship to AgentLair for governed audit trail | `agentlairApiKey` or `AGENTLAIR_API_KEY` |
+| `"silent"` | Testing | — |
 
-```typescript
-import { configureLogger } from '@agentlair/audit-logger';
-
-configureLogger({
-  apiKey: 'aal_...',    // or set AGENTLAIR_API_KEY env var
-  console: true,        // write to console (default: true)
-  silent: false,        // suppress all output — useful in tests
-  sinks: [              // custom sinks (see below)
-    { write(entry) { myDb.insert(entry); } }
-  ],
-});
-```
-
-### `AuditLogger` — class-based API
-
-Use the class directly when you need multiple logger instances or explicit control.
-
-```typescript
-import { AuditLogger } from '@agentlair/audit-logger';
-
-const logger = new AuditLogger({ apiKey: process.env.AGENTLAIR_API_KEY });
-
-// Log a single entry
-await logger.log({ agent: 'my-agent', action: 'tool_call', tool: 'search', input: q });
-
-// Log multiple entries in one call
-await logger.logAll([entry1, entry2, entry3]);
-```
+**Auto-detection:** if `AGENTLAIR_API_KEY` is set, the default transport becomes `"agentlair"`. Otherwise, `"console"`.
 
 ---
 
@@ -117,61 +119,76 @@ await logger.logAll([entry1, entry2, entry3]);
 
 ### LangChain.js
 
-Drop in the callback handler to automatically capture all tool calls and LLM invocations — no manual `auditLog()` calls needed.
+Drop `AgentAuditCallback` into any chain, agent, or model's `callbacks` array — no manual `auditLog()` calls needed.
 
 ```typescript
-import { AgentExecutor } from 'langchain/agents';
-import { AuditLoggerCallbackHandler } from '@agentlair/audit-logger/langchain';
+import { AgentAuditCallback } from "@piiiico/agent-logger/langchain";
+import { LLMChain } from "langchain/chains";
+import { ChatOpenAI } from "langchain/chat_models/openai";
 
-const handler = new AuditLoggerCallbackHandler({ agentName: 'my-agent' });
-const executor = new AgentExecutor({ agent, tools, callbacks: [handler] });
+const llm = new ChatOpenAI();
+const chain = new LLMChain({
+  llm,
+  prompt,
+  callbacks: [new AgentAuditCallback("my-langchain-agent")],
+});
 
-// All tool calls and LLM invocations are now logged automatically
-const result = await executor.invoke({ input: 'What is AgentLair?' });
+await chain.call({ question: "What is 2+2?" });
+// Automatically logs: llm_start, llm_end, tool_start, tool_end, chain_start, chain_end
 ```
 
-**Captured events:** `handleToolStart`, `handleToolEnd`, `handleToolError`, `handleLLMStart`, `handleLLMEnd`, `handleChainStart`, `handleChainEnd`.
+With AgentLair backend:
+
+```typescript
+new AgentAuditCallback("my-agent", { transport: "agentlair" })
+```
 
 ### Anthropic / Claude SDK
 
 Wrap the Anthropic client to log every request and response automatically.
 
 ```typescript
-import Anthropic from '@anthropic-ai/sdk';
-import { wrapAnthropicClient } from '@agentlair/audit-logger/anthropic';
+import Anthropic from "@anthropic-ai/sdk";
+import { wrapAnthropicClient } from "@piiiico/agent-logger/anthropic";
 
-const client = new Anthropic();
-const audited = wrapAnthropicClient(client, { agentName: 'researcher' });
+const client = wrapAnthropicClient(new Anthropic(), "researcher");
 
 // Use exactly like the normal client — all calls are logged
-const msg = await audited.messages.create({
-  model: 'claude-opus-4-5',
+const msg = await client.messages.create({
+  model: "claude-3-5-sonnet-20241022",
   max_tokens: 1024,
-  messages: [{ role: 'user', content: 'Explain AgentLair in one sentence.' }],
+  messages: [{ role: "user", content: "Explain AgentLair in one sentence." }],
 });
 ```
 
 **Logged:** request params summary + response usage (input/output tokens, stop reason).
 
----
-
-## Custom sinks
-
-Implement the `AuditSink` interface to write to any backend — a database, a file, a webhook, or a monitoring system.
+### CrewAI
 
 ```typescript
-import type { AuditSink, ResolvedAuditEntry } from '@agentlair/audit-logger';
+import { wrapCrewTask } from "@piiiico/agent-logger/crewai";
 
-const postgresSink: AuditSink = {
-  async write(entry: ResolvedAuditEntry) {
-    await db.insert('audit_log', entry);
-  },
-};
+const auditedSearch = wrapCrewTask(webSearch, {
+  agent: "research-crew",
+  taskName: "web_search",
+});
 
-const logger = new AuditLogger({ sinks: [postgresSink], console: false });
+const results = await auditedSearch("latest AI agent frameworks");
+// Logs: crew_task_start → crew_task_end (with duration)
 ```
 
-Multiple sinks can be combined. AgentLair is just another sink internally — you can use it alongside your own.
+---
+
+## File transport example
+
+```typescript
+await auditLog(
+  { agent: "batch-processor", action: "process", input: { jobId: "job-42" } },
+  { transport: "file", filePath: "/var/log/agents/audit.log" }
+);
+```
+
+Appends JSON lines. Compatible with any log aggregator (Datadog, Loki, CloudWatch).
 
 ---
 
@@ -180,11 +197,11 @@ Multiple sinks can be combined. AgentLair is just another sink internally — yo
 When `AGENTLAIR_API_KEY` is set, audit entries are stored as Observations under the `audit-log` topic in AgentLair. Query them with the AgentLair SDK:
 
 ```typescript
-import { AgentLair } from '@agentlair/sdk';
+import { AgentLair } from "@agentlair/sdk";
 
 const lair = new AgentLair(process.env.AGENTLAIR_API_KEY!);
 const { observations } = await lair.observations.read({
-  topic: 'audit-log',
+  topic: "audit-log",
   limit: 50,
 });
 
@@ -194,6 +211,12 @@ for (const obs of observations) {
 ```
 
 Each stored entry includes the full `agent`, `action`, `tool`, `input`, `output`, `timestamp`, and `metadata` fields from the original log call.
+
+---
+
+## GitHub
+
+Source code and issues: [github.com/piiiico/agent-logger](https://github.com/piiiico/agent-logger)
 
 ---
 

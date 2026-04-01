@@ -1,4 +1,4 @@
-import { Mail, Shield, CalendarDays, Box, Eye, Zap } from "lucide-react";
+import { Mail, Shield, CalendarDays, Box, Eye, Zap, ScrollText } from "lucide-react";
 
 import { DashedLine } from "../dashed-line";
 
@@ -43,6 +43,13 @@ const items = [
     description:
       "Live inbox notifications via durable object-backed WebSocket. No polling. Instant delivery of new messages.",
     icon: Zap,
+  },
+  {
+    title: "Agent audit logging",
+    description:
+      "Log every tool call, LLM invocation, and decision to a persistent, queryable audit trail. Drop in the npm package and connect with one env var.",
+    icon: ScrollText,
+    href: "/docs/audit-logger",
   },
 ];
 
