@@ -1,0 +1,60 @@
+{
+  "name": "@agentlair/audit-logger",
+  "version": "0.1.0",
+  "description": "Framework-agnostic agent action logger. Logs locally by default. Connect to AgentLair for persistent, queryable audit trails.",
+  "keywords": [
+    "ai-agent",
+    "audit",
+    "logging",
+    "langchain",
+    "crewai",
+    "claude",
+    "anthropic",
+    "agentlair",
+    "observability",
+    "agent-monitoring"
+  ],
+  "homepage": "https://agentlair.dev",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/piiiico/agentlair"
+  },
+  "license": "MIT",
+  "author": "AgentLair",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./langchain": {
+      "import": "./dist/adapters/langchain.js",
+      "types": "./dist/adapters/langchain.d.ts"
+    },
+    "./anthropic": {
+      "import": "./dist/adapters/anthropic.js",
+      "types": "./dist/adapters/anthropic.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "bun run build"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "bun-types": "^1.3.11",
+    "typescript": "^6.0.2"
+  }
+}
