@@ -57,6 +57,28 @@ const sendEmail = tool(
   }
 );`;
 
+const langchainPyCode = `# Install the package
+# pip install langchain-agentlair langchain-openai
+
+import os
+from langchain_agentlair import AgentLairAgent, agentlair_tools
+from langchain_openai import ChatOpenAI
+
+# Option A: One-liner agent with all AgentLair skills built in
+agent = AgentLairAgent.from_env(
+    llm=ChatOpenAI(model="gpt-4o"),
+    agent_email="mybot@agentlair.dev",
+    # Reads AGENTLAIR_API_KEY from environment
+)
+result = agent.run("Check my inbox and summarise any unread messages.")
+
+# Option B: Add individual tools to an existing agent
+from langchain_agentlair import AgentLairClient
+
+client = AgentLairClient(api_key=os.environ["AGENTLAIR_API_KEY"])
+tools = agentlair_tools(client, agent_email="mybot@agentlair.dev")
+# tools = [send_email, check_inbox, vault_store, vault_get, log_observation]`;
+
 const crewaiCode = `import requests
 from crewai import Agent, Task, Crew
 from crewai.tools import tool
@@ -167,8 +189,40 @@ interface FrameworkTab {
 
 const frameworkTabs: FrameworkTab[] = [
   {
+    id: "langchain-py",
+    label: "LangChain (Python)",
+    title: "LangChain (Python)",
+    description:
+      "Official Python package: give any LangChain agent a real @agentlair.dev email, encrypted vault, and audit trail. Five tools, zero boilerplate.",
+    installCmd: "pip install langchain-agentlair langchain-openai",
+    language: "python",
+    code: langchainPyCode,
+    note: (
+      <>
+        <strong className="text-foreground">Package:</strong>{" "}
+        <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-xs">
+          langchain-agentlair
+        </code>{" "}
+        on{" "}
+        <a
+          href="https://github.com/piiiico/agentlair-langchain-integration"
+          className="text-primary underline underline-offset-4"
+          target="_blank"
+          rel="noreferrer"
+        >
+          GitHub
+        </a>
+        . Includes 5 tools: <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-xs">send_email</code>,{" "}
+        <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-xs">check_inbox</code>,{" "}
+        <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-xs">vault_store</code>,{" "}
+        <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-xs">vault_get</code>,{" "}
+        <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-xs">log_observation</code>.
+      </>
+    ),
+  },
+  {
     id: "langchain",
-    label: "LangChain",
+    label: "LangChain (JS)",
     title: "LangChain (TypeScript)",
     description:
       "Add email tools to any LangChain agent. Agents can send and receive email from a dedicated @agentlair.dev address.",
