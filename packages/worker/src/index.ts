@@ -15,6 +15,7 @@ import { authenticateAny } from './middleware/auth.js';
 import { checkRateLimit, checkPodRateLimit } from './middleware/ratelimit.js';
 import { detectAgent, AGENTLAIR_MANIFEST } from './middleware/agent-detect.js';
 import { securityHeaders } from './middleware/security-headers.js';
+import { auditMiddleware } from './middleware/audit.js';
 import { encryptEmailField, encryptEmailE2E } from './platform-crypto.js';
 import { make402Response, SERVICE_PRICES, verifyX402Payment, settleX402Payment, trackX402Spend, autoUpgradeIfThreshold, getGlobalRevenue } from './x402.js';
 import type { ServicePaymentConfig } from './x402.js';
@@ -30,6 +31,7 @@ import { handleCalendarRoutes } from './routes/calendar.js';
 import { tokenRoutes, publicTokenRoutes } from './routes/tokens.js';
 import { signingKeyRoutes, getSigningKey } from './routes/signing-keys.js';
 import { auditRoutes } from './routes/audit.js';
+import { sessionRoutes } from './routes/sessions.js';
 import { handleRegisterRoute } from './routes/register.js';
 import { handleRegisterVerifyRoute } from './routes/register-verify.js';
 
@@ -697,6 +699,12 @@ app.use('/v1/*', async (c: Context<HonoEnv>, next: Next): Promise<void | Respons
   await next();
 });
 
+// ── 5.5. Audit middleware — runs after auth, captures all /v1/* actions ─────────
+// Intercepts all authenticated API calls and writes a cryptographically signed
+// audit log entry to D1. Non-blocking (waitUntil). Gracefully skips if bindings absent.
+
+app.use('/v1/*', auditMiddleware());
+
 // ── 6. Protected API routes (auth required) ─────────────────────────────────────
 
 // Register verify: OTP verification to unlock restricted accounts (requires auth)
@@ -740,6 +748,9 @@ app.route('/v1/agents', signingKeyRoutes);
 // Also mount at /v1 so /v1/attestations resolves correctly (separate from /v1/audit/attestations)
 app.route('/v1/audit', auditRoutes);
 app.route('/v1', auditRoutes);
+
+// Session lifecycle routes (PicoClaw agent session tracking)
+app.route('/v1/sessions', sessionRoutes);
 
 // ── 7. Stubbed routes ───────────────────────────────────────────────────────────
 

@@ -56,6 +56,7 @@ export function getCategory(path: string, status: number): string {
   if (path.startsWith('/v1/pods/') || path === '/v1/pods') return 'pod';
   if (path.startsWith('/v1/calendar/')) return 'calendar';
   if (path.startsWith('/v1/tokens/') || path === '/v1/tokens') return 'auth';
+  if (path.startsWith('/v1/sessions/') || path === '/v1/sessions') return 'session';
   return 'system';
 }
 
@@ -113,6 +114,14 @@ export function getAction(category: string, method: string, path: string): strin
     if (method === 'POST') return 'calendar.create';
     if (method === 'DELETE') return 'calendar.delete';
     return 'calendar.list';
+  }
+
+  // Session lifecycle actions (PicoClaw agent sessions)
+  if (category === 'session') {
+    if (pathLower.includes('/sessions/start')) return 'session.start';
+    if (pathLower.includes('/sessions/end')) return 'session.end';
+    if (pathLower.includes('/sessions/event')) return 'session.event';
+    return 'session.action';
   }
 
   // Fallback: category.verb
