@@ -160,7 +160,10 @@ podRoutes.post('/', async (c) => {
     parent_id: account.id,
     prefix: apiKey.slice(0, 10),
     created_at: now,
-    tier: account.tier || 'free',
+    // Pods ALWAYS use free tier. Spending caps (not tier limits) control pod resource usage.
+    // Paid tier would bypass free-tier limits, making spending caps unreachable.
+    // See: task 27f24650db70c089
+    tier: 'free',
     status: 'active',
   };
   await c.env.KEYS.put('key:' + apiKeyHash, JSON.stringify(keyEntry));
@@ -401,7 +404,10 @@ podRoutes.post('/:id/keys', async (c) => {
     parent_id: account.id,
     prefix: apiKey.slice(0, 10),
     created_at: now,
-    tier: account.tier || 'free',
+    // Pods ALWAYS use free tier. Spending caps (not tier limits) control pod resource usage.
+    // Paid tier would bypass free-tier limits, making spending caps unreachable.
+    // See: task 27f24650db70c089
+    tier: 'free',
     status: 'active',
   };
   await c.env.KEYS.put('key:' + apiKeyHash, JSON.stringify(keyEntry));

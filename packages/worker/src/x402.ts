@@ -576,7 +576,9 @@ export async function autoUpgradeIfThreshold(
   account: { id: string; tier?: string; [key: string]: unknown },
   spend: X402SpendRecord,
 ): Promise<void> {
-  if (spend.total < 1_000_000 || account.tier === 'paid') return;
+  // Pod accounts never auto-upgrade: their tier is always 'free' (enforced at creation).
+  // Spending caps, not tier limits, control pod resource usage. See: task 27f24650db70c089
+  if (spend.total < 1_000_000 || account.tier === 'paid' || account.type === 'pod') return;
   try {
     const keyHash = await env.KEYS.get('account:' + account.id);
     if (!keyHash) return;
