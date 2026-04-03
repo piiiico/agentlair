@@ -12,12 +12,13 @@ import { API_DISCOVERY, OPENAPI_SPEC, SCALAR_DOCS_HTML } from './openapi.js';
 import { AGENT_CARD } from './a2a.js';
 import { LLMS_TXT } from './llms-txt.js';
 import { authenticateAny } from './middleware/auth.js';
+import { buildJWKS } from './jwt.js';
 import { checkRateLimit, checkPodRateLimit } from './middleware/ratelimit.js';
 import { detectAgent, AGENTLAIR_MANIFEST } from './middleware/agent-detect.js';
 import { securityHeaders } from './middleware/security-headers.js';
 import { auditMiddleware } from './middleware/audit.js';
 import { encryptEmailField, encryptEmailE2E } from './platform-crypto.js';
-import { make402Response, SERVICE_PRICES, verifyX402Payment, settleX402Payment, trackX402Spend, autoUpgradeIfThreshold, getGlobalRevenue } from './x402.js';
+import { make402Response, SERVICE_PRICES, verifyX402Payment, settleX402Payment, trackX402Spend, autoUpgradeIfThreshold, getGlobalRevenue, checkSpendingCap } from './x402.js';
 import type { ServicePaymentConfig } from './x402.js';
 
 // ─── Route modules ─────────────────────────────────────────────────────────────
@@ -305,6 +306,48 @@ app.get('/.well-known/mcp/server.json', () =>
     headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=3600' },
   })
 );
+
+// ── Platform JWKS — AAT verification key ─────────────────────────────────────
+// Exposes the Ed25519 public key used to sign Agent Auth Tokens (AATs).
+// Enables offline JWT verification by VWM and any third-party service.
+// URL advertised in GET /v1/tokens/info jwks_uri field.
+
+app.get('/.well-known/jwks.json', async (c) => {
+  const jwks = await buildJWKS(c.env.AUDIT_SIGNING_KEY);
+  return new Response(JSON.stringify(jwks), {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'public, max-age=3600',
+    },
+  });
+});
+
+// ── OpenID Connect Discovery ───────────────────────────────────────────────────
+// Standard auto-discovery for JWT library integration.
+// Low-priority Gap 2 from VWM E002 integration spec.
+
+app.get('/.well-known/openid-configuration', (c) => {
+  const baseUrl = 'https://agentlair.dev';
+  const config = {
+    issuer: baseUrl,
+    jwks_uri: `${baseUrl}/.well-known/jwks.json`,
+    token_endpoint: `${baseUrl}/v1/tokens/issue`,
+    introspection_endpoint: `${baseUrl}/v1/tokens/introspect`,
+    token_endpoint_auth_methods_supported: ['none'],
+    id_token_signing_alg_values_supported: ['EdDSA'],
+    subject_types_supported: ['public'],
+    response_types_supported: ['token'],
+    grant_types_supported: ['agent_credentials'],
+  };
+  return new Response(JSON.stringify(config, null, 2), {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'public, max-age=3600',
+    },
+  });
+});
 
 // ── RFC 9421 public key directory ────────────────────────────────────────────
 // Unauthenticated — any verifier can look up an agent's signing key by keyid.
@@ -623,6 +666,32 @@ app.use('/v1/*', async (c: Context<HonoEnv>, next: Next): Promise<void | Respons
             hint: 'X-PAYMENT header is invalid or expired. See https://agentlair.dev/docs#x402',
           },
         });
+      }
+
+      // Check spending caps if this is a pod account
+      if (account.type === 'pod' && account.pod_id) {
+        try {
+          const podRaw = await c.env.KEYS.get('pod:' + account.pod_id);
+          if (podRaw) {
+            const pod = JSON.parse(podRaw);
+            if (pod.spending_caps) {
+              const capCheck = await checkSpendingCap(c.env, account.id, service.amount, pod.spending_caps);
+              if (!capCheck.allowed) {
+                const periodLabel = capCheck.exceeded || 'period';
+                const capUsdc = ((capCheck.cap || 0) / 1_000_000).toFixed(2);
+                const currentUsdc = ((capCheck.current || 0) / 1_000_000).toFixed(2);
+                return new Response(JSON.stringify({
+                  error: `Spending cap exceeded: ${periodLabel} limit of ${capUsdc} USDC reached (current: ${currentUsdc} USDC). Payment blocked by pod spending cap.`,
+                  code: 'spending_cap_exceeded',
+                  cap: { period: periodLabel, limit_usdc: capUsdc, current_usdc: currentUsdc },
+                }), {
+                  status: 402,
+                  headers: { 'Content-Type': 'application/json' },
+                });
+              }
+            }
+          }
+        } catch { /* fail-open: don't block payment for cap check error */ }
       }
 
       // Settle the payment before serving the request

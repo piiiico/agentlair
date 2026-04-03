@@ -12,7 +12,7 @@ import { Hono } from 'hono';
 import { json, err, nanoid } from '../utils.js';
 import type { HonoEnv } from '../types.js';
 import { EMAIL_LIMITS } from '../middleware/ratelimit.js';
-import { X402_CONFIG, SERVICE_PRICES, verifyX402Payment, settleX402Payment, make402Response, getX402Spend, trackX402Spend, autoUpgradeIfThreshold } from '../x402.js';
+import { X402_CONFIG, SERVICE_PRICES, verifyX402Payment, settleX402Payment, make402Response, getX402Spend, trackX402Spend, autoUpgradeIfThreshold, checkSpendingCap } from '../x402.js';
 import { tursoExecute } from '../email-provider.js';
 
 // ─── Request body types ─────────────────────────────────────────────────────
@@ -80,6 +80,31 @@ stackRoutes.post('/stack', async (c) => {
         status: 402,
         headers: { 'Content-Type': 'application/json', 'X-402-Version': String(X402_CONFIG.x402Version) },
       });
+    }
+    // Check spending caps if this is a pod account
+    if (account.type === 'pod' && account.pod_id) {
+      try {
+        const podRaw = await c.env.KEYS.get('pod:' + account.pod_id);
+        if (podRaw) {
+          const pod = JSON.parse(podRaw);
+          if (pod.spending_caps) {
+            const capCheck = await checkSpendingCap(c.env, account.id, SERVICE_PRICES.stack_create.amount, pod.spending_caps);
+            if (!capCheck.allowed) {
+              const periodLabel = capCheck.exceeded || 'period';
+              const capUsdc = ((capCheck.cap || 0) / 1_000_000).toFixed(2);
+              const currentUsdc = ((capCheck.current || 0) / 1_000_000).toFixed(2);
+              return new Response(JSON.stringify({
+                error: `Spending cap exceeded: ${periodLabel} limit of ${capUsdc} USDC reached (current: ${currentUsdc} USDC). Payment blocked by pod spending cap.`,
+                code: 'spending_cap_exceeded',
+                cap: { period: periodLabel, limit_usdc: capUsdc, current_usdc: currentUsdc },
+              }), {
+                status: 402,
+                headers: { 'Content-Type': 'application/json' },
+              });
+            }
+          }
+        }
+      } catch { /* fail-open: don't block payment for cap check error */ }
     }
     // Payment verified — settle and track spend
     try {

@@ -22,7 +22,8 @@
 
 import { Hono } from 'hono';
 import { nanoid, sha256hex, json, err } from '../utils.js';
-import type { Pod, HonoEnv, PodRateLimits } from '../types.js';
+import type { Pod, HonoEnv, PodRateLimits, SpendingCaps } from '../types.js';
+import { getPeriodSpend } from '../x402.js';
 
 // ── Validate rate_limits input ────────────────────────────────────────────────
 // Returns parsed PodRateLimits or throws an error Response.
@@ -62,6 +63,43 @@ function parseRateLimits(raw: unknown): { rateLimits: PodRateLimits | null | und
   return { rateLimits: Object.keys(parsed).length > 0 ? parsed : {} };
 }
 
+// ── Validate spending_caps input ──────────────────────────────────────────────
+// Returns parsed SpendingCaps or error Response.
+// All fields optional, must be positive integers (atomic USDC, 6 decimals).
+// Max cap: 1,000,000,000 (1000 USDC per period — sanity limit).
+
+function parseSpendingCaps(raw: unknown): { caps: SpendingCaps | null | undefined; error?: Response } {
+  if (raw === undefined) return { caps: undefined };   // not provided — leave unchanged
+  if (raw === null) return { caps: null };              // explicitly unset
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    return { caps: undefined, error: err('spending_caps must be an object or null.', 400, 'invalid_spending_caps') };
+  }
+  const obj = raw as Record<string, unknown>;
+  const parsed: SpendingCaps = {};
+
+  for (const field of ['daily', 'weekly', 'monthly'] as const) {
+    const val = obj[field];
+    if (val === undefined) continue;
+    if (typeof val !== 'number' || !Number.isInteger(val) || val <= 0 || val > 1_000_000_000) {
+      return { caps: undefined, error: err(`spending_caps.${field} must be a positive integer \u2264 1,000,000,000 (atomic USDC).`, 400, 'invalid_spending_caps') };
+    }
+    parsed[field] = val;
+  }
+
+  // Cross-field ordering: daily <= weekly <= monthly (makes logical sense)
+  if (parsed.daily != null && parsed.weekly != null && parsed.daily > parsed.weekly) {
+    return { caps: undefined, error: err('spending_caps.daily must be \u2264 spending_caps.weekly.', 400, 'invalid_spending_caps') };
+  }
+  if (parsed.weekly != null && parsed.monthly != null && parsed.weekly > parsed.monthly) {
+    return { caps: undefined, error: err('spending_caps.weekly must be \u2264 spending_caps.monthly.', 400, 'invalid_spending_caps') };
+  }
+  if (parsed.daily != null && parsed.monthly != null && parsed.daily > parsed.monthly) {
+    return { caps: undefined, error: err('spending_caps.daily must be \u2264 spending_caps.monthly.', 400, 'invalid_spending_caps') };
+  }
+
+  return { caps: Object.keys(parsed).length > 0 ? parsed : {} };
+}
+
 export const podRoutes = new Hono<HonoEnv>();
 
 // ── POST /v1/pods — create a new pod ───────────────────────────────────────
@@ -85,6 +123,10 @@ podRoutes.post('/', async (c) => {
   const { rateLimits, error: rlError } = parseRateLimits(body.rate_limits);
   if (rlError) return rlError;
 
+  // Validate spending_caps if provided
+  const { caps: spendingCaps, error: scError } = parseSpendingCaps(body.spending_caps);
+  if (scError) return scError;
+
   const podId = 'pod_' + nanoid(16);
   const apiKey = 'al_pod_' + nanoid(32);
   const apiKeyHash = await sha256hex(apiKey);
@@ -97,6 +139,7 @@ podRoutes.post('/', async (c) => {
     created_at: now,
     status: 'active',
     ...(rateLimits !== undefined ? { rate_limits: rateLimits } : {}),
+    ...(spendingCaps !== undefined ? { spending_caps: spendingCaps } : {}),
   };
 
   // Store pod metadata
@@ -129,6 +172,7 @@ podRoutes.post('/', async (c) => {
     created_at: now,
     status: 'active',
     ...(pod.rate_limits != null ? { rate_limits: pod.rate_limits } : {}),
+    ...(pod.spending_caps != null ? { spending_caps: pod.spending_caps } : {}),
     warning: 'Store this API key securely — it will not be shown again.',
   }, 201);
 });
@@ -208,6 +252,14 @@ podRoutes.get('/:id', async (c) => {
     } catch { /* fail-open: usage is informational */ }
   }
 
+  // Fetch current period spend (for spending_caps display)
+  let periodSpend: { daily: number; weekly: number; monthly: number } | undefined;
+  if (pod.spending_caps) {
+    try {
+      periodSpend = await getPeriodSpend(c.env, pod.id);
+    } catch { /* fail-open */ }
+  }
+
   return json({
     id: pod.id,
     name: pod.name,
@@ -217,6 +269,8 @@ podRoutes.get('/:id', async (c) => {
     ...(pod.suspended_at ? { suspended_at: pod.suspended_at } : {}),
     ...(pod.rate_limits != null ? { rate_limits: pod.rate_limits } : {}),
     ...(usage !== undefined ? { usage } : {}),
+    ...(pod.spending_caps != null ? { spending_caps: pod.spending_caps } : {}),
+    ...(periodSpend !== undefined ? { spend: periodSpend } : {}),
   });
 });
 
@@ -291,6 +345,15 @@ podRoutes.patch('/:id', async (c) => {
     }
   }
 
+  // Update spending_caps if provided (null = remove, object = set/update)
+  if ('spending_caps' in body) {
+    const { caps, error: scError } = parseSpendingCaps(body.spending_caps);
+    if (scError) return scError;
+    if (caps !== undefined) {
+      pod.spending_caps = caps;
+    }
+  }
+
   await c.env.KEYS.put('pod:' + podId, JSON.stringify(pod));
 
   return json({
@@ -298,6 +361,7 @@ podRoutes.patch('/:id', async (c) => {
     name: pod.name,
     status: pod.status,
     ...(pod.rate_limits != null ? { rate_limits: pod.rate_limits } : { rate_limits: null }),
+    ...(pod.spending_caps != null ? { spending_caps: pod.spending_caps } : { spending_caps: null }),
     updated: true,
   });
 });

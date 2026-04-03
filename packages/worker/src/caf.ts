@@ -109,6 +109,30 @@ export type CommitmentSource =
 // ─── AgentLair Body Schema ────────────────────────────────────────────────────
 
 /**
+ * Body for commitment_type: "agent.session"
+ * Transforms a session-category AuditEntry into a CAF body.
+ */
+export interface AgentSessionBody {
+  /** The session sub-action: 'session.start' | 'session.end' | 'session.event' | 'session.action'. */
+  sub_action: string;
+
+  /** Outcome. */
+  result: 'success' | 'failure' | 'denied' | 'rate_limited';
+
+  /** HTTP status code. */
+  status: number;
+
+  /** Hash of the previous audit entry (chain integrity). */
+  prev_hash: string;
+
+  /** Session-specific details (session_id, model, summary, etc.). */
+  details: Record<string, string | number | boolean> | null;
+
+  /** Duration of the session in milliseconds (populated for session.end if provided in details). */
+  duration_ms: number | null;
+}
+
+/**
  * Body for commitment_type: "agent.action"
  * Transforms an AuditEntry into a CAF body.
  */
@@ -290,13 +314,83 @@ export async function signAttestation(
  * - attester/subject = account_id (agent attests its own behavior)
  * - timestamp + created_at = entry.timestamp
  * - body includes action, method, path, result, status, prev_hash, details
- * - cost_signal = credential (Ed25519-signed + hash-chained)
+ * - cost_signal = credential (Ed25519-signed + hash-chained) for most actions
+ * - cost_signal = temporal for session category (time spent is the commitment signal)
  * - evidence = [original signature hash, audit trail URL]
+ *
+ * Session category (category === 'session'):
+ * - commitment_type: 'agent.session'
+ * - Maps session.start / session.end / session.event sub-actions
+ * - cost_signal is temporal: duration_ms from details (session.end) or default 1
  */
 export async function auditEntryToCAF(
   entry: AuditEntry,
   signingKeyB64: string,
 ): Promise<CommitmentAttestation> {
+  // ─── Session events ──────────────────────────────────────────────────────────
+  // PicoClaw agent sessions are temporal commitments — time spent is the cost signal.
+
+  if (entry.category === 'session') {
+    const durationMs: number | null =
+      (entry.details && typeof entry.details['duration_ms'] === 'number')
+        ? entry.details['duration_ms'] as number
+        : null;
+
+    // Temporal cost: use duration_ms when available (session.end), else default to 1
+    const magnitude = durationMs ?? 1;
+
+    const subAction = entry.action; // e.g. 'session.start', 'session.end', 'session.event'
+
+    const sessionBody: AgentSessionBody = {
+      sub_action: subAction,
+      result: entry.result,
+      status: entry.status,
+      prev_hash: entry.prev_hash,
+      details: entry.details,
+      duration_ms: durationMs,
+    };
+
+    const withoutIdAndSig: Omit<CommitmentAttestation, 'id' | 'sig'> = {
+      schema: 'caf:v0.1',
+      attester: { type: 'agent', id: entry.account_id },
+      subject: { type: 'agent', id: entry.account_id },
+      timestamp: entry.timestamp,
+      created_at: entry.timestamp,
+      expires_at: null,
+      revoked_at: null,
+      source: 'agentlair',
+      commitment_type: 'agent.session',
+      body: sessionBody as unknown as Record<string, unknown>,
+      cost_signal: {
+        type: 'temporal',
+        description: durationMs !== null
+          ? `Agent session event '${subAction}' from AgentLair identity (${entry.account_id}). Duration: ${durationMs}ms.`
+          : `Agent session event '${subAction}' from AgentLair identity (${entry.account_id}).`,
+        magnitude,
+        unit: 'milliseconds',
+      },
+      evidence: [
+        {
+          type: 'hash',
+          label: 'Original audit entry signature',
+          value: `ed25519:${entry.signature}`,
+        },
+        {
+          type: 'url',
+          label: 'AgentLair audit trail',
+          value: `https://agentlair.dev/v1/audit/log?account=${entry.account_id}&from=${entry.timestamp}`,
+        },
+      ],
+      ref: [],
+    };
+
+    const id = await computeId(withoutIdAndSig);
+    const sig = await signAttestation(withoutIdAndSig, signingKeyB64);
+    return { ...withoutIdAndSig, id, sig };
+  }
+
+  // ─── Default: agent.action ───────────────────────────────────────────────────
+
   const withoutIdAndSig: Omit<CommitmentAttestation, 'id' | 'sig'> = {
     schema: 'caf:v0.1',
     attester: { type: 'agent', id: entry.account_id },

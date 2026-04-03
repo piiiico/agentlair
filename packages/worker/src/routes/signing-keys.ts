@@ -155,7 +155,15 @@ signingKeyRoutes.post('/signing-keys', async (c) => {
       if (prevKeyRaw) {
         const prevKey = JSON.parse(prevKeyRaw) as SigningKeyRecord;
         prevKey.status = 'revoked';
-        await c.env.KEYS.put('signing-key:' + prevRecord.keyid, JSON.stringify(prevKey));
+        try {
+          await c.env.KEYS.put('signing-key:' + prevRecord.keyid, JSON.stringify(prevKey));
+        } catch (kvErr: unknown) {
+          const msg = kvErr instanceof Error ? kvErr.message : '';
+          if (msg.includes('free usage limit') || msg.includes('KV') || msg.includes('quota')) {
+            return err('Signing key registration temporarily unavailable — KV write quota exceeded. Try again later.', 503, 'kv_quota_exceeded');
+          }
+          throw kvErr;
+        }
       }
     }
   }
@@ -178,11 +186,19 @@ signingKeyRoutes.post('/signing-keys', async (c) => {
   };
 
   // Store key record and account index
-  await c.env.KEYS.put('signing-key:' + keyid, JSON.stringify(record));
-  await c.env.KEYS.put(
-    'signing-key-by-account:' + account.id,
-    JSON.stringify({ keyid }),
-  );
+  try {
+    await c.env.KEYS.put('signing-key:' + keyid, JSON.stringify(record));
+    await c.env.KEYS.put(
+      'signing-key-by-account:' + account.id,
+      JSON.stringify({ keyid }),
+    );
+  } catch (kvErr: unknown) {
+    const msg = kvErr instanceof Error ? kvErr.message : '';
+    if (msg.includes('free usage limit') || msg.includes('KV') || msg.includes('quota')) {
+      return err('Signing key registration temporarily unavailable — KV write quota exceeded. Try again later.', 503, 'kv_quota_exceeded');
+    }
+    throw kvErr;
+  }
 
   return json({
     keyid,
@@ -254,7 +270,15 @@ signingKeyRoutes.delete('/signing-keys', async (c) => {
 
   // Mark as revoked (keep for verifier lookup)
   record.status = 'revoked';
-  await c.env.KEYS.put('signing-key:' + keyid, JSON.stringify(record));
+  try {
+    await c.env.KEYS.put('signing-key:' + keyid, JSON.stringify(record));
+  } catch (kvErr: unknown) {
+    const msg = kvErr instanceof Error ? kvErr.message : '';
+    if (msg.includes('free usage limit') || msg.includes('KV') || msg.includes('quota')) {
+      return err('Signing key revocation temporarily unavailable — KV write quota exceeded. Try again later.', 503, 'kv_quota_exceeded');
+    }
+    throw kvErr;
+  }
   // Remove account index (no active key)
   await c.env.KEYS.delete('signing-key-by-account:' + account.id);
 

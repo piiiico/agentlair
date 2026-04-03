@@ -16,7 +16,7 @@
 import { nanoid, sha256hex, json, err } from '../utils.js';
 import type { Env, RouteContext, VaultIndexEntry } from '../types.js';
 import { sendVaultRecoveryEmail } from '../middleware/auth.js';
-import { SERVICE_PRICES, X402_CONFIG, verifyX402Payment, settleX402Payment, make402Response, trackX402Spend, autoUpgradeIfThreshold } from '../x402.js';
+import { SERVICE_PRICES, X402_CONFIG, verifyX402Payment, settleX402Payment, make402Response, trackX402Spend, autoUpgradeIfThreshold, checkSpendingCap } from '../x402.js';
 
 const VAULT_LIMITS = {
   free:  { max_keys: 10, max_versions: 3, max_blob_size: 16384 },   // 16 KB
@@ -326,6 +326,32 @@ export async function handleVaultRoutes(
               headers: { 'Content-Type': 'application/json', 'X-402-Version': String(X402_CONFIG.x402Version) },
             });
           }
+          // Check spending caps if this is a pod account
+          if (account.type === 'pod' && account.pod_id) {
+            try {
+              const podRaw = await env.KEYS.get('pod:' + account.pod_id);
+              if (podRaw) {
+                const pod = JSON.parse(podRaw);
+                if (pod.spending_caps) {
+                  const capCheck = await checkSpendingCap(env, account.id, SERVICE_PRICES.vault_write.amount, pod.spending_caps);
+                  if (!capCheck.allowed) {
+                    const periodLabel = capCheck.exceeded || 'period';
+                    const capUsdc = ((capCheck.cap || 0) / 1_000_000).toFixed(2);
+                    const currentUsdc = ((capCheck.current || 0) / 1_000_000).toFixed(2);
+                    return new Response(JSON.stringify({
+                      error: `Spending cap exceeded: ${periodLabel} limit of ${capUsdc} USDC reached (current: ${currentUsdc} USDC). Payment blocked by pod spending cap.`,
+                      code: 'spending_cap_exceeded',
+                      cap: { period: periodLabel, limit_usdc: capUsdc, current_usdc: currentUsdc },
+                    }), {
+                      status: 402,
+                      headers: { 'Content-Type': 'application/json' },
+                    });
+                  }
+                }
+              }
+            } catch { /* fail-open: don't block payment for cap check error */ }
+          }
+
           // Payment verified — settle and track spend
           try {
             const settlement = await settleX402Payment(paymentHeader, SERVICE_PRICES.vault_write);

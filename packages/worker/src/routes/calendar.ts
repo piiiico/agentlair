@@ -21,7 +21,7 @@
 
 import { nanoid, json, err } from '../utils.js';
 import type { Env, RouteContext } from '../types.js';
-import { SERVICE_PRICES, X402_CONFIG, verifyX402Payment, make402Response } from '../x402.js';
+import { SERVICE_PRICES, X402_CONFIG, verifyX402Payment, make402Response, checkSpendingCap } from '../x402.js';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -409,6 +409,31 @@ export async function handleCalendarRoutes(
           status: 402,
           headers: { 'Content-Type': 'application/json', 'X-402-Version': String(X402_CONFIG.x402Version) },
         });
+      }
+      // Check spending caps if this is a pod account
+      if (account.type === 'pod' && account.pod_id) {
+        try {
+          const podRaw = await env.KEYS.get('pod:' + account.pod_id);
+          if (podRaw) {
+            const pod = JSON.parse(podRaw);
+            if (pod.spending_caps) {
+              const capCheck = await checkSpendingCap(env, account.id, SERVICE_PRICES.calendar_event.amount, pod.spending_caps);
+              if (!capCheck.allowed) {
+                const periodLabel = capCheck.exceeded || 'period';
+                const capUsdc = ((capCheck.cap || 0) / 1_000_000).toFixed(2);
+                const currentUsdc = ((capCheck.current || 0) / 1_000_000).toFixed(2);
+                return new Response(JSON.stringify({
+                  error: `Spending cap exceeded: ${periodLabel} limit of ${capUsdc} USDC reached (current: ${currentUsdc} USDC). Payment blocked by pod spending cap.`,
+                  code: 'spending_cap_exceeded',
+                  cap: { period: periodLabel, limit_usdc: capUsdc, current_usdc: currentUsdc },
+                }), {
+                  status: 402,
+                  headers: { 'Content-Type': 'application/json' },
+                });
+              }
+            }
+          }
+        } catch { /* fail-open: don't block payment for cap check error */ }
       }
       // Payment verified — allow event creation beyond limit
     }

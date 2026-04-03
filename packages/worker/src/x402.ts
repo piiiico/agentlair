@@ -298,6 +298,9 @@ export async function trackX402Spend(
     }
     await env.KEYS.put(key, JSON.stringify(current), { expirationTtl: 86400 * 365 });
 
+    // Track period spend for spending cap enforcement
+    await trackPeriodSpend(env, accountId, amount);
+
     // Track in global revenue ledger
     await trackGlobalRevenue(env, amount, accountId, payer, opts?.service);
 
@@ -448,6 +451,120 @@ export async function getX402Spend(env: Env, accountId: string): Promise<X402Spe
   } catch {
     return { total: 0, payments: 0, last_at: null };
   }
+}
+
+// ─── Spending Cap Period Tracking ─────────────────────────────────────────────
+// Tracks per-period USDC spend for spending cap enforcement.
+// KV keys: x402-cap:{accountId}:day:{YYYY-MM-DD}
+//          x402-cap:{accountId}:week:{YYYY-WNN}
+//          x402-cap:{accountId}:month:{YYYY-MM}
+// TTL: 35 days (covers monthly period + buffer)
+
+function getPeriodKeys(): { day: string; week: string; month: string } {
+  const now = new Date();
+  const day = now.toISOString().slice(0, 10); // YYYY-MM-DD
+
+  // ISO week number
+  const tmp = new Date(now.valueOf());
+  tmp.setUTCDate(tmp.getUTCDate() + 4 - (tmp.getUTCDay() || 7));
+  const yearStart = new Date(Date.UTC(tmp.getUTCFullYear(), 0, 1));
+  const weekNum = Math.ceil((((tmp.valueOf() - yearStart.valueOf()) / 86400000) + 1) / 7);
+  const week = `${tmp.getUTCFullYear()}-W${String(weekNum).padStart(2, '0')}`;
+
+  const month = now.toISOString().slice(0, 7); // YYYY-MM
+
+  return { day, week, month };
+}
+
+export interface PeriodSpend {
+  daily: number;
+  weekly: number;
+  monthly: number;
+}
+
+/** Get current period spend for an account (for spending cap checks). */
+export async function getPeriodSpend(env: Env, accountId: string): Promise<PeriodSpend> {
+  const { day, week, month } = getPeriodKeys();
+  try {
+    const [dayRaw, weekRaw, monthRaw] = await Promise.all([
+      env.KEYS.get(`x402-cap:${accountId}:day:${day}`),
+      env.KEYS.get(`x402-cap:${accountId}:week:${week}`),
+      env.KEYS.get(`x402-cap:${accountId}:month:${month}`),
+    ]);
+    return {
+      daily:   parseInt(dayRaw   || '0'),
+      weekly:  parseInt(weekRaw  || '0'),
+      monthly: parseInt(monthRaw || '0'),
+    };
+  } catch {
+    return { daily: 0, weekly: 0, monthly: 0 };
+  }
+}
+
+/** Track spend for the current day/week/month periods. Fire-and-forget safe. */
+export async function trackPeriodSpend(env: Env, accountId: string, amount: string): Promise<void> {
+  const { day, week, month } = getPeriodKeys();
+  const amt = parseInt(amount);
+  const ttl = 86400 * 35; // 35 days
+  try {
+    await Promise.all([
+      (async () => {
+        const raw = await env.KEYS.get(`x402-cap:${accountId}:day:${day}`);
+        const cur = parseInt(raw || '0');
+        await env.KEYS.put(`x402-cap:${accountId}:day:${day}`, String(cur + amt), { expirationTtl: ttl });
+      })(),
+      (async () => {
+        const raw = await env.KEYS.get(`x402-cap:${accountId}:week:${week}`);
+        const cur = parseInt(raw || '0');
+        await env.KEYS.put(`x402-cap:${accountId}:week:${week}`, String(cur + amt), { expirationTtl: ttl });
+      })(),
+      (async () => {
+        const raw = await env.KEYS.get(`x402-cap:${accountId}:month:${month}`);
+        const cur = parseInt(raw || '0');
+        await env.KEYS.put(`x402-cap:${accountId}:month:${month}`, String(cur + amt), { expirationTtl: ttl });
+      })(),
+    ]);
+  } catch {
+    // Non-critical — don't fail the payment for tracking
+  }
+}
+
+export interface SpendCapCheckResult {
+  allowed: boolean;
+  exceeded?: 'daily' | 'weekly' | 'monthly';
+  current?: number;   // current period spend (atomic USDC)
+  cap?: number;       // configured cap (atomic USDC)
+}
+
+/**
+ * Check if a payment amount is within spending caps.
+ * Returns { allowed: true } if no caps configured or within limits.
+ * Returns { allowed: false, exceeded, current, cap } if would exceed a cap.
+ */
+export async function checkSpendingCap(
+  env: Env,
+  accountId: string,
+  amount: string,
+  caps: import('./types.js').SpendingCaps,
+): Promise<SpendCapCheckResult> {
+  if (!caps.daily && !caps.weekly && !caps.monthly) {
+    return { allowed: true };
+  }
+
+  const amt = parseInt(amount);
+  const spend = await getPeriodSpend(env, accountId);
+
+  if (caps.daily != null && (spend.daily + amt) > caps.daily) {
+    return { allowed: false, exceeded: 'daily', current: spend.daily, cap: caps.daily };
+  }
+  if (caps.weekly != null && (spend.weekly + amt) > caps.weekly) {
+    return { allowed: false, exceeded: 'weekly', current: spend.weekly, cap: caps.weekly };
+  }
+  if (caps.monthly != null && (spend.monthly + amt) > caps.monthly) {
+    return { allowed: false, exceeded: 'monthly', current: spend.monthly, cap: caps.monthly };
+  }
+
+  return { allowed: true };
 }
 
 /**

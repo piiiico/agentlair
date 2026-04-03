@@ -119,6 +119,12 @@ export interface PodRateLimitResult {
   rl_reset?: number; // Unix epoch seconds
 }
 
+export interface SpendingCaps {
+  daily?: number;    // max atomic USDC per calendar day (UTC)
+  weekly?: number;   // max atomic USDC per calendar week (ISO week, UTC)
+  monthly?: number;  // max atomic USDC per calendar month (UTC)
+}
+
 export interface Pod {
   id: string;
   parent_id: string;
@@ -127,6 +133,7 @@ export interface Pod {
   status: 'active' | 'suspended';
   suspended_at?: string;
   rate_limits?: PodRateLimits | null;
+  spending_caps?: SpendingCaps | null;
 }
 
 export interface EmailAuthResult {
