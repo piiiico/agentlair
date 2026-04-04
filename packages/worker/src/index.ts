@@ -17,6 +17,7 @@ import { checkRateLimit, checkPodRateLimit } from './middleware/ratelimit.js';
 import { detectAgent, AGENTLAIR_MANIFEST } from './middleware/agent-detect.js';
 import { securityHeaders } from './middleware/security-headers.js';
 import { auditMiddleware } from './middleware/audit.js';
+import { budgetMiddleware } from './middleware/budget.js';
 import { encryptEmailField, encryptEmailE2E } from './platform-crypto.js';
 import { make402Response, SERVICE_PRICES, verifyX402Payment, settleX402Payment, trackX402Spend, autoUpgradeIfThreshold, getGlobalRevenue, checkSpendingCap } from './x402.js';
 import type { ServicePaymentConfig } from './x402.js';
@@ -33,6 +34,7 @@ import { tokenRoutes, publicTokenRoutes } from './routes/tokens.js';
 import { signingKeyRoutes, getSigningKey } from './routes/signing-keys.js';
 import { auditRoutes } from './routes/audit.js';
 import { sessionRoutes } from './routes/sessions.js';
+import { budgetRoutes } from './routes/budget.js';
 import { handleRegisterRoute } from './routes/register.js';
 import { handleRegisterVerifyRoute } from './routes/register-verify.js';
 
@@ -110,6 +112,7 @@ function getServiceForPath(path: string, method?: string): ServicePaymentConfig 
 const SELF_HANDLING_X402: Array<[string, string]> = [
   ['POST', '/v1/email/send'],
   ['POST', '/v1/vault'],
+  ['PUT', '/v1/vault'],
   ['POST', '/v1/calendar/events'],
   ['POST', '/v1/stack'],
   ['POST', '/v1/account/upgrade'],
@@ -220,20 +223,8 @@ app.get('/vault', async (c) => {
   return proxyToPages(c, '/vault');
 });
 app.get('/getting-started', async (c) => {
-  // Agent-first content negotiation: agents get the manifest, humans get the Astro page
-  const detection = detectAgent(c.req.raw.headers);
-  if (detection.isAgent && (detection.confidence === 'high' || detection.confidence === 'medium')) {
-    return new Response(JSON.stringify(AGENTLAIR_MANIFEST, null, 2), {
-      status: 200,
-      headers: {
-        'Content-Type': 'application/agent+json',
-        'X-Agent-Optimized': 'true',
-        'X-Detection-Confidence': detection.confidence,
-        'X-Detection-Signals': detection.signals.join(','),
-        'Cache-Control': 'no-store',
-      },
-    });
-  }
+  // Always serve the Astro HTML page — this is a developer onboarding page
+  // and must be human-readable even when accessed via curl or automated tools.
   return proxyToPages(c, '/getting-started');
 });
 app.get('/', async (c) => {
@@ -678,8 +669,8 @@ app.use('/v1/*', async (c: Context<HonoEnv>, next: Next): Promise<void | Respons
               const capCheck = await checkSpendingCap(c.env, account.id, service.amount, pod.spending_caps);
               if (!capCheck.allowed) {
                 const periodLabel = capCheck.exceeded || 'period';
-                const capUsdc = ((capCheck.cap || 0) / 1_000_000).toFixed(2);
-                const currentUsdc = ((capCheck.current || 0) / 1_000_000).toFixed(2);
+                const capUsdc = ((capCheck.cap || 0) / 1_000_000).toFixed(6).replace(/\.?0+$/, '') || '0';
+                const currentUsdc = ((capCheck.current || 0) / 1_000_000).toFixed(6).replace(/\.?0+$/, '') || '0';
                 return new Response(JSON.stringify({
                   error: `Spending cap exceeded: ${periodLabel} limit of ${capUsdc} USDC reached (current: ${currentUsdc} USDC). Payment blocked by pod spending cap.`,
                   code: 'spending_cap_exceeded',
@@ -774,6 +765,11 @@ app.use('/v1/*', async (c: Context<HonoEnv>, next: Next): Promise<void | Respons
 
 app.use('/v1/*', auditMiddleware());
 
+// ── 6.5. Budget Middleware ───────────────────────────────────────────────────────
+// Checks per-agent D1 spending caps before processing paid operations.
+// Runs after auth+rate-limit, before route handlers. Fail-open on D1 errors.
+app.use('/v1/*', budgetMiddleware());
+
 // ── 6. Protected API routes (auth required) ─────────────────────────────────────
 
 // Register verify: OTP verification to unlock restricted accounts (requires auth)
@@ -820,6 +816,9 @@ app.route('/v1', auditRoutes);
 
 // Session lifecycle routes (PicoClaw agent session tracking)
 app.route('/v1/sessions', sessionRoutes);
+
+// Budget routes: per-agent spending caps (GET /v1/budget, PUT /v1/budget, GET /v1/budget/history)
+app.route('/v1/budget', budgetRoutes);
 
 // ── 7. Stubbed routes ───────────────────────────────────────────────────────────
 
