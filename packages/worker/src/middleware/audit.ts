@@ -57,6 +57,7 @@ export function getCategory(path: string, status: number): string {
   if (path.startsWith('/v1/calendar/')) return 'calendar';
   if (path.startsWith('/v1/tokens/') || path === '/v1/tokens') return 'auth';
   if (path.startsWith('/v1/sessions/') || path === '/v1/sessions') return 'session';
+  if (path.startsWith('/v1/budget') || path === '/v1/budget') return 'budget';
   return 'system';
 }
 
@@ -122,6 +123,14 @@ export function getAction(category: string, method: string, path: string): strin
     if (pathLower.includes('/sessions/end')) return 'session.end';
     if (pathLower.includes('/sessions/event')) return 'session.event';
     return 'session.action';
+  }
+
+  // Budget actions
+  if (category === 'budget') {
+    if (method === 'GET' && pathLower.includes('/history')) return 'budget.history';
+    if (method === 'GET') return 'budget.read';
+    if (method === 'PUT') return 'budget.cap_set';
+    return 'budget.action';
   }
 
   // Fallback: category.verb
@@ -294,4 +303,63 @@ export function auditMiddleware() {
       }
     })());
   };
+}
+
+// ─── writeBudgetAuditEvent — standalone signed audit event for budget changes ──
+// Called directly by budget routes (not via middleware) for budget.cap_set events.
+// These are first-class signed events in the hash chain.
+
+export async function writeBudgetAuditEvent(
+  env: import('../types.js').Env,
+  params: {
+    action: string;
+    accountId: string;
+    details?: Record<string, string | number | boolean | null>;
+  },
+): Promise<void> {
+  if (!env.AUDIT || !env.AUDIT_SIGNING_KEY) return;
+  try {
+    const prevHash = await getPrevHash(env);
+    const now = new Date().toISOString();
+    const entryWithoutSignature: Omit<AuditEntry, 'signature'> = {
+      id: nanoid(20),
+      timestamp: now,
+      account_id: params.accountId,
+      actor_type: 'account',
+      actor_id: params.accountId,
+      actor_ip_hash: null,
+      category: 'budget',
+      action: params.action,
+      method: 'PUT',
+      path: '/v1/budget',
+      resource_type: 'budget',
+      resource_id: params.accountId,
+      status: 200,
+      result: 'success',
+      error_code: null,
+      details: params.details
+        ? Object.fromEntries(
+            Object.entries(params.details)
+              .filter(([, v]) => v != null)
+              .map(([k, v]) => [k, v as string | number | boolean])
+          )
+        : null,
+      prev_hash: prevHash,
+    };
+    const signature = await signEntry(entryWithoutSignature, env.AUDIT_SIGNING_KEY);
+    const entry: AuditEntry = { ...entryWithoutSignature, signature };
+    lastEntryHash = await sha256hex(JSON.stringify(entry));
+    await env.AUDIT.prepare(
+      `INSERT INTO audit_log (id, timestamp, account_id, actor_type, actor_id, actor_ip_hash, category, action, method, path, resource_type, resource_id, status, result, error_code, details, prev_hash, signature)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(
+      entry.id, entry.timestamp, entry.account_id, entry.actor_type, entry.actor_id,
+      entry.actor_ip_hash, entry.category, entry.action, entry.method, entry.path,
+      entry.resource_type, entry.resource_id, entry.status, entry.result,
+      entry.error_code, entry.details !== null ? JSON.stringify(entry.details) : null,
+      entry.prev_hash, entry.signature,
+    ).run();
+  } catch (e) {
+    console.error('Budget audit event write failed:', e instanceof Error ? e.message : String(e));
+  }
 }
