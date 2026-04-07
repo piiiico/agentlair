@@ -68,11 +68,11 @@ export function GettingStarted() {
 
       <section className="pb-28 lg:pb-32">
         <div className="container max-w-3xl space-y-6">
-          {/* Step 1: Register your agent */}
-          <StepCard number={1} title="Register your agent">
+          {/* Step 1: Get an API key */}
+          <StepCard number={1} title="Get an API key">
             <p>
-              One call gives your agent an API key and a dedicated email
-              address. No email, no credit card, no verification.
+              One call creates your account. No email, no credit card, no
+              verification — instant access.
             </p>
 
             <BrowserTip>
@@ -84,17 +84,15 @@ export function GettingStarted() {
                 homepage signup
               </a>{" "}
               and click <strong className="text-foreground">"Create Free Account"</strong>.
-              Your key and address appear immediately.
+              Your key appears immediately.
             </BrowserTip>
 
             <CodeBlock
-              code={`curl -X POST https://agentlair.dev/v1/auth/agent-register \\
-  -H "Content-Type: application/json" \\
-  -d '{"name": "my-agent"}'
+              code={`curl -X POST https://agentlair.dev/v1/auth/keys
 → {
     "api_key": "al_live_k7x9m2p4...",
-    "email_address": "my-agent@agentlair.dev",
-    "account_id": "acct_..."
+    "account_id": "acc_...",
+    "tier": "free"
   }`}
               language="bash"
               title="Terminal"
@@ -103,20 +101,55 @@ export function GettingStarted() {
             <Tip>
               <strong className="text-foreground">Save your API key!</strong>{" "}
               It's shown only once. If you lose it, set a recovery email (step
-              4) to regain access via the dashboard. Use descriptive names like{" "}
-              <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-xs">
-                research-agent
-              </code>{" "}
-              or{" "}
-              <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-xs">
-                outreach-bot
-              </code>
-              . You can register up to 10 agents on the free tier.
+              5) to regain access via the dashboard.
             </Tip>
           </StepCard>
 
-          {/* Step 2: Send your first email */}
-          <StepCard number={2} title="Send your first email">
+          {/* Step 2: Claim an email address */}
+          <StepCard number={2} title="Claim an email address">
+            <p>
+              Pick any available <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-xs">@agentlair.dev</code> address for your agent.
+            </p>
+
+            <BrowserTip>
+              The{" "}
+              <a
+                href="/dashboard"
+                className="text-primary underline underline-offset-4"
+              >
+                dashboard
+              </a>{" "}
+              lets you claim and manage addresses under your account.
+            </BrowserTip>
+
+            <CodeBlock
+              code={`curl -X POST https://agentlair.dev/v1/email/claim \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"address": "my-agent@agentlair.dev"}'
+→ {
+    "claimed": true,
+    "address": "my-agent@agentlair.dev"
+  }`}
+              language="bash"
+              title="Terminal"
+            />
+
+            <Tip>
+              You can claim up to 10 addresses on the free tier. Use descriptive names like{" "}
+              <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-xs">
+                research-agent@agentlair.dev
+              </code>{" "}
+              or{" "}
+              <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-xs">
+                outreach-bot@agentlair.dev
+              </code>
+              .
+            </Tip>
+          </StepCard>
+
+          {/* Step 3: Send your first email */}
+          <StepCard number={3} title="Send your first email">
             <p>
               Send a test email to yourself to verify everything works.
             </p>
@@ -145,10 +178,19 @@ export function GettingStarted() {
               language="bash"
               title="Terminal"
             />
+
+            <Tip>
+              <strong className="text-foreground">Use an external address for testing.</strong>{" "}
+              Sending from one <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-xs">@agentlair.dev</code>{" "}
+              address to another will not appear in the inbox — inbound routing rejects{" "}
+              <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-xs">@agentlair.dev</code> senders
+              as a spoofing prevention measure. Use your Gmail, Outlook, or any
+              external address to receive the test email, then reply to it.
+            </Tip>
           </StepCard>
 
-          {/* Step 3: Check your inbox */}
-          <StepCard number={3} title="Check your inbox">
+          {/* Step 4: Check your inbox */}
+          <StepCard number={4} title="Check your inbox">
             <p>
               Reply to the email you just sent, then check your agent's inbox.
             </p>
@@ -172,8 +214,8 @@ export function GettingStarted() {
             />
           </StepCard>
 
-          {/* Step 4: Set a recovery email (optional) */}
-          <StepCard number={4} title="Set a recovery email" optional>
+          {/* Step 5: Set a recovery email (optional) */}
+          <StepCard number={5} title="Set a recovery email" optional>
             <p>
               Attach a personal email to your account. This enables magic-link
               dashboard login and key recovery.
@@ -202,8 +244,8 @@ export function GettingStarted() {
             />
           </StepCard>
 
-          {/* Step 5: Store secrets in Vault (optional) */}
-          <StepCard number={5} title="Store secrets in Vault" optional>
+          {/* Step 6: Store secrets in Vault (optional) */}
+          <StepCard number={6} title="Store secrets in Vault" optional>
             <p>
               Keep your agent's API keys and credentials safe across container
               restarts. Client-side encrypted &mdash; AgentLair never sees the
@@ -265,8 +307,8 @@ const plain = await vc.decrypt(
             </Tip>
           </StepCard>
 
-          {/* Step 6: Set up Agent Calendar (optional) */}
-          <StepCard number={6} title="Set up your Agent Calendar" optional>
+          {/* Step 7: Set up Agent Calendar (optional) */}
+          <StepCard number={7} title="Set up your Agent Calendar" optional>
             <p>
               Every agent address has a built-in calendar. Create events via
               REST, then share a public iCal URL &mdash; humans subscribe in

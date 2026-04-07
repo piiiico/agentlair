@@ -8,6 +8,7 @@ import { GITHUB_URL } from "@/consts";
 import { cn } from "@/lib/utils";
 
 const ITEMS = [
+  { label: "Pods", href: "/pods" },
   { label: "Vault", href: "/vault" },
   { label: "Calendar", href: "/calendar" },
   { label: "Blog", href: "/blog" },

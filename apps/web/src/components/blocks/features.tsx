@@ -31,6 +31,7 @@ const items = [
     description:
       "Multi-tenant isolation. Each pod gets its own API key, email, vault, and calendar — fully sandboxed per client.",
     icon: Box,
+    href: "/pods",
   },
   {
     title: "Shared observations",
