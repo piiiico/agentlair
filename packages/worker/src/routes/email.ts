@@ -5,7 +5,7 @@
 // All routes require authentication (account !== null).
 // Webhook routes (/v1/email/webhooks) are handled separately in webhooks.ts.
 
-import { nanoid, json, err } from '../utils.js';
+import { nanoid, json, err, hmacSha256 } from '../utils.js';
 import type { Env, RouteContext } from '../types.js';
 import { isReservedAddress, validateLocalPart } from '../reserved.js';
 import { checkEmailRateLimit, recordEmailBounce, recordEmailSent, ADDRESS_LIMITS, countOwnedAddresses } from '../middleware/ratelimit.js';
@@ -51,10 +51,11 @@ async function getAccountAddresses(env: Env, accountId: string): Promise<string[
 
   return addresses;
 }
-import { decryptEmailField } from '../platform-crypto.js';
+import { decryptEmailField, encryptEmailField, encryptEmailE2E } from '../platform-crypto.js';
 import { getEmailProvider } from '../email-provider.js';
 import { X402_CONFIG, EMAIL_PAYMENT_REQUIRED_RESPONSE, verifyX402Payment, settleX402Payment, trackX402Spend, autoUpgradeIfThreshold, SERVICE_PRICES, checkSpendingCap } from '../x402.js';
 import { verifyAgentKit, recordAgentkitUsage, AGENTKIT_FREE_TRIAL_USES } from '../middleware/agentkit.js';
+import { recordBudgetSpend } from '../middleware/budget.js';
 
 // ─── Request body types ─────────────────────────────────────────────────────
 
@@ -708,8 +709,8 @@ export async function handleEmailRoutes(
                 const capCheck = await checkSpendingCap(env, account.id, SERVICE_PRICES.email_send.amount, pod.spending_caps);
                 if (!capCheck.allowed) {
                   const periodLabel = capCheck.exceeded || 'period';
-                  const capUsdc = ((capCheck.cap || 0) / 1_000_000).toFixed(2);
-                  const currentUsdc = ((capCheck.current || 0) / 1_000_000).toFixed(2);
+                  const capUsdc = ((capCheck.cap || 0) / 1_000_000).toFixed(6).replace(/\.?0+$/, '') || '0';
+                  const currentUsdc = ((capCheck.current || 0) / 1_000_000).toFixed(6).replace(/\.?0+$/, '') || '0';
                   return new Response(JSON.stringify({
                     error: `Spending cap exceeded: ${periodLabel} limit of ${capUsdc} USDC reached (current: ${currentUsdc} USDC). Payment blocked by pod spending cap.`,
                     code: 'spending_cap_exceeded',
@@ -759,6 +760,291 @@ export async function handleEmailRoutes(
       await env.EMAILS.put(outboxKey, JSON.stringify(outboxEntry), { expirationTtl: 30 * 24 * 3600 });
     }
 
+    // ── Intra-domain delivery (@agentlair.dev → @agentlair.dev) ──────────────
+    // Resend does not loop outbound emails back through inbound webhooks for the
+    // same domain. We detect internal recipients and deliver directly to their
+    // inbox in KV, bypassing SMTP entirely. External recipients still go via
+    // the email provider (Resend).
+    const internalAddrs: string[] = [];
+    const externalAddrs: string[] = [];
+    for (const addr of toAddrs) {
+      const normalized = addr.toLowerCase().trim();
+      if (normalized.endsWith('@agentlair.dev')) {
+        internalAddrs.push(normalized);
+      } else {
+        externalAddrs.push(addr);
+      }
+    }
+
+    // Deliver to internal recipients directly
+    const internalDeliveryResults: { address: string; delivered: boolean; error?: string }[] = [];
+    if (internalAddrs.length > 0 && env.EMAILS) {
+      const syntheticMessageId = `<${msgId}@agentlair.dev>`;
+
+      // Build threading headers for internal delivery
+      let internalReferencesHeader: string | undefined;
+      if (in_reply_to) {
+        try {
+          const indexKey = `index:${normalizedFromAddr}`;
+          const indexRaw = await env.EMAILS.get(indexKey);
+          if (indexRaw) {
+            const indexEntries: string[] = JSON.parse(indexRaw);
+            const normalizedReplyTo = in_reply_to.replace(/[<>]/g, '').trim();
+            for (const key of indexEntries.slice(0, 100)) {
+              const raw = await env.EMAILS.get(key);
+              if (!raw) continue;
+              const parsed = JSON.parse(raw);
+              const parsedMsgId = (parsed.message_id || '').replace(/[<>]/g, '').trim();
+              if (parsedMsgId === normalizedReplyTo) {
+                const existingRefs = parsed.references || '';
+                const parts = existingRefs ? [existingRefs, in_reply_to] : [in_reply_to];
+                const seen = new Set<string>();
+                const dedupedParts: string[] = [];
+                for (const p of parts) {
+                  const norm = p.replace(/[<>]/g, '').trim();
+                  if (!seen.has(norm)) { seen.add(norm); dedupedParts.push(p); }
+                }
+                internalReferencesHeader = dedupedParts.join(' ');
+                break;
+              }
+            }
+          }
+        } catch { /* non-fatal */ }
+        if (!internalReferencesHeader) {
+          internalReferencesHeader = clientReferences || in_reply_to;
+        }
+      } else if (clientReferences) {
+        internalReferencesHeader = clientReferences;
+      }
+
+      // Compute thread ID for internal messages
+      const normalizedInReplyTo = in_reply_to ? in_reply_to.replace(/[<>]/g, '').trim() : '';
+      const normalizedReferences = internalReferencesHeader ? internalReferencesHeader.trim() : '';
+      let internalThreadId: string;
+      if (normalizedInReplyTo) {
+        internalThreadId = normalizedInReplyTo;
+      } else if (normalizedReferences) {
+        const firstRef = normalizedReferences.split(/\s+/)[0].replace(/[<>]/g, '').trim();
+        internalThreadId = firstRef || syntheticMessageId.replace(/[<>]/g, '').trim();
+      } else {
+        internalThreadId = syntheticMessageId.replace(/[<>]/g, '').trim();
+      }
+
+      const bodyText = text || (htmlBody ? htmlBody.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() : '');
+
+      for (const recipientAddr of internalAddrs) {
+        try {
+          // Verify recipient address actually exists
+          const recipientOwner = await env.EMAILS.get(`email-owner:${recipientAddr}`);
+          if (!recipientOwner) {
+            internalDeliveryResults.push({ address: recipientAddr, delivered: false, error: 'address_not_found' });
+            // Fall back to external delivery so Resend can generate a bounce
+            externalAddrs.push(recipientAddr);
+            continue;
+          }
+
+          // Check for E2E public key
+          let e2ePubKey: string | null = null;
+          try { e2ePubKey = await env.EMAILS.get(`email-pubkey:${recipientAddr}`); } catch {}
+
+          const internalMsgId = nanoid(16);
+          const internalMsgKey = `msg:${recipientAddr}:${internalMsgId}`;
+          let internalMsg: Record<string, unknown>;
+
+          if (e2ePubKey && bodyText) {
+            try {
+              const { body: e2eBody, ephemeral_public_key } = await encryptEmailE2E(e2ePubKey, bodyText);
+              internalMsg = {
+                message_id: syntheticMessageId, from: fromAddr, to: recipientAddr, subject,
+                body: e2eBody, body_encrypted: true, e2e_encrypted: true, ephemeral_public_key,
+                body_preview: '[E2E encrypted]',
+                received_at: now, read: false,
+              };
+            } catch {
+              // E2E encryption failed — fall back to platform encryption
+              const { value: encBody, encrypted } = await encryptEmailField(env, bodyText);
+              internalMsg = {
+                message_id: syntheticMessageId, from: fromAddr, to: recipientAddr, subject,
+                body: encBody, body_encrypted: encrypted,
+                body_preview: bodyText.substring(0, 120).replace(/\n/g, ' '),
+                received_at: now, read: false,
+              };
+            }
+          } else {
+            const { value: encBody, encrypted } = await encryptEmailField(env, bodyText);
+            internalMsg = {
+              message_id: syntheticMessageId, from: fromAddr, to: recipientAddr, subject,
+              body: encBody, body_encrypted: encrypted,
+              body_preview: bodyText.substring(0, 120).replace(/\n/g, ' '),
+              received_at: now, read: false,
+            };
+          }
+
+          // Add threading headers
+          if (normalizedInReplyTo) internalMsg.in_reply_to = normalizedInReplyTo;
+          if (normalizedReferences) internalMsg.references = normalizedReferences;
+          internalMsg.thread_id = internalThreadId;
+
+          // Mark as internally delivered with trusted auth (no SMTP involved)
+          internalMsg.auth = {
+            spf: 'pass' as const,
+            dkim: 'pass' as const,
+            dmarc: 'pass' as const,
+            authenticated: true,
+            method: 'internal' as const,
+          };
+
+          // Store message in recipient's inbox
+          await env.EMAILS.put(internalMsgKey, JSON.stringify(internalMsg), { expirationTtl: 30 * 24 * 3600 });
+
+          // Update inbox index
+          const indexKey = `index:${recipientAddr}`;
+          const indexRaw = await env.EMAILS.get(indexKey);
+          const index = indexRaw ? JSON.parse(indexRaw) : [];
+          index.unshift(internalMsgKey);
+          await env.EMAILS.put(indexKey, JSON.stringify(index.slice(0, 500)), { expirationTtl: 30 * 24 * 3600 });
+
+          // Update thread index
+          if (internalThreadId) {
+            const threadIdxKey = `thread-idx:${recipientAddr}:${internalThreadId}`;
+            const threadIdxRaw = await env.EMAILS.get(threadIdxKey);
+            const threadIdx = threadIdxRaw ? JSON.parse(threadIdxRaw) : [];
+            threadIdx.unshift(internalMsgKey);
+            await env.EMAILS.put(threadIdxKey, JSON.stringify(threadIdx.slice(0, 100)), { expirationTtl: 30 * 24 * 3600 });
+          }
+
+          // Notify connected WebSocket clients (non-blocking)
+          ctx.waitUntil((async () => {
+            try {
+              const notifierId = env.INBOX_NOTIFIER.idFromName(recipientOwner);
+              const notifier = env.INBOX_NOTIFIER.get(notifierId);
+              await notifier.fetch(new Request('https://internal/notify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ event: 'new_email', email_id: internalMsgId, from: fromAddr, subject, received_at: now }),
+              }));
+            } catch { /* Fail-open */ }
+          })());
+
+          // Fire registered webhooks (non-blocking)
+          ctx.waitUntil((async () => {
+            try {
+              const addrIndexKey = `webhook-addr:${recipientAddr}`;
+              const hookIdsRaw = await env.EMAILS.get(addrIndexKey);
+              if (!hookIdsRaw) return;
+              const hookIds = JSON.parse(hookIdsRaw);
+              const payload = {
+                event: 'email.received',
+                address: recipientAddr,
+                message: {
+                  message_id: syntheticMessageId, from: fromAddr, subject,
+                  body_preview: (internalMsg.body_preview as string) || '',
+                  received_at: now,
+                  auth: internalMsg.auth,
+                },
+              };
+              await Promise.allSettled(hookIds.map(async (hookId: string) => {
+                const hookRaw = await env.EMAILS.get(`webhook:${hookId}`);
+                if (!hookRaw) return;
+                const hook = JSON.parse(hookRaw);
+                if (!hook.url || hook.status === 'paused') return;
+                const body = JSON.stringify(payload);
+                const sig = hook.secret ? await hmacSha256(hook.secret, body) : null;
+                const ts = Math.floor(Date.now() / 1000).toString();
+                const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+                if (sig) {
+                  headers['X-AgentLair-Signature'] = `sha256=${sig}`;
+                  headers['X-AgentLair-Timestamp'] = ts;
+                }
+                await fetch(hook.url, { method: 'POST', headers, body }).catch(() => {});
+              }));
+            } catch { /* Webhook delivery failed — best effort */ }
+          })());
+
+          internalDeliveryResults.push({ address: recipientAddr, delivered: true });
+        } catch (e) {
+          internalDeliveryResults.push({ address: recipientAddr, delivered: false, error: String(e) });
+          // Fall back to external delivery on error
+          externalAddrs.push(recipientAddr);
+        }
+      }
+    }
+
+    const allInternal = externalAddrs.length === 0;
+    const internalSuccessCount = internalDeliveryResults.filter(r => r.delivered).length;
+
+    // If ALL recipients are internal and all delivered successfully, skip provider entirely
+    if (allInternal && internalSuccessCount === internalAddrs.length) {
+      if (env.EMAILS) {
+        outboxEntry.status = 'sent';
+        outboxEntry.sent_at = now;
+        outboxEntry.provider = 'internal';
+        outboxEntry.provider_id = msgId;
+        if (paidViaX402) outboxEntry.paid_via = 'x402';
+        if (paidViaAgentKit) outboxEntry.paid_via = 'agentkit';
+        await env.EMAILS.put(outboxKey, JSON.stringify(outboxEntry), { expirationTtl: 30 * 24 * 3600 });
+      }
+
+      if (env.EMAILS) ctx.waitUntil(recordEmailSent(env, fromAddr));
+
+      if (paidViaAgentKit && agentkitHumanId) {
+        ctx.waitUntil(recordAgentkitUsage(env, '/v1/email/send', agentkitHumanId));
+      }
+
+      const responseHeaders: Record<string, string> = {};
+      if (paidViaX402 && x402PaymentHeader) {
+        const settlement = await settleX402Payment(x402PaymentHeader);
+        if (settlement.settled && settlement.receipt) {
+          responseHeaders['X-Payment-Response'] = settlement.receipt;
+        }
+        try {
+          const spend = await trackX402Spend(env, account.id, SERVICE_PRICES.email_send.amount, { payer: x402Payer, service: 'email_send' });
+          await autoUpgradeIfThreshold(env, account, spend);
+        } catch { /* non-critical */ }
+      }
+
+      const responseBody: Record<string, unknown> = {
+        id: msgId,
+        provider_id: msgId,
+        provider: 'internal',
+        status: 'sent',
+        from: fromAddr,
+        to: toAddrs,
+        subject,
+        sent_at: outboxEntry.sent_at,
+        delivery: 'internal',
+        internal_recipients: internalDeliveryResults,
+        paid_via: paidViaX402 ? 'x402' : paidViaAgentKit ? 'agentkit' : undefined,
+        rate_limit: (paidViaX402 || paidViaAgentKit)
+          ? { note: paidViaAgentKit
+              ? 'Sent via AgentKit human verification — free-trial access.'
+              : 'Sent via x402 payment — rate limits bypassed.' }
+          : {
+              daily_remaining: emailRateCheck.daily_remaining,
+              hourly_remaining: emailRateCheck.hourly_remaining,
+              reset_at: emailRateCheck.reset_at,
+            },
+      };
+
+      if (paidViaAgentKit && agentkitHumanId) {
+        responseBody.agentkit = {
+          human_verified: true,
+          free_uses_remaining: Math.max(0, AGENTKIT_FREE_TRIAL_USES - agentkitUsageCount - 1),
+          total_free_uses: AGENTKIT_FREE_TRIAL_USES,
+        };
+      }
+
+      if (client_id && env.EMAILS) {
+        const idemKey = `idempotency:${account.id}:${client_id}`;
+        ctx.waitUntil(env.EMAILS.put(idemKey, JSON.stringify(responseBody), { expirationTtl: 24 * 3600 }));
+      }
+
+      ctx.waitUntil(recordBudgetSpend(env, account.id, parseInt(SERVICE_PRICES.email_send.amount)));
+
+      return json(responseBody, 201, responseHeaders);
+    }
+
+    // ── External delivery via email provider (Resend) ────────────────────────
     const provider = getEmailProvider(env);
     if (!provider) {
       return json({
@@ -766,6 +1052,7 @@ export async function handleEmailRoutes(
         status: 'queued',
         warning: 'No email provider configured. Message stored in outbox but not sent.',
         setup: 'Set RESEND_API_KEY in Worker environment variables. See agentlair.dev/docs/email.',
+        internal_recipients: internalDeliveryResults.length > 0 ? internalDeliveryResults : undefined,
       }, 202);
     }
 
@@ -813,9 +1100,10 @@ export async function handleEmailRoutes(
     }
 
     try {
+      // Only send to external recipients via the provider
       const result = await provider.send({
         from: fromAddr,
-        to: toAddrs,
+        to: externalAddrs,
         subject,
         text: text || undefined,
         html: htmlBody || undefined,
@@ -864,6 +1152,7 @@ export async function handleEmailRoutes(
         to: toAddrs,
         subject,
         sent_at: outboxEntry.sent_at,
+        internal_recipients: internalDeliveryResults.length > 0 ? internalDeliveryResults : undefined,
         paid_via: paidViaX402 ? 'x402' : paidViaAgentKit ? 'agentkit' : undefined,
         rate_limit: (paidViaX402 || paidViaAgentKit)
           ? { note: paidViaAgentKit
@@ -890,6 +1179,9 @@ export async function handleEmailRoutes(
         const idemKey = `idempotency:${account.id}:${client_id}`;
         ctx.waitUntil(env.EMAILS.put(idemKey, JSON.stringify(responseBody), { expirationTtl: 24 * 3600 }));
       }
+
+      // Record budget spend (fire-and-forget — non-critical)
+      ctx.waitUntil(recordBudgetSpend(env, account.id, parseInt(SERVICE_PRICES.email_send.amount)));
 
       return json(responseBody, 201, responseHeaders);
 

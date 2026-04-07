@@ -55,6 +55,24 @@ export function err(message: string, status?: number, code?: string): Response {
   return json({ error: code || 'error', message }, status || 400);
 }
 
+// ─── Budget period math ───────────────────────────────────────────────────────
+// Shared by middleware/budget.ts and routes/budget.ts to avoid duplication.
+
+/** Compute reset_at for a period: beginning of next period in UTC. */
+export function getBudgetResetAt(period: string): string {
+  const now = new Date();
+  if (period === 'daily') {
+    return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1)).toISOString();
+  }
+  if (period === 'weekly') {
+    const day = now.getUTCDay() || 7; // 1=Mon, 7=Sun
+    return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + (8 - day))).toISOString();
+  }
+  // monthly: first of next month 00:00 UTC
+  const nm = now.getUTCMonth() + 1;
+  return new Date(Date.UTC(nm > 11 ? now.getUTCFullYear() + 1 : now.getUTCFullYear(), nm % 12, 1)).toISOString();
+}
+
 export function html(body: string, status?: number): Response {
   return new Response(body, {
     status: status || 200,

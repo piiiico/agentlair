@@ -411,6 +411,7 @@ describe('authenticated API', () => {
   let apiKey2 = '';   // Second account for ownership/isolation tests
   let accountId2 = '';
   let claimedAddress = '';
+  let claimedAddress2 = '';  // Second address for cross-account tests (intra-domain delivery)
 
   beforeAll(async () => {
     // Support pre-supplied keys via env vars to avoid hitting the IP rate limit (5/hour).
@@ -482,6 +483,23 @@ describe('authenticated API', () => {
         }
       } else {
         throw new Error(`Failed to claim test email address: ${claimR.status} - ${JSON.stringify(claimR.body)}`);
+      }
+    }
+
+    // Claim address for second account (needed for intra-domain delivery tests)
+    if (apiKey2) {
+      const newAddress2 = `testbot2-${RUN_ID}@agentlair.dev`;
+      const claimR2 = await req('/v1/email/claim', {
+        method: 'POST',
+        body: JSON.stringify({ address: newAddress2 }),
+      }, apiKey2);
+      if ([200, 201].includes(claimR2.status)) {
+        claimedAddress2 = newAddress2;
+      } else if (claimR2.status === 403 && claimR2.body?.error === 'address_limit') {
+        const listR2 = await req('/v1/email/addresses', {}, apiKey2);
+        if (listR2.status === 200 && listR2.body.addresses?.length > 0) {
+          claimedAddress2 = listR2.body.addresses[0];
+        }
       }
     }
   });
@@ -860,6 +878,54 @@ describe('authenticated API', () => {
       });
       expect(r.status).toBe(401);
     });
+
+    test('POST /v1/email/send — intra-domain delivery (@agentlair.dev → @agentlair.dev)', async () => {
+      if (!apiKey2 || !claimedAddress2) {
+        console.warn('[skip] Intra-domain delivery test requires two accounts with claimed addresses');
+        return;
+      }
+
+      const uniqueSubject = `Intra-domain test ${RUN_ID} ${Date.now()}`;
+
+      // Send from account 1 → account 2 (both @agentlair.dev)
+      const sendR = await req('/v1/email/send', {
+        method: 'POST',
+        body: JSON.stringify({
+          from: claimedAddress,
+          to: claimedAddress2,
+          subject: uniqueSubject,
+          text: `Cross-account intra-domain delivery test. Run: ${RUN_ID}`,
+        }),
+      }, apiKey);
+
+      // Must succeed (not rate-limited for this critical test)
+      if (sendR.status === 402 || sendR.status === 503) {
+        console.warn(`[skip] Intra-domain test skipped: rate limited or KV quota (${sendR.status})`);
+        return;
+      }
+      expect([200, 201]).toContain(sendR.status);
+
+      // Verify the response indicates internal delivery
+      if (sendR.body.internal_recipients) {
+        expect(sendR.body.internal_recipients.length).toBeGreaterThan(0);
+        expect(sendR.body.internal_recipients[0].address).toBe(claimedAddress2);
+        expect(sendR.body.internal_recipients[0].delivered).toBe(true);
+      }
+
+      // Check recipient's inbox — message should be there instantly (no SMTP delay)
+      const inboxR = await req(`/v1/email/inbox?address=${encodeURIComponent(claimedAddress2)}`, {}, apiKey2);
+      expect(inboxR.status).toBe(200);
+
+      // Find our message by subject
+      const delivered = (inboxR.body.messages || []).find(
+        (m: any) => m.subject === uniqueSubject,
+      );
+      expect(delivered).toBeDefined();
+      if (delivered) {
+        expect(delivered.from).toContain(claimedAddress.split('@')[0]);
+        expect(delivered.to).toBe(claimedAddress2);
+      }
+    }, 15000);
   });
 
   // ── Email: Outbox ──────────────────────────────────────────────────────────
