@@ -585,7 +585,7 @@ export async function autoUpgradeIfThreshold(
     const now = new Date().toISOString();
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
     const updatedAccount = { ...account, tier: 'paid', tier_upgraded_at: now, tier_expires_at: expiresAt };
-    delete updatedAccount._session;
+    delete (updatedAccount as Record<string, unknown>)['_session'];
     await env.KEYS.put('key:' + keyHash, JSON.stringify(updatedAccount));
   } catch {
     // Silent — auto-upgrade is best-effort

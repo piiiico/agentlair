@@ -2,7 +2,7 @@
 
 export const API_DISCOVERY = {
   name: 'AgentLair API',
-  version: '0.18.1',
+  version: '0.18.3',
   docs: 'https://agentlair.dev/api',
   status: 'operational',
   endpoints: {
@@ -15,6 +15,9 @@ export const API_DISCOVERY = {
     provision: 'POST /v1/stack',
     list_stacks: 'GET /v1/stack',
     usage: 'GET /v1/usage',
+    get_budget: 'GET /v1/budget',
+    set_budget: 'PUT /v1/budget',
+    budget_history: 'GET /v1/budget/history?limit={n}&before={ISO}',
     email: {
       inbox: 'GET /v1/email/inbox?address={addr}&limit={n}',
       read: 'GET /v1/email/messages/{id}?address={addr} — returns { ..., body } normally; when E2E is enabled for the address returns { ..., e2e_encrypted: true, ciphertext: "<base64url>" } instead (client decrypts with private key derived from master seed)',
@@ -63,7 +66,7 @@ export const OPENAPI_SPEC = {
   "openapi": "3.1.0",
   "info": {
     "title": "AgentLair API",
-    "version": "0.18.1",
+    "version": "0.18.3",
     "description": "AgentLair is an identity infrastructure layer for AI agents — email inboxes, encrypted secret storage,\nshared observations, and cross-agent coordination. All at your own domain.\n\n## Authentication\nMost endpoints require an API key passed as a Bearer token:\n```\nAuthorization: Bearer al_live_<your_key>\n```\nSession tokens (from magic link login) are also accepted: `Authorization: Bearer session_<token>`\n\n## Rate Limits\nFree tier: 100 API requests/day, 10 emails/day. Paid tier: 10,000/day.\nWhen email limits are exceeded, the API returns HTTP 402 with x402 payment requirements\n(0.01 USDC on Base via the x402 protocol).\n\n## Minimal Payloads\nAppend `?verbose=false` to any request to strip human-readable guidance fields (`message`, `note`, `hint`, `warning`, etc.) from all JSON responses. Only machine-actionable fields are returned. Recommended for agents to reduce token usage.\n",
     "contact": {
       "url": "https://agentlair.dev"
@@ -1309,6 +1312,381 @@ export const OPENAPI_SPEC = {
                       }
                     }
                   }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/budget": {
+      "get": {
+        "tags": [
+          "billing"
+        ],
+        "summary": "Get spending caps",
+        "description": "Returns current spending caps and remaining budget for the authenticated account.\nAmounts are in atomic USDC units (6 decimals). 1,000,000 = 1.00 USDC.\n",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current budget caps and status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "agent_id": {
+                      "type": "string"
+                    },
+                    "currency": {
+                      "type": "string",
+                      "example": "USDC"
+                    },
+                    "atomic_unit": {
+                      "type": "string",
+                      "example": "1e-6 USDC (one millionth of one USDC)"
+                    },
+                    "caps": {
+                      "type": "object",
+                      "description": "Per-period spending caps. Each period is null (no cap) or a cap object.",
+                      "properties": {
+                        "daily": {
+                          "nullable": true,
+                          "oneOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "limit_usdc": { "type": "integer" },
+                                "spent_usdc": { "type": "integer" },
+                                "remaining_usdc": { "type": "integer" },
+                                "resets_at": { "type": "string", "format": "date-time" }
+                              }
+                            }
+                          ]
+                        },
+                        "weekly": {
+                          "nullable": true,
+                          "oneOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "limit_usdc": { "type": "integer" },
+                                "spent_usdc": { "type": "integer" },
+                                "remaining_usdc": { "type": "integer" },
+                                "resets_at": { "type": "string", "format": "date-time" }
+                              }
+                            }
+                          ]
+                        },
+                        "monthly": {
+                          "nullable": true,
+                          "oneOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "limit_usdc": { "type": "integer" },
+                                "spent_usdc": { "type": "integer" },
+                                "remaining_usdc": { "type": "integer" },
+                                "resets_at": { "type": "string", "format": "date-time" }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    "has_caps": {
+                      "type": "boolean"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": ["active", "limit_reached"]
+                    },
+                    "settings": {
+                      "type": "object",
+                      "properties": {
+                        "on_limit": {
+                          "type": "string",
+                          "enum": ["reject", "approve"]
+                        },
+                        "single_tx_limit_cents": {
+                          "type": "integer",
+                          "nullable": true
+                        }
+                      }
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "billing"
+        ],
+        "summary": "Set spending caps",
+        "description": "Set or update per-period spending caps for the authenticated account.\nAt least one of `caps`, `on_limit`, or `single_tx_limit_cents` must be provided.\nCap amounts are in atomic USDC units (1,000,000 = 1.00 USDC).\nOrdering constraint: daily ≤ weekly ≤ monthly.\n",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "caps": {
+                    "type": "object",
+                    "description": "Per-period cap amounts. Pass null for a period to remove that cap.",
+                    "properties": {
+                      "daily": {
+                        "nullable": true,
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 1000000000,
+                        "example": 1000000
+                      },
+                      "weekly": {
+                        "nullable": true,
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 1000000000,
+                        "example": 5000000
+                      },
+                      "monthly": {
+                        "nullable": true,
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 1000000000,
+                        "example": 20000000
+                      }
+                    }
+                  },
+                  "on_limit": {
+                    "type": "string",
+                    "enum": ["reject", "approve"],
+                    "description": "Action when spending cap is reached. 'reject' blocks the transaction; 'approve' allows it."
+                  },
+                  "single_tx_limit_cents": {
+                    "nullable": true,
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1000000000,
+                    "description": "Maximum allowed single-transaction amount in atomic USDC units. Null to remove."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated spending caps",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "agent_id": {
+                      "type": "string"
+                    },
+                    "caps": {
+                      "type": "object",
+                      "description": "Updated cap state for each modified period"
+                    },
+                    "settings": {
+                      "type": "object",
+                      "properties": {
+                        "on_limit": {
+                          "type": "string",
+                          "enum": ["reject", "approve"]
+                        },
+                        "single_tx_limit_cents": {
+                          "type": "integer",
+                          "nullable": true
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/budget/history": {
+      "get": {
+        "tags": [
+          "billing"
+        ],
+        "summary": "Get spending history",
+        "description": "Returns paginated spend history from the ledger for the authenticated account.\nEntries are returned newest-first. Use `before` for cursor-based pagination.\nAmounts are in atomic USDC units (1,000,000 = 1.00 USDC).\n",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "minimum": 1,
+              "maximum": 200
+            },
+            "description": "Number of entries to return (default 50, max 200)"
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "ISO timestamp cursor for pagination — returns entries before this timestamp"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Spending history",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "agent_id": {
+                      "type": "string"
+                    },
+                    "currency": {
+                      "type": "string",
+                      "example": "USDC"
+                    },
+                    "atomic_unit": {
+                      "type": "string",
+                      "example": "1e-6 USDC (one millionth of one USDC)"
+                    },
+                    "entries": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "timestamp": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "amount_usdc": {
+                            "type": "integer"
+                          },
+                          "category": {
+                            "type": "string"
+                          },
+                          "description": {
+                            "type": "string"
+                          },
+                          "reference_id": {
+                            "type": "string",
+                            "nullable": true
+                          }
+                        }
+                      }
+                    },
+                    "summary": {
+                      "type": "object",
+                      "properties": {
+                        "count": {
+                          "type": "integer"
+                        },
+                        "total_usdc": {
+                          "type": "integer"
+                        },
+                        "by_category": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "integer"
+                          }
+                        }
+                      }
+                    },
+                    "pagination": {
+                      "type": "object",
+                      "properties": {
+                        "limit": {
+                          "type": "integer"
+                        },
+                        "has_more": {
+                          "type": "boolean"
+                        },
+                        "next_before": {
+                          "type": "string",
+                          "nullable": true,
+                          "format": "date-time"
+                        }
+                      }
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
                 }
               }
             }

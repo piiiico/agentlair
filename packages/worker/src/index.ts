@@ -37,6 +37,7 @@ import { sessionRoutes } from './routes/sessions.js';
 import { budgetRoutes } from './routes/budget.js';
 import { handleRegisterRoute } from './routes/register.js';
 import { handleRegisterVerifyRoute } from './routes/register-verify.js';
+import { handleCredentialRoutes } from './routes/credentials.js';
 
 // ─── Hono App Type ──────────────────────────────────────────────────────────────
 
@@ -304,6 +305,12 @@ app.get('/.well-known/mcp/server.json', () =>
 // URL advertised in GET /v1/tokens/info jwks_uri field.
 
 app.get('/.well-known/jwks.json', async (c) => {
+  if (!c.env.AUDIT_SIGNING_KEY) {
+    return new Response(JSON.stringify({ error: 'JWKS unavailable' }), {
+      status: 503,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
   const jwks = await buildJWKS(c.env.AUDIT_SIGNING_KEY);
   return new Response(JSON.stringify(jwks), {
     status: 200,
@@ -318,7 +325,7 @@ app.get('/.well-known/jwks.json', async (c) => {
 // Standard auto-discovery for JWT library integration.
 // Low-priority Gap 2 from VWM E002 integration spec.
 
-app.get('/.well-known/openid-configuration', (c) => {
+app.get('/.well-known/openid-configuration', (_c) => {
   const baseUrl = 'https://agentlair.dev';
   const config = {
     issuer: baseUrl,
@@ -819,6 +826,10 @@ app.route('/v1/sessions', sessionRoutes);
 
 // Budget routes: per-agent spending caps (GET /v1/budget, PUT /v1/budget, GET /v1/budget/history)
 app.route('/v1/budget', budgetRoutes);
+
+// Credential provisioning routes (device flow): request, approve, poll
+app.use('/v1/credentials/*', legacyHandler(handleCredentialRoutes));
+app.use('/v1/credentials', legacyHandler(handleCredentialRoutes));
 
 // ── 7. Stubbed routes ───────────────────────────────────────────────────────────
 

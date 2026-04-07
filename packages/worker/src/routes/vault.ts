@@ -17,6 +17,7 @@ import { nanoid, sha256hex, json, err } from '../utils.js';
 import type { Env, RouteContext, VaultIndexEntry } from '../types.js';
 import { sendVaultRecoveryEmail } from '../middleware/auth.js';
 import { SERVICE_PRICES, X402_CONFIG, verifyX402Payment, settleX402Payment, make402Response, trackX402Spend, autoUpgradeIfThreshold, checkSpendingCap } from '../x402.js';
+import { recordBudgetSpend } from '../middleware/budget.js';
 
 const VAULT_LIMITS = {
   free:  { max_keys: 10, max_versions: 3, max_blob_size: 16384 },   // 16 KB
@@ -26,7 +27,7 @@ const VAULT_LIMITS = {
 export async function handleVaultRoutes(
   request: Request,
   env: Env,
-  _ctx: ExecutionContext,
+  ctx: ExecutionContext,
   { url, path, method, account }: RouteContext,
 ): Promise<Response | null> {
 
@@ -336,8 +337,8 @@ export async function handleVaultRoutes(
                   const capCheck = await checkSpendingCap(env, account.id, SERVICE_PRICES.vault_write.amount, pod.spending_caps);
                   if (!capCheck.allowed) {
                     const periodLabel = capCheck.exceeded || 'period';
-                    const capUsdc = ((capCheck.cap || 0) / 1_000_000).toFixed(2);
-                    const currentUsdc = ((capCheck.current || 0) / 1_000_000).toFixed(2);
+                    const capUsdc = ((capCheck.cap || 0) / 1_000_000).toFixed(6).replace(/\.?0+$/, '') || '0';
+                    const currentUsdc = ((capCheck.current || 0) / 1_000_000).toFixed(6).replace(/\.?0+$/, '') || '0';
                     return new Response(JSON.stringify({
                       error: `Spending cap exceeded: ${periodLabel} limit of ${capUsdc} USDC reached (current: ${currentUsdc} USDC). Payment blocked by pod spending cap.`,
                       code: 'spending_cap_exceeded',
@@ -413,6 +414,10 @@ export async function handleVaultRoutes(
       });
       const vaultResponseHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
       if (vaultPaymentReceipt) vaultResponseHeaders['X-Payment-Response'] = vaultPaymentReceipt;
+
+      // Record budget spend (fire-and-forget — non-critical)
+      ctx.waitUntil(recordBudgetSpend(env, account.id, parseInt(SERVICE_PRICES.vault_write.amount)));
+
       return new Response(vaultResponseBody, { status: isNew ? 201 : 200, headers: vaultResponseHeaders });
     }
 

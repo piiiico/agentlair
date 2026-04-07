@@ -22,6 +22,7 @@
 import { nanoid, json, err } from '../utils.js';
 import type { Env, RouteContext } from '../types.js';
 import { SERVICE_PRICES, X402_CONFIG, verifyX402Payment, make402Response, checkSpendingCap } from '../x402.js';
+import { recordBudgetSpend } from '../middleware/budget.js';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -223,7 +224,7 @@ async function saveCalIndex(env: Env, accountId: string, index: CalIndexEntry[])
 export async function handleCalendarRoutes(
   request: Request,
   env: Env,
-  _ctx: ExecutionContext,
+  ctx: ExecutionContext,
   { url, path, method, account }: RouteContext,
 ): Promise<Response | null> {
 
@@ -460,6 +461,9 @@ export async function handleCalendarRoutes(
     const indexEntry: CalIndexEntry = { id: eventId, summary: event.summary, start, end };
     index.unshift(indexEntry);
     await saveCalIndex(env, account.id, index);
+
+    // Record budget spend (fire-and-forget — non-critical)
+    ctx.waitUntil(recordBudgetSpend(env, account.id, parseInt(SERVICE_PRICES.calendar_event.amount)));
 
     return json({
       event_id: eventId,
