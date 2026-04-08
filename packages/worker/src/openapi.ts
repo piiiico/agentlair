@@ -18,6 +18,10 @@ export const API_DISCOVERY = {
     get_budget: 'GET /v1/budget',
     set_budget: 'PUT /v1/budget',
     budget_history: 'GET /v1/budget/history?limit={n}&before={ISO}',
+    charge: 'POST /v1/charge — declare spending intent (checks budget, creates approval if needed)',
+    approvals: 'GET /v1/approvals?status={pending|approved|rejected|expired|all}',
+    approve: 'POST /v1/approvals/{id}/approve',
+    reject: 'POST /v1/approvals/{id}/reject',
     email: {
       inbox: 'GET /v1/email/inbox?address={addr}&limit={n}',
       read: 'GET /v1/email/messages/{id}?address={addr} — returns { ..., body } normally; when E2E is enabled for the address returns { ..., e2e_encrypted: true, ciphertext: "<base64url>" } instead (client decrypts with private key derived from master seed)',
@@ -58,8 +62,15 @@ export const API_DISCOVERY = {
       recovery_email: 'POST /v1/vault/recovery-email (body: {email, encrypted_seed}) — register recovery email',
       note: 'Zero-knowledge secret store v2. Versioned (append-only), metadata-aware, tier-limited. Client encrypts before storing. Free: 10 keys, 3 versions/key, 16KB max. Paid: unlimited keys, 100 versions/key, 64KB max.',
     },
+    credentials: {
+      request: 'POST /v1/credentials/request (body: {credential_type, service_name, description?}) — agent requests a credential, returns device_code + user_code',
+      approve_get: 'GET /v1/credentials/approve?code=XXXX-XXXX — operator retrieves pending request details',
+      approve_post: 'POST /v1/credentials/approve (body: {user_code, approved, credential_value?}) — operator approves or denies credential request',
+      poll: 'POST /v1/credentials/poll (body: {device_code}) — agent polls for credential delivery (one-time)',
+      note: 'RFC 8628-inspired device flow. Agent requests → operator approves via user code → agent polls to receive credential. TTL: 5 minutes. One-time delivery.',
+    },
   },
-  note: 'Beta: email live (inbound + outbound), shared observations live. E2E key rotation live. Vault (encrypted seed storage) live. DNS/hosting Q2 2026.',
+  note: 'Beta: email live (inbound + outbound), shared observations live. E2E key rotation live. Vault (encrypted seed storage) live. Credential device flow live. DNS/hosting Q2 2026.',
 };
 
 export const OPENAPI_SPEC = {
@@ -141,6 +152,10 @@ export const OPENAPI_SPEC = {
     {
       "name": "agent-profiles",
       "description": "Content-negotiated agent identity pages"
+    },
+    {
+      "name": "credentials",
+      "description": "RFC 8628-inspired device flow for agents to request credentials from operators"
     }
   ],
   "components": {
@@ -1691,6 +1706,96 @@ export const OPENAPI_SPEC = {
               }
             }
           }
+        }
+      }
+    },
+    "/v1/charge": {
+      "post": {
+        "tags": ["billing"],
+        "summary": "Declare spending intent",
+        "description": "Declare intent to spend. If within budget, records spend immediately and returns completed status. If over budget and on_limit=approve, creates an approval request (202). If over budget and on_limit=reject, returns 402.",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["amount"],
+                "properties": {
+                  "amount": { "type": "integer", "description": "Amount in atomic USDC units (1,000,000 = 1.00 USDC)", "minimum": 1 },
+                  "category": { "type": "string", "description": "Spend category", "default": "platform" },
+                  "description": { "type": "string", "description": "Human-readable description" },
+                  "reference_id": { "type": "string", "description": "External reference ID" },
+                  "metadata": { "type": "object", "description": "Arbitrary metadata stored with approval request" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Charge completed (within budget)" },
+          "202": { "description": "Approval required (over budget, on_limit=approve)" },
+          "402": { "description": "Budget exceeded (on_limit=reject)" },
+          "401": { "description": "Unauthorized" }
+        }
+      }
+    },
+    "/v1/approvals": {
+      "get": {
+        "tags": ["billing"],
+        "summary": "List approval requests",
+        "description": "List pending (or resolved) approval requests for the authenticated account.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["pending", "approved", "rejected", "expired", "all"], "default": "pending" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 50, "maximum": 200 } }
+        ],
+        "responses": {
+          "200": { "description": "List of approval requests" },
+          "401": { "description": "Unauthorized" }
+        }
+      }
+    },
+    "/v1/approvals/{id}/approve": {
+      "post": {
+        "tags": ["billing"],
+        "summary": "Approve a charge request",
+        "description": "Approve a pending charge request. Records the spend to the budget ledger.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": { "description": "Approved successfully" },
+          "404": { "description": "Not found" },
+          "409": { "description": "Already resolved" },
+          "410": { "description": "Expired" }
+        }
+      }
+    },
+    "/v1/approvals/{id}/reject": {
+      "post": {
+        "tags": ["billing"],
+        "summary": "Reject a charge request",
+        "description": "Reject a pending charge request. No spend is recorded.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reason": { "type": "string", "description": "Optional rejection reason" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Rejected successfully" },
+          "404": { "description": "Not found" },
+          "409": { "description": "Already resolved" },
+          "410": { "description": "Expired" }
         }
       }
     },
@@ -4073,6 +4178,463 @@ export const OPENAPI_SPEC = {
           },
           "404": {
             "description": "Agent not found"
+          }
+        }
+      }
+    },
+    "/v1/credentials/request": {
+      "post": {
+        "tags": [
+          "credentials"
+        ],
+        "summary": "Request a credential (agent)",
+        "description": "Initiates a credential device flow. The agent provides the type and service name, and receives a `device_code` + `user_code`. The user code must be shown to the operator (or sent via email, which AgentLair handles automatically). The agent then polls `/v1/credentials/poll` until the credential is delivered or the request expires (5 minutes).",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["credential_type", "service_name"],
+                "properties": {
+                  "credential_type": {
+                    "type": "string",
+                    "enum": ["api_key", "password", "token", "certificate"],
+                    "description": "Type of credential being requested"
+                  },
+                  "service_name": {
+                    "type": "string",
+                    "maxLength": 100,
+                    "description": "Name of the service the credential is for",
+                    "example": "GitHub"
+                  },
+                  "description": {
+                    "type": "string",
+                    "maxLength": 200,
+                    "description": "Optional human-readable description of why the credential is needed",
+                    "example": "Read access to private repos"
+                  }
+                }
+              },
+              "example": {
+                "credential_type": "api_key",
+                "service_name": "GitHub",
+                "description": "Read access to private repos"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Credential request created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "device_code": {
+                      "type": "string",
+                      "description": "Opaque device code used for polling. Keep secret.",
+                      "example": "dc_aBcDeFgHiJkLmNoPqRsTuVwXyZ012345678901"
+                    },
+                    "user_code": {
+                      "type": "string",
+                      "description": "Short human-readable code shown to the operator. Format: XXXX-XXXX.",
+                      "example": "ABCD-1234"
+                    },
+                    "expires_in": {
+                      "type": "integer",
+                      "description": "Seconds until the request expires",
+                      "example": 300
+                    },
+                    "interval": {
+                      "type": "integer",
+                      "description": "Recommended polling interval in seconds",
+                      "example": 5
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "Human-readable instruction for the agent",
+                      "example": "Ask operator to visit https://agentlair.dev/v1/credentials/approve?code=ABCD-1234"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many active credential requests (max 5 per account)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/credentials/approve": {
+      "get": {
+        "tags": [
+          "credentials"
+        ],
+        "summary": "Get pending credential request details (operator)",
+        "description": "Retrieves details of a pending credential request by user code. The operator uses this to review what credential the agent is requesting before approving or denying.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "code",
+            "in": "query",
+            "required": true,
+            "description": "The user code shown by the agent (format: XXXX-XXXX)",
+            "schema": {
+              "type": "string",
+              "example": "ABCD-1234"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Pending request details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "device_code": {
+                      "type": "string"
+                    },
+                    "credential_type": {
+                      "type": "string",
+                      "enum": ["api_key", "password", "token", "certificate"]
+                    },
+                    "service_name": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "requested_at": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "expires_at": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "agent_id": {
+                      "type": "string"
+                    },
+                    "agent_name": {
+                      "type": "string"
+                    },
+                    "agent_email": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": ["pending"]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing or invalid code parameter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Invalid or expired user code",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "credentials"
+        ],
+        "summary": "Approve or deny a credential request (operator)",
+        "description": "The operator approves or denies a pending credential request. If `approved` is `true`, `credential_value` must be provided — this is the actual secret that will be one-time-delivered to the agent on next poll. If `approved` is `false`, the agent will receive a `denied` status on next poll.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["user_code", "approved"],
+                "properties": {
+                  "user_code": {
+                    "type": "string",
+                    "description": "The user code shown by the agent (format: XXXX-XXXX)",
+                    "example": "ABCD-1234"
+                  },
+                  "approved": {
+                    "type": "boolean",
+                    "description": "Whether to approve (true) or deny (false) the request"
+                  },
+                  "credential_value": {
+                    "type": "string",
+                    "maxLength": 8192,
+                    "description": "The actual credential value to deliver to the agent. Required when `approved` is true.",
+                    "example": "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                  }
+                }
+              },
+              "examples": {
+                "approve": {
+                  "summary": "Approve with credential value",
+                  "value": {
+                    "user_code": "ABCD-1234",
+                    "approved": true,
+                    "credential_value": "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                  }
+                },
+                "deny": {
+                  "summary": "Deny request",
+                  "value": {
+                    "user_code": "ABCD-1234",
+                    "approved": false
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Request approved or denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": ["approved", "denied"]
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "examples": {
+                  "approved": {
+                    "value": {
+                      "status": "approved",
+                      "message": "Credential will be delivered to the agent on next poll."
+                    }
+                  },
+                  "denied": {
+                    "value": {
+                      "status": "denied",
+                      "message": "Credential request denied."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request body or expired/already-processed code",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Max approval attempts exceeded for this code",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/credentials/poll": {
+      "post": {
+        "tags": [
+          "credentials"
+        ],
+        "summary": "Poll for credential delivery (agent)",
+        "description": "The agent polls with its `device_code` to check whether the operator has approved or denied the request. When status is `approved`, the `credential` field contains the one-time-delivered secret — it is deleted from AgentLair storage immediately after this response. Recommended interval: 5 seconds (as returned in the request response).",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["device_code"],
+                "properties": {
+                  "device_code": {
+                    "type": "string",
+                    "description": "The device code returned by POST /v1/credentials/request",
+                    "example": "dc_aBcDeFgHiJkLmNoPqRsTuVwXyZ012345678901"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Poll result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": ["pending", "approved", "denied", "expired", "slow_down"],
+                      "description": "Current status of the credential request"
+                    },
+                    "credential": {
+                      "type": "string",
+                      "description": "The credential value. Present only when status is `approved`. One-time delivery — not recoverable after this response.",
+                      "example": "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                    },
+                    "interval": {
+                      "type": "integer",
+                      "description": "Present only when status is `slow_down`. New recommended polling interval in seconds.",
+                      "example": 30
+                    }
+                  }
+                },
+                "examples": {
+                  "pending": {
+                    "value": { "status": "pending" }
+                  },
+                  "approved": {
+                    "value": {
+                      "status": "approved",
+                      "credential": "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                    }
+                  },
+                  "denied": {
+                    "value": { "status": "denied" }
+                  },
+                  "expired": {
+                    "value": { "status": "expired" }
+                  },
+                  "slow_down": {
+                    "value": { "status": "slow_down", "interval": 30 }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing device_code",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Device code does not belong to authenticated account",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         }
       }

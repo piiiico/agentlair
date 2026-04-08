@@ -248,6 +248,19 @@ Billing info:
   GET /v1/billing
   → {tier, x402: {enabled, amount: "0.01", currency: "USDC", network: "base", ...}}
 
+Charge (declare spending intent):
+  POST /v1/charge   Body: {"amount": 10000, "category": "platform", "description": "..."}
+  → Within budget: {status: "completed", charge_id: "chg_..."}
+  → Over budget + on_limit=approve: 202 {status: "approval_required", approval_id: "apr_..."}
+  → Over budget + on_limit=reject: 402 {error: "budget_exceeded"}
+
+Approvals (for on_limit=approve flow):
+  GET /v1/approvals?status=pending         → {approvals: [...], count: N}
+  GET /v1/approvals/{id}                   → single approval detail
+  POST /v1/approvals/{id}/approve          → {ok: true, status: "approved"}
+  POST /v1/approvals/{id}/reject           → {ok: true, status: "rejected"}
+  Body (reject): {"reason": "optional reason"}
+
 ---
 
 ## Agent-Native Features

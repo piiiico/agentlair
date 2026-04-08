@@ -222,6 +222,46 @@ export const AGENTLAIR_MANIFEST = {
       },
       returns: '{ pod_id: "...", api_key: "al_pod_..." }',
     },
+    {
+      name: 'charge',
+      description: 'Declare spending intent. If within budget, records spend immediately. If over budget and on_limit=approve, creates an approval request.',
+      method: 'POST',
+      path: '/charge',
+      body: {
+        amount: { type: 'number', description: 'Amount in atomic USDC units (1,000,000 = 1.00 USDC)', required: true },
+        category: { type: 'string', description: 'Spend category (e.g., platform, external)', required: false },
+        description: { type: 'string', description: 'Human-readable description', required: false },
+        reference_id: { type: 'string', description: 'External reference ID', required: false },
+      },
+      returns: '{ status: "completed", charge_id: "..." } or { status: "approval_required", approval_id: "..." }',
+    },
+    {
+      name: 'list_approvals',
+      description: 'List pending approval requests. Use ?status=all to see resolved requests.',
+      method: 'GET',
+      path: '/approvals',
+      params: {
+        status: { type: 'string', description: 'Filter by status: pending (default), approved, rejected, expired, all', required: false },
+      },
+      returns: '{ approvals: [{ id, amount_usdc, status, created_at, expires_at }], count: N }',
+    },
+    {
+      name: 'approve_charge',
+      description: 'Approve a pending charge request. Records the spend to the budget.',
+      method: 'POST',
+      path: '/approvals/{id}/approve',
+      returns: '{ ok: true, status: "approved", amount_usdc: N }',
+    },
+    {
+      name: 'reject_charge',
+      description: 'Reject a pending charge request. No spend recorded.',
+      method: 'POST',
+      path: '/approvals/{id}/reject',
+      body: {
+        reason: { type: 'string', description: 'Optional rejection reason', required: false },
+      },
+      returns: '{ ok: true, status: "rejected" }',
+    },
   ],
   hints: {
     preferred_format: 'application/agent+json',

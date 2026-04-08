@@ -2,47 +2,46 @@
 // RFC 8628-inspired device flow for agents to request credentials from operators.
 //
 // Flow:
-//   1. Agent POST /v1/credentials/request  → gets device_code + user_code
+//   1. Agent POST /v1/credentials/request  → gets device_code + user_code + verification_url
 //   2. Agent shows user_code to operator (via message, UI, etc.)
-//   3. Operator GET  /v1/credentials/approve?code=XXXX-XXXX → sees request details
-//   4. Operator POST /v1/credentials/approve → submits credential value
+//   3. Operator GET  /v1/credentials/approve?code=XXXX-XXXX → HTML approval page
+//   4. Operator POST /v1/credentials/approve → submits credential (no auth — email binding)
 //   5. Agent   POST /v1/credentials/poll    → receives credential (one-time), KV deleted
 //
 // KV keys:
-//   credreq:{device_code}          — Full request state, TTL 300s
-//   credreq-code:{sha256(user_code)} — Maps user_code hash → device_code, TTL 300s
-//   credreq-active:{account_id}    — Active request count for rate limiting, TTL 300s
+//   credreq:{device_code}            — Full request state, TTL 600s (pending) or 60s (approved)
+//   credreq-code:{sha256(user_code)} — Maps user_code hash → device_code, TTL 600s
+//   credreq-active:{account_id}      — Active request count for rate limiting, TTL 600s
 //
 // Security model:
-//   - Operator endpoint requires operator auth (API key or session token)
-//   - At-rest encryption intentionally skipped: device_code is AgentLair-generated,
-//     so AgentLair-operator-derived encryption offers no real protection. The
-//     credential is only in KV for ~60s during handoff. TTL is the protection.
+//   - Credential at rest: encrypted with HKDF-SHA-256(device_code, 'credreq-encryption').
+//     Only the agent (who holds device_code) can decrypt. Defense-in-depth for the 60s window.
 //   - One-time delivery: KV entry deleted immediately after successful poll.
 //   - Max 5 active requests per account, max 5 approval attempts per code.
+//   - Operator email binding: approval requires email matching account's registered email.
 
 import { nanoid, sha256hex, json, err } from '../utils.js';
 import type { Env, RouteContext } from '../types.js';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-type CredentialType = 'api_key' | 'password' | 'token' | 'certificate';
-
 interface CredentialRequest {
   request_id: string;
   account_id: string;
-  device_code: string;
-  user_code: string;
-  user_code_hash: string;
-  credential_type: CredentialType;
-  service_name: string;
-  description?: string;
+  device_code: string;            // opaque, used by agent to poll
+  user_code: string;              // short, shown to human
+  user_code_hash: string;         // SHA-256 of user_code (for indexed lookup)
+  description: string;            // human-readable, shown on approval page
+  vault_key: string;              // suggested vault key name (human can override)
+  metadata?: Record<string, unknown>;
   status: 'pending' | 'approved' | 'denied' | 'completed';
   created_at: string;
   expires_at: string;
+  operator_email: string;         // account's registered email for binding
 
   // Set after operator approval
-  credential_value?: string;
+  credential_value_encrypted?: string;  // AES-256-GCM encrypted with device_code-derived key
+  vault_key_final?: string;             // human's chosen vault key
   approved_at?: string;
   approved_by_email?: string;
 
@@ -54,14 +53,16 @@ interface CredentialRequest {
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const TTL_SECONDS = 300; // 5 minutes
+const TTL_PENDING = 600;   // 10 minutes (pending state)
+const TTL_APPROVED = 60;   // 60 seconds after approval (until agent polls)
 const MAX_ACTIVE_PER_ACCOUNT = 5;
 const MAX_APPROVAL_ATTEMPTS = 5;
 const POLL_INTERVAL = 5;
+const VERIFICATION_BASE_URL = 'https://agentlair.dev/v1/credentials/approve';
 
 // ─── User code generation ─────────────────────────────────────────────────────
 // 8 chars from ambiguity-free charset (no 0/O/I/1/l). Format: XXXX-XXXX.
-// ~2B combinations, adequate for 5-minute windows.
+// ~2B combinations, adequate for 10-minute windows.
 
 function generateUserCode(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -71,9 +72,58 @@ function generateUserCode(): string {
   return `${left}-${right}`;
 }
 
+// ─── Credential encryption at rest ───────────────────────────────────────────
+// HKDF-SHA-256(device_code, 'credreq-encryption') → AES-256-GCM key.
+// Only the agent (who holds device_code) can derive the key and decrypt.
+
+async function deriveEncryptionKey(deviceCode: string): Promise<CryptoKey> {
+  const encoder = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(deviceCode),
+    { name: 'HKDF' },
+    false,
+    ['deriveKey'],
+  );
+  return crypto.subtle.deriveKey(
+    {
+      name: 'HKDF',
+      hash: 'SHA-256',
+      salt: encoder.encode('agentlair-credreq'),
+      info: encoder.encode('credreq-encryption'),
+    },
+    keyMaterial,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt'],
+  );
+}
+
+async function encryptCredential(value: string, deviceCode: string): Promise<string> {
+  const key = await deriveEncryptionKey(deviceCode);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv },
+    key,
+    new TextEncoder().encode(value),
+  );
+  // Encode as base64: iv (12 bytes) + ciphertext
+  const combined = new Uint8Array(iv.length + ciphertext.byteLength);
+  combined.set(iv, 0);
+  combined.set(new Uint8Array(ciphertext), iv.length);
+  return btoa(String.fromCharCode(...combined));
+}
+
+async function decryptCredential(encrypted: string, deviceCode: string): Promise<string> {
+  const key = await deriveEncryptionKey(deviceCode);
+  const combined = Uint8Array.from(atob(encrypted), c => c.charCodeAt(0));
+  const iv = combined.slice(0, 12);
+  const ciphertext = combined.slice(12);
+  const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext);
+  return new TextDecoder().decode(plaintext);
+}
+
 // ─── Audit event helper ───────────────────────────────────────────────────────
-// Reuses writeBudgetAuditEvent pattern (standalone signed D1 write) with
-// category: 'credentials' and custom action strings.
 
 async function writeCredentialAuditEvent(
   env: Env,
@@ -84,20 +134,14 @@ async function writeCredentialAuditEvent(
     details?: Record<string, string | number | boolean>;
   },
 ): Promise<void> {
-  // Delegate to the generic standalone audit writer with overridden category/path
-  // writeBudgetAuditEvent hardcodes category='budget'; we need 'credentials'.
-  // Since we can't extend it cleanly without modifying audit.ts, we inline
-  // the pattern (same approach, same imports).
   if (!env.AUDIT || !env.AUDIT_SIGNING_KEY) return;
 
   try {
-    // Import dynamically to avoid circular dep issues at module load time
     const { nanoid: nid } = await import('../utils.js');
     const { ed25519 } = await import('@noble/curves/ed25519.js');
 
     const now = new Date().toISOString();
     const id = nid(20);
-    // Use genesis hash — cross-isolate chain continuity not critical for credential events
     const prevHash = '0'.repeat(64);
 
     const entryWithoutSig = {
@@ -155,28 +199,23 @@ async function sendCredentialRequestEmail(
   env: Env,
   operatorEmail: string,
   agentName: string,
-  agentId: string,
   userCode: string,
-  serviceName: string,
-  description: string | undefined,
-  credentialType: CredentialType,
+  description: string,
 ): Promise<void> {
   const resendKey = env.RESEND_API_KEY;
   if (!resendKey) return;
 
-  const approveUrl = `https://agentlair.dev/v1/credentials/approve?code=${encodeURIComponent(userCode)}`;
-  const descLine = description ? `\nDescription: ${description}` : '';
+  const approveUrl = `${VERIFICATION_BASE_URL}?code=${encodeURIComponent(userCode)}`;
   const textBody = [
-    `Your agent '${agentName}' (${agentId}) is requesting a credential.`,
+    `Your agent '${agentName}' is requesting a credential.`,
     ``,
-    `Credential type: ${credentialType}`,
-    `Service: ${serviceName}${descLine}`,
+    `What's needed: ${description}`,
     `User code: ${userCode}`,
     ``,
-    `To approve or deny this request, visit:`,
+    `To approve, visit:`,
     `${approveUrl}`,
     ``,
-    `This request expires in 5 minutes.`,
+    `This request expires in 10 minutes.`,
     ``,
     `If you did not initiate this or do not recognize the agent, ignore this email.`,
     `The request will expire automatically.`,
@@ -199,9 +238,117 @@ async function sendCredentialRequestEmail(
       }),
     });
   } catch (e) {
-    // Email is non-fatal — log and continue
     console.error('[credentials] notification email failed:', e instanceof Error ? e.message : String(e));
   }
+}
+
+// ─── HTML approval page ───────────────────────────────────────────────────────
+
+function renderApprovalPage(opts: {
+  prefillCode?: string;
+  agentName?: string;
+  agentId?: string;
+  description?: string;
+  vaultKeyHint?: string;
+  error?: string;
+}): Response {
+  const { prefillCode = '', agentName, agentId, description, vaultKeyHint = '', error } = opts;
+
+  const agentSection = agentName
+    ? `
+    <div class="agent-info">
+      <div class="label">Requesting agent</div>
+      <div class="value">${escHtml(agentName)} <span class="dim">(${escHtml(agentId || '')})</span></div>
+      ${description ? `<div class="label" style="margin-top:8px">What's needed</div><div class="value">${escHtml(description)}</div>` : ''}
+    </div>`
+    : '';
+
+  const errorSection = error
+    ? `<div class="error">${escHtml(error)}</div>`
+    : '';
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Credential Approval — AgentLair</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f0f0f; color: #e0e0e0; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
+    .card { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 12px; padding: 32px; max-width: 480px; width: 100%; }
+    h1 { font-size: 20px; font-weight: 600; color: #fff; margin-bottom: 6px; }
+    .subtitle { font-size: 14px; color: #888; margin-bottom: 24px; }
+    .agent-info { background: #111; border: 1px solid #222; border-radius: 8px; padding: 16px; margin-bottom: 20px; }
+    .label { font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }
+    .value { font-size: 14px; color: #ccc; }
+    .dim { color: #555; font-size: 12px; }
+    .field { margin-bottom: 16px; }
+    label { display: block; font-size: 13px; color: #aaa; margin-bottom: 6px; }
+    input { width: 100%; padding: 10px 12px; background: #111; border: 1px solid #333; border-radius: 6px; color: #e0e0e0; font-size: 14px; font-family: inherit; }
+    input:focus { outline: none; border-color: #555; }
+    .actions { display: flex; gap: 10px; margin-top: 24px; }
+    button { flex: 1; padding: 11px; border-radius: 6px; font-size: 14px; font-weight: 500; cursor: pointer; border: none; }
+    button[type="submit"] { background: #2563eb; color: #fff; }
+    button[type="submit"]:hover { background: #1d4ed8; }
+    button.deny { background: #1a1a1a; color: #888; border: 1px solid #333; }
+    button.deny:hover { background: #222; }
+    .error { background: #2a1a1a; border: 1px solid #5a2020; border-radius: 6px; padding: 12px; color: #f87171; font-size: 13px; margin-bottom: 16px; }
+    .security-note { font-size: 12px; color: #555; margin-top: 20px; text-align: center; }
+    .security-note strong { color: #666; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Credential Approval</h1>
+    <p class="subtitle">An agent is requesting a credential from you.</p>
+
+    ${errorSection}
+    ${agentSection}
+
+    <form method="POST" action="${VERIFICATION_BASE_URL}">
+      ${!agentName ? `
+      <div class="field">
+        <label for="user_code">Agent code</label>
+        <input type="text" id="user_code" name="user_code" value="${escHtml(prefillCode)}" placeholder="XXXX-XXXX" autocomplete="off" required>
+      </div>` : `<input type="hidden" name="user_code" value="${escHtml(prefillCode)}">`}
+
+      <div class="field">
+        <label for="operator_email">Your operator email</label>
+        <input type="email" id="operator_email" name="operator_email" placeholder="you@example.com" autocomplete="email" required>
+      </div>
+
+      <div class="field">
+        <label for="credential_value">Credential value</label>
+        <input type="password" id="credential_value" name="credential_value" placeholder="Paste the API key, token, or secret here" autocomplete="off" required>
+      </div>
+
+      <div class="field">
+        <label for="vault_key">Vault key name</label>
+        <input type="text" id="vault_key" name="vault_key" value="${escHtml(vaultKeyHint)}" placeholder="e.g. openai-api-key" autocomplete="off" required>
+      </div>
+
+      <div class="actions">
+        <button type="submit" name="_action" value="approve">Deliver credential</button>
+        <button type="submit" name="_action" value="deny" class="deny" formnovalidate>Deny request</button>
+      </div>
+    </form>
+
+    <p class="security-note">
+      <strong>Security:</strong> Only approve requests from agents you initiated.<br>
+      Credential is delivered encrypted and deleted immediately after delivery.
+    </p>
+  </div>
+</body>
+</html>`;
+
+  return new Response(html, {
+    headers: { 'Content-Type': 'text/html; charset=utf-8' },
+  });
+}
+
+function escHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 // ─── Route handler ────────────────────────────────────────────────────────────
@@ -223,20 +370,24 @@ export async function handleCredentialRoutes(
     let body: Record<string, unknown> = {};
     try { body = await request.json(); } catch {}
 
-    const credential_type = typeof body.credential_type === 'string'
-      ? body.credential_type as CredentialType
-      : undefined;
-    const service_name = typeof body.service_name === 'string' ? body.service_name.trim() : undefined;
     const description = typeof body.description === 'string' ? body.description.trim().slice(0, 200) : undefined;
+    const vaultKey = typeof body.vault_key === 'string' ? body.vault_key.trim().slice(0, 100) : undefined;
+    const metadata = body.metadata && typeof body.metadata === 'object' && !Array.isArray(body.metadata)
+      ? body.metadata as Record<string, unknown>
+      : undefined;
 
-    if (!credential_type || !['api_key', 'password', 'token', 'certificate'].includes(credential_type)) {
-      return err('credential_type is required: api_key | password | token | certificate', 400, 'invalid_credential_type');
+    if (!description || description.length === 0) {
+      return err('description is required (max 200 chars)', 400, 'missing_description');
     }
-    if (!service_name || service_name.length === 0) {
-      return err('service_name is required', 400, 'missing_service_name');
-    }
-    if (service_name.length > 100) {
-      return err('service_name too long (max 100 chars)', 400, 'invalid_service_name');
+
+    // Operator email required for approval binding
+    const operatorEmail = (account.operator_email || account.email || '') as string;
+    if (!operatorEmail) {
+      return err(
+        'Account must have a registered operator email. Complete OTP verification first.',
+        403,
+        'no_operator_email',
+      );
     }
 
     // Rate limit: max 5 active requests per account
@@ -257,7 +408,7 @@ export async function handleCredentialRoutes(
     const userCodeHash = await sha256hex(userCode);
     const requestId = 'credreq_' + nanoid(16);
     const now = new Date().toISOString();
-    const expiresAt = new Date(Date.now() + TTL_SECONDS * 1000).toISOString();
+    const expiresAt = new Date(Date.now() + TTL_PENDING * 1000).toISOString();
 
     const credReq: CredentialRequest = {
       request_id: requestId,
@@ -265,29 +416,29 @@ export async function handleCredentialRoutes(
       device_code: deviceCode,
       user_code: userCode,
       user_code_hash: userCodeHash,
-      credential_type,
-      service_name,
-      ...(description !== undefined && { description }),
+      description,
+      vault_key: vaultKey || '',
+      ...(metadata !== undefined && { metadata }),
       status: 'pending',
       created_at: now,
       expires_at: expiresAt,
+      operator_email: operatorEmail,
       poll_count: 0,
       approval_attempts: 0,
     };
 
     // Write KV state
-    await env.KEYS.put('credreq:' + deviceCode, JSON.stringify(credReq), { expirationTtl: TTL_SECONDS });
-    await env.KEYS.put('credreq-code:' + userCodeHash, deviceCode, { expirationTtl: TTL_SECONDS });
-    await env.KEYS.put(activeKey, String(activeCount + 1), { expirationTtl: TTL_SECONDS });
+    await env.KEYS.put('credreq:' + deviceCode, JSON.stringify(credReq), { expirationTtl: TTL_PENDING });
+    await env.KEYS.put('credreq-code:' + userCodeHash, deviceCode, { expirationTtl: TTL_PENDING });
+    await env.KEYS.put(activeKey, String(activeCount + 1), { expirationTtl: TTL_PENDING });
+
+    const agentName = (account.name || account.id) as string;
+    const verificationUrlComplete = `${VERIFICATION_BASE_URL}?code=${encodeURIComponent(userCode)}`;
 
     // Send email notification to operator (non-blocking, non-fatal)
-    const operatorEmail = (account.operator_email || account.recovery_email || '') as string;
-    const agentName = (account.name || account.id) as string;
-    if (operatorEmail) {
-      ctx.waitUntil(
-        sendCredentialRequestEmail(env, operatorEmail, agentName, account.id, userCode, service_name, description, credential_type)
-      );
-    }
+    ctx.waitUntil(
+      sendCredentialRequestEmail(env, operatorEmail, agentName, userCode, description)
+    );
 
     // Audit trail
     ctx.waitUntil(
@@ -295,49 +446,62 @@ export async function handleCredentialRoutes(
         action: 'request.created',
         accountId: account.id,
         resourceId: requestId,
-        details: { service_name, credential_type },
+        details: { description: description.slice(0, 100) },
       })
     );
 
     return json({
+      request_id: requestId,
       device_code: deviceCode,
       user_code: userCode,
-      expires_in: TTL_SECONDS,
+      verification_url: VERIFICATION_BASE_URL,
+      verification_url_complete: verificationUrlComplete,
+      expires_in: TTL_PENDING,
       interval: POLL_INTERVAL,
-      message: `Ask operator to visit https://agentlair.dev/v1/credentials/approve?code=${userCode}`,
+      message: `Ask your operator to visit ${verificationUrlComplete}`,
     }, 201);
   }
 
   // ── GET /v1/credentials/approve?code=XXXX-XXXX ───────────────────────────────
-  // Operator retrieves pending request details. Requires operator auth.
+  // Public HTML approval page. No auth required — operator validates via email binding.
 
   if (path === '/v1/credentials/approve' && method === 'GET') {
-    if (!account) return err('Authentication required. Operator must authenticate.', 401, 'unauthorized');
-
     const code = url.searchParams.get('code');
-    if (!code) return err('code query parameter required (user code from agent)', 400, 'missing_code');
+    if (!code) {
+      // Show blank form
+      return renderApprovalPage({});
+    }
 
     const normalizedCode = code.trim().toUpperCase();
     const codeHash = await sha256hex(normalizedCode);
     const deviceCode = await env.KEYS.get('credreq-code:' + codeHash);
+
     if (!deviceCode) {
-      return err('Invalid or expired user code.', 404, 'invalid_code');
+      return renderApprovalPage({
+        prefillCode: normalizedCode,
+        error: 'Code not found or expired. Check the code and try again.',
+      });
     }
 
     const credReqRaw = await env.KEYS.get('credreq:' + deviceCode);
     if (!credReqRaw) {
-      return err('Credential request not found or expired.', 404, 'request_expired');
+      return renderApprovalPage({
+        prefillCode: normalizedCode,
+        error: 'Credential request has expired.',
+      });
     }
 
     const credReq = JSON.parse(credReqRaw) as CredentialRequest;
 
     if (credReq.status !== 'pending') {
-      return err(`Request is already ${credReq.status}.`, 400, 'request_not_pending');
+      return renderApprovalPage({
+        prefillCode: normalizedCode,
+        error: `This request has already been ${credReq.status}.`,
+      });
     }
 
-    // Load agent account for display
+    // Load agent display name
     let agentName: string = credReq.account_id;
-    let agentEmail: string | undefined;
     try {
       const keyHash = await env.KEYS.get('account:' + credReq.account_id);
       if (keyHash) {
@@ -345,42 +509,74 @@ export async function handleCredentialRoutes(
         if (agentRaw) {
           const agentAccount = JSON.parse(agentRaw) as Record<string, unknown>;
           agentName = (agentAccount.name as string) || credReq.account_id;
-          agentEmail = agentAccount.email as string | undefined;
         }
       }
     } catch { /* fail-open */ }
 
-    return json({
-      device_code: credReq.device_code,
-      credential_type: credReq.credential_type,
-      service_name: credReq.service_name,
-      description: credReq.description || null,
-      requested_at: credReq.created_at,
-      expires_at: credReq.expires_at,
-      agent_id: credReq.account_id,
-      agent_name: agentName,
-      agent_email: agentEmail || null,
-      status: credReq.status,
+    return renderApprovalPage({
+      prefillCode: normalizedCode,
+      agentName,
+      agentId: credReq.account_id,
+      description: credReq.description,
+      vaultKeyHint: credReq.vault_key,
     });
   }
 
   // ── POST /v1/credentials/approve ─────────────────────────────────────────────
-  // Operator approves or denies a credential request. Requires operator auth.
+  // Human submits credential. Public endpoint — validated by user_code + operator_email binding.
+  // Also handles HTML form submissions (application/x-www-form-urlencoded).
 
   if (path === '/v1/credentials/approve' && method === 'POST') {
-    if (!account) return err('Authentication required. Operator must authenticate.', 401, 'unauthorized');
+    const contentType = request.headers.get('Content-Type') || '';
+    let userCodeRaw: string | undefined;
+    let credentialValue: string | undefined;
+    let vaultKeyFinal: string | undefined;
+    let operatorEmail: string | undefined;
+    let action: string = 'approve';
 
-    let body: Record<string, unknown> = {};
-    try { body = await request.json(); } catch {}
+    if (contentType.includes('application/x-www-form-urlencoded')) {
+      // HTML form submission
+      const formData = await request.formData();
+      userCodeRaw = formData.get('user_code')?.toString().trim().toUpperCase();
+      credentialValue = formData.get('credential_value')?.toString();
+      vaultKeyFinal = formData.get('vault_key')?.toString().trim();
+      operatorEmail = formData.get('operator_email')?.toString().trim().toLowerCase();
+      action = formData.get('_action')?.toString() || 'approve';
+    } else {
+      // JSON submission (API)
+      let body: Record<string, unknown> = {};
+      try { body = await request.json(); } catch {}
+      userCodeRaw = typeof body.user_code === 'string' ? body.user_code.trim().toUpperCase() : undefined;
+      credentialValue = typeof body.credential_value === 'string' ? body.credential_value : undefined;
+      vaultKeyFinal = typeof body.vault_key === 'string' ? body.vault_key.trim() : undefined;
+      operatorEmail = typeof body.operator_email === 'string' ? body.operator_email.trim().toLowerCase() : undefined;
+    }
 
-    const userCodeRaw = typeof body.user_code === 'string' ? body.user_code.trim().toUpperCase() : undefined;
-    const credentialValue = typeof body.credential_value === 'string' ? body.credential_value : undefined;
-    const approved = typeof body.approved === 'boolean' ? body.approved : undefined;
+    const isDenial = action === 'deny';
 
-    if (!userCodeRaw) return err('user_code is required', 400, 'missing_user_code');
-    if (approved === undefined) return err('approved (boolean) is required', 400, 'missing_approved');
-    if (approved && !credentialValue) {
-      return err('credential_value is required when approved is true', 400, 'missing_credential_value');
+    if (!userCodeRaw) {
+      if (contentType.includes('application/x-www-form-urlencoded')) {
+        return renderApprovalPage({ error: 'User code is required.' });
+      }
+      return err('user_code is required', 400, 'missing_user_code');
+    }
+    if (!isDenial && !credentialValue) {
+      if (contentType.includes('application/x-www-form-urlencoded')) {
+        return renderApprovalPage({ prefillCode: userCodeRaw, error: 'Credential value is required.' });
+      }
+      return err('credential_value is required', 400, 'missing_credential_value');
+    }
+    if (!isDenial && (!vaultKeyFinal || vaultKeyFinal.length === 0)) {
+      if (contentType.includes('application/x-www-form-urlencoded')) {
+        return renderApprovalPage({ prefillCode: userCodeRaw, error: 'Vault key name is required.' });
+      }
+      return err('vault_key is required', 400, 'missing_vault_key');
+    }
+    if (!operatorEmail) {
+      if (contentType.includes('application/x-www-form-urlencoded')) {
+        return renderApprovalPage({ prefillCode: userCodeRaw, error: 'Operator email is required.' });
+      }
+      return err('operator_email is required', 400, 'missing_operator_email');
     }
     if (credentialValue && credentialValue.length > 8192) {
       return err('credential_value too large (max 8192 bytes)', 400, 'payload_too_large');
@@ -389,11 +585,17 @@ export async function handleCredentialRoutes(
     const codeHash = await sha256hex(userCodeRaw);
     const deviceCode = await env.KEYS.get('credreq-code:' + codeHash);
     if (!deviceCode) {
+      if (contentType.includes('application/x-www-form-urlencoded')) {
+        return renderApprovalPage({ prefillCode: userCodeRaw, error: 'Invalid or expired code.' });
+      }
       return err('Invalid or expired user code.', 400, 'invalid_code');
     }
 
     const credReqRaw = await env.KEYS.get('credreq:' + deviceCode);
     if (!credReqRaw) {
+      if (contentType.includes('application/x-www-form-urlencoded')) {
+        return renderApprovalPage({ prefillCode: userCodeRaw, error: 'Request has expired.' });
+      }
       return err('Credential request has expired.', 400, 'code_expired');
     }
 
@@ -401,65 +603,108 @@ export async function handleCredentialRoutes(
 
     // Check max approval attempts (anti-brute-force)
     if (credReq.approval_attempts >= MAX_APPROVAL_ATTEMPTS) {
+      if (contentType.includes('application/x-www-form-urlencoded')) {
+        return renderApprovalPage({ prefillCode: userCodeRaw, error: 'Too many attempts. This code is locked.' });
+      }
       return err('Max approval attempts exceeded for this code.', 429, 'max_attempts_exceeded');
     }
 
-    // Only allow pending requests to be approved/denied
+    // Only allow pending requests
     if (credReq.status !== 'pending') {
+      if (contentType.includes('application/x-www-form-urlencoded')) {
+        return renderApprovalPage({ prefillCode: userCodeRaw, error: `This request has already been ${credReq.status}.` });
+      }
       return err(`Request is already ${credReq.status}.`, 400, 'request_not_pending');
     }
 
-    // Compute remaining TTL from expires_at
+    // Check TTL
     const remainingMs = new Date(credReq.expires_at).getTime() - Date.now();
     if (remainingMs <= 0) {
-      // Already expired — clean up
       await env.KEYS.delete('credreq:' + deviceCode);
       await env.KEYS.delete('credreq-code:' + codeHash);
+      if (contentType.includes('application/x-www-form-urlencoded')) {
+        return renderApprovalPage({ prefillCode: userCodeRaw, error: 'Request has expired.' });
+      }
       return err('Credential request has expired.', 400, 'code_expired');
     }
-    const remainingTtlSec = Math.max(1, Math.floor(remainingMs / 1000));
+
+    // Operator email binding: must match account's registered email
+    const expectedEmail = credReq.operator_email.toLowerCase();
+    if (operatorEmail !== expectedEmail) {
+      credReq.approval_attempts += 1;
+      // Persist incremented count
+      ctx.waitUntil(
+        env.KEYS.put('credreq:' + deviceCode, JSON.stringify(credReq), {
+          expirationTtl: Math.max(1, Math.floor(remainingMs / 1000)),
+        }).catch(() => {})
+      );
+      if (contentType.includes('application/x-www-form-urlencoded')) {
+        return renderApprovalPage({
+          prefillCode: userCodeRaw,
+          agentId: credReq.account_id,
+          description: credReq.description,
+          vaultKeyHint: vaultKeyFinal || credReq.vault_key,
+          error: 'Email does not match the operator email registered for this agent.',
+        });
+      }
+      return err('operator_email does not match the account\'s registered email.', 400, 'email_mismatch');
+    }
 
     const now = new Date().toISOString();
+    credReq.approval_attempts += 1;
 
-    if (!approved) {
-      // Denial path: update state, keep in KV briefly so agent can poll the denial
+    if (isDenial) {
+      // Denial path
       credReq.status = 'denied';
       credReq.approved_at = now;
-      credReq.approved_by_email = (account.operator_email || account.email || account.id) as string;
-      credReq.approval_attempts += 1;
+      credReq.approved_by_email = operatorEmail;
 
-      await env.KEYS.put('credreq:' + deviceCode, JSON.stringify(credReq), { expirationTtl: remainingTtlSec });
+      const ttlSec = Math.max(1, Math.floor(remainingMs / 1000));
+      await env.KEYS.put('credreq:' + deviceCode, JSON.stringify(credReq), { expirationTtl: ttlSec });
 
       ctx.waitUntil(
         writeCredentialAuditEvent(env, {
           action: 'request.denied',
           accountId: credReq.account_id,
           resourceId: credReq.request_id,
-          details: { denied_by: credReq.approved_by_email },
+          details: { denied_by: operatorEmail },
         })
       );
 
+      if (contentType.includes('application/x-www-form-urlencoded')) {
+        return new Response(
+          `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>body{font-family:sans-serif;background:#0f0f0f;color:#e0e0e0;display:flex;align-items:center;justify-content:center;height:100vh;text-align:center;}</style></head><body><h2>Request Denied</h2><p style="color:#888;margin-top:12px">The credential request has been denied. The agent will be notified.</p></body></html>`,
+          { headers: { 'Content-Type': 'text/html; charset=utf-8' } },
+        );
+      }
       return json({ status: 'denied', message: 'Credential request denied.' });
     }
 
-    // Approval path: store credential value in KV (plaintext — see module header on trust model)
+    // Approval path: encrypt credential and store with 60s TTL
+    const encrypted = await encryptCredential(credentialValue!, deviceCode);
     credReq.status = 'approved';
-    credReq.credential_value = credentialValue;
+    credReq.credential_value_encrypted = encrypted;
+    credReq.vault_key_final = vaultKeyFinal;
     credReq.approved_at = now;
-    credReq.approved_by_email = (account.operator_email || account.email || account.id) as string;
-    credReq.approval_attempts += 1;
+    credReq.approved_by_email = operatorEmail;
 
-    await env.KEYS.put('credreq:' + deviceCode, JSON.stringify(credReq), { expirationTtl: remainingTtlSec });
+    await env.KEYS.put('credreq:' + deviceCode, JSON.stringify(credReq), { expirationTtl: TTL_APPROVED });
 
     ctx.waitUntil(
       writeCredentialAuditEvent(env, {
         action: 'request.approved',
         accountId: credReq.account_id,
         resourceId: credReq.request_id,
-        details: { approved_by: credReq.approved_by_email, service_name: credReq.service_name },
+        details: { approved_by: operatorEmail, vault_key: vaultKeyFinal || '' },
       })
     );
 
+    if (contentType.includes('application/x-www-form-urlencoded')) {
+      return new Response(
+        `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>body{font-family:sans-serif;background:#0f0f0f;color:#e0e0e0;display:flex;align-items:center;justify-content:center;height:100vh;text-align:center;}</style></head><body><h2>✓ Credential Delivered</h2><p style="color:#888;margin-top:12px">The credential will be securely delivered to the agent on its next poll.<br>It will be deleted immediately after delivery.</p></body></html>`,
+        { headers: { 'Content-Type': 'text/html; charset=utf-8' } },
+      );
+    }
     return json({
       status: 'approved',
       message: 'Credential will be delivered to the agent on next poll.',
@@ -491,35 +736,30 @@ export async function handleCredentialRoutes(
       return err('Device code does not belong to this account.', 403, 'forbidden');
     }
 
-    // Slow-down heuristic: if poll_count is high, nudge the agent to back off
     const now = new Date().toISOString();
     credReq.poll_count += 1;
     credReq.last_poll_at = now;
 
     const remainingMs = new Date(credReq.expires_at).getTime() - Date.now();
     if (remainingMs <= 0) {
-      // Expired — clean up
       await env.KEYS.delete('credreq:' + deviceCode);
       return json({ status: 'expired' });
     }
     const remainingTtlSec = Math.max(1, Math.floor(remainingMs / 1000));
 
     if (credReq.status === 'pending') {
-      // Slow down if polling too aggressively (>60 polls in a 5-minute window)
+      // Slow down if polling too aggressively (>60 polls in a 10-minute window)
       if (credReq.poll_count > 60) {
-        // Don't persist the updated count to avoid expensive writes on every slow_down
         return json({ status: 'slow_down', interval: 30 });
       }
-      // Update poll count non-blocking (fail-open)
       ctx.waitUntil(
         env.KEYS.put('credreq:' + deviceCode, JSON.stringify(credReq), { expirationTtl: remainingTtlSec })
-          .catch(() => { /* non-critical */ })
+          .catch(() => {})
       );
-      return json({ status: 'pending' });
+      return json({ status: 'authorization_pending' });
     }
 
     if (credReq.status === 'denied') {
-      // Clean up both KV keys — the agent has seen the denial
       ctx.waitUntil(Promise.all([
         env.KEYS.delete('credreq:' + deviceCode),
         env.KEYS.delete('credreq-code:' + credReq.user_code_hash),
@@ -533,28 +773,36 @@ export async function handleCredentialRoutes(
       return json({ status: 'denied' });
     }
 
-    if (credReq.status === 'approved') {
-      const credentialValue = credReq.credential_value;
+    if (credReq.status === 'approved' && credReq.credential_value_encrypted) {
+      // Decrypt — only possible because the agent holds device_code
+      let credentialValue: string;
+      try {
+        credentialValue = await decryptCredential(credReq.credential_value_encrypted, deviceCode);
+      } catch (e) {
+        console.error('[credentials] decrypt failed:', e instanceof Error ? e.message : String(e));
+        return err('Failed to decrypt credential. Request may be corrupted.', 500, 'decrypt_failed');
+      }
 
-      // One-time delivery: delete from KV immediately before returning
+      // One-time delivery: delete from KV before returning
       await Promise.all([
         env.KEYS.delete('credreq:' + deviceCode),
         env.KEYS.delete('credreq-code:' + credReq.user_code_hash),
       ]);
 
-      // Audit trail for delivery
       ctx.waitUntil(
         writeCredentialAuditEvent(env, {
           action: 'request.completed',
           accountId: account.id,
           resourceId: credReq.request_id,
-          details: { service_name: credReq.service_name, credential_type: credReq.credential_type },
+          details: { vault_key: credReq.vault_key_final || credReq.vault_key },
         })
       );
 
       return json({
         status: 'approved',
-        credential: credentialValue,
+        credential_value: credentialValue,
+        vault_key: credReq.vault_key_final || credReq.vault_key,
+        request_id: credReq.request_id,
       });
     }
 

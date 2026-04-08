@@ -38,6 +38,7 @@ import { budgetRoutes } from './routes/budget.js';
 import { handleRegisterRoute } from './routes/register.js';
 import { handleRegisterVerifyRoute } from './routes/register-verify.js';
 import { handleCredentialRoutes } from './routes/credentials.js';
+import { approvalRoutes, chargeRoutes } from './routes/approvals.js';
 
 // ─── Hono App Type ──────────────────────────────────────────────────────────────
 
@@ -603,6 +604,12 @@ app.use('/v1/*', async (c: Context<HonoEnv>, next: Next): Promise<void | Respons
     return;
   }
 
+  // Credential approval page — public (validated via operator_email binding)
+  if (c.req.path === '/v1/credentials/approve') {
+    await next();
+    return;
+  }
+
   // Authenticate: API key (al_live_...) or session token (session_...)
   const account = await authenticateAny(c.req.raw, c.env);
   if (!account) {
@@ -826,6 +833,12 @@ app.route('/v1/sessions', sessionRoutes);
 
 // Budget routes: per-agent spending caps (GET /v1/budget, PUT /v1/budget, GET /v1/budget/history)
 app.route('/v1/budget', budgetRoutes);
+
+// Charge route: declare spending intent (POST /v1/charge)
+app.route('/v1/charge', chargeRoutes);
+
+// Approval routes: list/approve/reject pending approval requests
+app.route('/v1/approvals', approvalRoutes);
 
 // Credential provisioning routes (device flow): request, approve, poll
 app.use('/v1/credentials/*', legacyHandler(handleCredentialRoutes));

@@ -184,9 +184,15 @@ budgetRoutes.put('/', async (c) => {
   try { body = await c.req.json(); } catch {}
 
   // Validate caps object (optional — can set only on_limit or single_tx_limit_cents)
-  const rawCaps = body.caps;
+  // Support both nested { caps: { daily: N } } and flat { daily: N } format for ergonomics
+  let rawCaps = body.caps;
   const periods: Array<'daily' | 'weekly' | 'monthly'> = ['daily', 'weekly', 'monthly'];
   const parsed: Partial<Record<'daily' | 'weekly' | 'monthly', number | null>> = {};
+
+  // Flat format: if top-level has daily/weekly/monthly but no caps key, treat as caps
+  if (rawCaps === undefined && periods.some(p => p in body)) {
+    rawCaps = Object.fromEntries(periods.filter(p => p in body).map(p => [p, body[p]]));
+  }
 
   if (rawCaps !== undefined) {
     if (!rawCaps || typeof rawCaps !== 'object' || Array.isArray(rawCaps)) {
