@@ -27,6 +27,7 @@ import { handleAuthRoutes, handleAdminRoutes } from './routes/auth.js';
 import { handleVaultRoutes } from './routes/vault.js';
 import { handleEmailRoutes } from './routes/email.js';
 import { handleWebhookRoutes } from './routes/webhooks.js';
+import { handleDomainRoutes } from './routes/domains.js';
 import { stackRoutes } from './routes/stacks.js';
 import { podRoutes } from './routes/pods.js';
 import { handleCalendarRoutes } from './routes/calendar.js';
@@ -805,6 +806,10 @@ app.route('/v1', stackRoutes);
 app.use('/v1/email/webhooks', legacyHandler(handleWebhookRoutes));
 app.use('/v1/email/webhooks/*', legacyHandler(handleWebhookRoutes));
 
+// Custom domain management (before general email routes)
+app.use('/v1/email/domains', legacyHandler(handleDomainRoutes));
+app.use('/v1/email/domains/*', legacyHandler(handleDomainRoutes));
+
 // Email routes
 app.use('/v1/email/*', legacyHandler(handleEmailRoutes));
 app.use('/v1/inbox/*', legacyHandler(handleEmailRoutes));
@@ -1006,7 +1011,8 @@ function parseAuthenticationResults(
 }
 
 // ─── Cloudflare Email Workers: inbound delivery ─────────────────────────────────
-// Triggered by Cloudflare Email Routing when an @agentlair.dev message arrives.
+// Triggered by Cloudflare Email Routing when a message arrives for @agentlair.dev
+// or any custom domain configured to route through this worker.
 // Stores encrypted message body in EMAILS KV and fires registered webhooks.
 // NOT part of Hono — this is a separate CF Workers entry point.
 

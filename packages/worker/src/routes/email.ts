@@ -9,6 +9,7 @@ import { nanoid, json, err, hmacSha256 } from '../utils.js';
 import type { Env, RouteContext } from '../types.js';
 import { isReservedAddress, validateLocalPart } from '../reserved.js';
 import { checkEmailRateLimit, recordEmailBounce, recordEmailSent, ADDRESS_LIMITS, countOwnedAddresses } from '../middleware/ratelimit.js';
+import { isValidDomainForAccount } from './domains.js';
 
 // ─── Account address index ────────────────────────────────────────────────────
 // Maintains an explicit per-account address list in KV for instant consistency.
@@ -155,10 +156,17 @@ export async function handleEmailRoutes(
     const { address, public_key } = body;
 
     if (!address) {
-      return err('address required in body. Example: {"address": "myagent@agentlair.dev"}', 400, 'missing_address');
+      return err('address required in body. Example: {"address": "myagent@agentlair.dev"} or {"address": "you@yourdomain.com"}', 400, 'missing_address');
     }
-    if (!address.endsWith('@agentlair.dev')) {
-      return err('Only @agentlair.dev addresses can be claimed.', 400, 'invalid_address');
+    // Validate domain: must be @agentlair.dev or a verified custom domain
+    const isValidDomain = await isValidDomainForAccount(env, address, account.id);
+    if (!isValidDomain) {
+      return err(
+        'Address must be @agentlair.dev or on a verified custom domain. ' +
+        'To use a custom domain, first register it via POST /v1/email/domains.',
+        400,
+        'invalid_address',
+      );
     }
     const localPartError = validateLocalPart(address);
     if (localPartError) {
@@ -216,10 +224,6 @@ export async function handleEmailRoutes(
 
     if (!address) {
       return err('address query parameter required. Example: ?address=myagent@agentlair.dev', 400, 'missing_address');
-    }
-
-    if (!address.endsWith('@agentlair.dev')) {
-      return err('Only @agentlair.dev addresses supported in beta.', 400, 'invalid_address');
     }
 
     if (!env.EMAILS) {
@@ -444,8 +448,9 @@ export async function handleEmailRoutes(
     return json({
       addresses: myAddresses,
       count: myAddresses.length,
-      note: 'Claimed @agentlair.dev addresses for your account.',
-      how_to_claim: 'POST /v1/email/claim {"address":"yourname@agentlair.dev"} to register a new address.',
+      note: 'Claimed email addresses for your account (@agentlair.dev and custom domains).',
+      how_to_claim: 'POST /v1/email/claim {"address":"yourname@agentlair.dev"} or {"address":"you@yourdomain.com"} (requires verified custom domain).',
+      how_to_add_domain: 'POST /v1/email/domains {"domain":"yourdomain.com"} to register a custom domain.',
     });
   }
 
@@ -522,8 +527,16 @@ export async function handleEmailRoutes(
     }
 
     const fromAddr = String(from);
-    if (!fromAddr.endsWith('@agentlair.dev') && !fromAddr.match(/<[^>]+@agentlair\.dev>/)) {
-      return err('Sender must be an @agentlair.dev address', 403, 'invalid_sender');
+    // Validate sender domain: must be @agentlair.dev or a verified custom domain
+    const bareFromAddr = fromAddr.match(/<([^>]+)>/) ? fromAddr.match(/<([^>]+)>/)![1] : fromAddr;
+    const isValidSenderDomain = await isValidDomainForAccount(env, bareFromAddr, account.id);
+    if (!isValidSenderDomain) {
+      return err(
+        'Sender must be an @agentlair.dev address or on a verified custom domain. ' +
+        'Register custom domains via POST /v1/email/domains.',
+        403,
+        'invalid_sender',
+      );
     }
 
     if (!env.EMAILS) return err('Email storage not available.', 503, 'email_unavailable');
@@ -1220,8 +1233,16 @@ export async function handleEmailRoutes(
     }
 
     const fromAddr = String(from);
-    if (!fromAddr.endsWith('@agentlair.dev') && !fromAddr.match(/<[^>]+@agentlair\.dev>/)) {
-      return err('Sender must be an @agentlair.dev address', 403, 'invalid_sender');
+    // Validate sender domain: must be @agentlair.dev or a verified custom domain
+    const bareFromAddr = fromAddr.match(/<([^>]+)>/) ? fromAddr.match(/<([^>]+)>/)![1] : fromAddr;
+    const isValidSenderDomain = await isValidDomainForAccount(env, bareFromAddr, account.id);
+    if (!isValidSenderDomain) {
+      return err(
+        'Sender must be an @agentlair.dev address or on a verified custom domain. ' +
+        'Register custom domains via POST /v1/email/domains.',
+        403,
+        'invalid_sender',
+      );
     }
 
     if (!env.EMAILS) return err('Email storage not available.', 503, 'email_unavailable');
