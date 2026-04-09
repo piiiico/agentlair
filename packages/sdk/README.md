@@ -151,6 +151,96 @@ await lair.vault.delete('openai-key', { version: 2 }); // v2 only
 
 ---
 
+## Budget & Spending Controls
+
+Set per-period spending caps and decide what happens when an agent hits the limit:
+- `on_limit: 'reject'` — the charge returns **402** (default; hard block)
+- `on_limit: 'approve'` — the charge returns **202** and waits for principal approval
+
+Amounts are in **atomic USDC units** (1e-6). 1 USDC = `1_000_000`.
+
+### Set a spending cap
+
+```typescript
+// Flat format — equivalent to { caps: { daily: N } }
+await fetch('https://agentlair.dev/v1/budget', {
+  method: 'PUT',
+  headers: { Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    daily: 5_000_000,    // 5 USDC/day
+    weekly: 20_000_000,  // 20 USDC/week
+    on_limit: 'approve', // or 'reject' (default)
+  }),
+});
+```
+
+### Declare a charge
+
+```typescript
+const resp = await fetch('https://agentlair.dev/v1/charge', {
+  method: 'POST',
+  headers: { Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    amount: 7_000_000,         // 7 USDC — exceeds the 5 USDC daily cap
+    category: 'inference',     // optional
+    description: 'Claude batch call',
+    reference_id: 'job_abc',   // optional — tie to your own request ID
+  }),
+});
+
+if (resp.status === 200) {
+  const { charge_id } = await resp.json();
+  // Charge recorded immediately — within budget
+}
+
+if (resp.status === 202) {
+  const { approval_id, reason, exceeded, expires_at } = await resp.json();
+  // Budget exceeded + on_limit=approve → awaiting principal decision
+  // reason: 'budget_exceeded' | 'single_tx_limit_exceeded'
+}
+
+if (resp.status === 402) {
+  // Budget exceeded + on_limit=reject (or single_tx_limit exceeded)
+}
+```
+
+### Approval flow — principal side
+
+```typescript
+const BASE = 'https://agentlair.dev';
+const h = { Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json' };
+
+// List pending approvals
+const { approvals } = await fetch(`${BASE}/v1/approvals?status=pending`, { headers: h })
+  .then(r => r.json());
+
+// Approve — records the charge and debits the budget
+await fetch(`${BASE}/v1/approvals/${approval_id}/approve`, { method: 'POST', headers: h });
+
+// Reject — no charge recorded
+await fetch(`${BASE}/v1/approvals/${approval_id}/reject`, {
+  method: 'POST', headers: h,
+  body: JSON.stringify({ reason: 'exceeds quarterly budget' }), // optional
+});
+```
+
+### Poll approval status (agent side)
+
+```typescript
+async function waitForApproval(approvalId: string): Promise<'approved' | 'rejected' | 'expired'> {
+  while (true) {
+    const approval = await fetch(`${BASE}/v1/approvals/${approvalId}`, { headers: h })
+      .then(r => r.json());
+    if (approval.status !== 'pending') return approval.status;
+    await new Promise(r => setTimeout(r, 2000));
+  }
+}
+```
+
+See [`examples/approval-flow.ts`](./examples/approval-flow.ts) for a full runnable walkthrough.
+
+---
+
 ## Stacks
 
 Provision a domain stack (DNS, hosting, email at your own domain).
