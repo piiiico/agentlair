@@ -483,6 +483,94 @@ export interface DeleteCalendarEventResult {
   deleted: boolean;
 }
 
+// ─── Budget ───────────────────────────────────────────────────────────────────
+
+export interface BudgetSetOptions {
+  /** Daily spending cap in atomic USDC (1e-6; 1 USDC = 1_000_000) */
+  daily?: number;
+  /** Weekly spending cap in atomic USDC */
+  weekly?: number;
+  /** Monthly spending cap in atomic USDC */
+  monthly?: number;
+  /** What happens when the limit is hit: 'reject' (HTTP 402, default) or 'approve' (HTTP 202, awaits principal) */
+  on_limit?: 'reject' | 'approve';
+  /** Per-transaction hard limit in cents. Charges above this always require approval or are rejected. */
+  single_tx_limit_cents?: number;
+}
+
+export interface BudgetCap {
+  /** Cap limit in atomic USDC */
+  limit_usdc: number;
+  /** Amount spent so far in the current period (atomic USDC) */
+  spent_usdc: number;
+}
+
+export interface BudgetResult {
+  caps: {
+    daily?: BudgetCap;
+    weekly?: BudgetCap;
+    monthly?: BudgetCap;
+    [period: string]: BudgetCap | undefined;
+  };
+  on_limit: 'reject' | 'approve';
+}
+
+export interface BudgetChargeOptions {
+  /** Amount to charge in atomic USDC (1e-6; 1 USDC = 1_000_000) */
+  amount: number;
+  /** Optional spending category (e.g. 'inference', 'storage') */
+  category?: string;
+  /** Human-readable description */
+  description?: string;
+  /** Optional reference ID — tie to your own request ID */
+  reference_id?: string;
+  /** Optional arbitrary metadata */
+  metadata?: Record<string, unknown>;
+}
+
+export interface BudgetExceededPeriod {
+  period: string;
+  spent_usdc: number;
+  limit_usdc: number;
+}
+
+export interface BudgetChargeResult {
+  /** Present when charge was completed immediately (HTTP 200) */
+  charge_id?: string;
+  /** Present when approval is required (HTTP 202) */
+  approval_id?: string;
+  /** Reason for pending approval: 'budget_exceeded' | 'single_tx_limit_exceeded' */
+  reason?: string;
+  /** ISO timestamp when the approval request expires */
+  expires_at?: string;
+  /** Which budget periods were exceeded */
+  exceeded?: BudgetExceededPeriod[];
+}
+
+export interface BudgetApproval {
+  id: string;
+  status: 'pending' | 'approved' | 'rejected' | 'expired';
+  amount_usdc: number;
+  category?: string;
+  description?: string;
+  reference_id?: string;
+  /** Rejection reason (if status is 'rejected') */
+  reason?: string;
+  created_at: string;
+  expires_at: string;
+  resolved_at?: string;
+}
+
+export interface ListApprovalsResult {
+  approvals: BudgetApproval[];
+  count: number;
+}
+
+export interface ApprovalActionResult {
+  ok: boolean;
+  id: string;
+}
+
 // ─── Errors ───────────────────────────────────────────────────────────────────
 
 export interface AgentLairErrorBody {

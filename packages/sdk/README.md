@@ -154,74 +154,72 @@ await lair.vault.delete('openai-key', { version: 2 }); // v2 only
 ## Budget & Spending Controls
 
 Set per-period spending caps and decide what happens when an agent hits the limit:
-- `on_limit: 'reject'` — the charge returns **402** (default; hard block)
-- `on_limit: 'approve'` — the charge returns **202** and waits for principal approval
+- `on_limit: 'reject'` — the charge throws `AgentLairError` with HTTP **402** (default; hard block)
+- `on_limit: 'approve'` — the charge returns HTTP **202** and waits for principal approval
 
 Amounts are in **atomic USDC units** (1e-6). 1 USDC = `1_000_000`.
 
 ### Set a spending cap
 
 ```typescript
-// Flat format — equivalent to { caps: { daily: N } }
-await fetch('https://agentlair.dev/v1/budget', {
-  method: 'PUT',
-  headers: { Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json' },
-  body: JSON.stringify({
-    daily: 5_000_000,    // 5 USDC/day
-    weekly: 20_000_000,  // 20 USDC/week
-    on_limit: 'approve', // or 'reject' (default)
-  }),
+await lair.budget.set({
+  daily: 5_000_000,    // 5 USDC/day
+  weekly: 20_000_000,  // 20 USDC/week
+  on_limit: 'approve', // or 'reject' (default)
 });
+```
+
+### Get current budget
+
+```typescript
+const { caps, on_limit } = await lair.budget.get();
+console.log(caps.daily?.spent_usdc, '/', caps.daily?.limit_usdc, 'USDC');
 ```
 
 ### Declare a charge
 
 ```typescript
-const resp = await fetch('https://agentlair.dev/v1/charge', {
-  method: 'POST',
-  headers: { Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json' },
-  body: JSON.stringify({
+import { AgentLairError } from '@agentlair/sdk';
+
+try {
+  const result = await lair.budget.charge({
     amount: 7_000_000,         // 7 USDC — exceeds the 5 USDC daily cap
     category: 'inference',     // optional
     description: 'Claude batch call',
     reference_id: 'job_abc',   // optional — tie to your own request ID
-  }),
-});
+  });
 
-if (resp.status === 200) {
-  const { charge_id } = await resp.json();
-  // Charge recorded immediately — within budget
-}
+  if (result.charge_id) {
+    // Charge recorded immediately — within budget
+  }
 
-if (resp.status === 202) {
-  const { approval_id, reason, exceeded, expires_at } = await resp.json();
-  // Budget exceeded + on_limit=approve → awaiting principal decision
-  // reason: 'budget_exceeded' | 'single_tx_limit_exceeded'
-}
-
-if (resp.status === 402) {
-  // Budget exceeded + on_limit=reject (or single_tx_limit exceeded)
+  if (result.approval_id) {
+    // Budget exceeded + on_limit=approve → awaiting principal decision
+    // result.reason: 'budget_exceeded' | 'single_tx_limit_exceeded'
+    // result.exceeded: [{ period, spent_usdc, limit_usdc }]
+  }
+} catch (e) {
+  if (e instanceof AgentLairError && e.status === 402) {
+    // Budget exceeded + on_limit=reject (or single_tx_limit exceeded)
+  }
 }
 ```
 
 ### Approval flow — principal side
 
 ```typescript
-const BASE = 'https://agentlair.dev';
-const h = { Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json' };
-
 // List pending approvals
-const { approvals } = await fetch(`${BASE}/v1/approvals?status=pending`, { headers: h })
-  .then(r => r.json());
+const { approvals } = await lair.budget.approvals('pending');
+
+// Get a specific approval
+const approval = await lair.budget.getApproval(approvalId);
+console.log(approval.status); // 'pending' | 'approved' | 'rejected' | 'expired'
 
 // Approve — records the charge and debits the budget
-await fetch(`${BASE}/v1/approvals/${approval_id}/approve`, { method: 'POST', headers: h });
+await lair.budget.approve(approvalId);
 
 // Reject — no charge recorded
-await fetch(`${BASE}/v1/approvals/${approval_id}/reject`, {
-  method: 'POST', headers: h,
-  body: JSON.stringify({ reason: 'exceeds quarterly budget' }), // optional
-});
+await lair.budget.reject(approvalId, 'exceeds quarterly budget'); // reason is optional
 ```
 
 ### Poll approval status (agent side)
@@ -229,8 +227,7 @@ await fetch(`${BASE}/v1/approvals/${approval_id}/reject`, {
 ```typescript
 async function waitForApproval(approvalId: string): Promise<'approved' | 'rejected' | 'expired'> {
   while (true) {
-    const approval = await fetch(`${BASE}/v1/approvals/${approvalId}`, { headers: h })
-      .then(r => r.json());
+    const approval = await lair.budget.getApproval(approvalId);
     if (approval.status !== 'pending') return approval.status;
     await new Promise(r => setTimeout(r, 2000));
   }
@@ -238,6 +235,27 @@ async function waitForApproval(approvalId: string): Promise<'approved' | 'reject
 ```
 
 See [`examples/approval-flow.ts`](./examples/approval-flow.ts) for a full runnable walkthrough.
+
+<details>
+<summary>Raw HTTP API (reference)</summary>
+
+```typescript
+// PUT /v1/budget
+await fetch('https://agentlair.dev/v1/budget', {
+  method: 'PUT',
+  headers: { Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json' },
+  body: JSON.stringify({ daily: 5_000_000, on_limit: 'approve' }),
+});
+
+// POST /v1/charge  →  200 (ok) | 202 (approval_required) | 402 (rejected)
+// GET /v1/budget
+// GET /v1/approvals?status=pending
+// GET /v1/approvals/:id
+// POST /v1/approvals/:id/approve
+// POST /v1/approvals/:id/reject
+```
+
+</details>
 
 ---
 

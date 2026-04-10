@@ -81,6 +81,16 @@ export type {
   VaultListResult,
   VaultDeleteOptions,
   VaultDeleteResult,
+  // Budget
+  BudgetSetOptions,
+  BudgetCap,
+  BudgetResult,
+  BudgetChargeOptions,
+  BudgetExceededPeriod,
+  BudgetChargeResult,
+  BudgetApproval,
+  ListApprovalsResult,
+  ApprovalActionResult,
   // Errors
   AgentLairErrorBody,
 } from './types.js';

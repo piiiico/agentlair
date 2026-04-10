@@ -27,7 +27,13 @@ import { AgentLairError } from './errors.js';
 import type {
   AccountMeResult,
   AgentLairOptions,
+  ApprovalActionResult,
   BillingResult,
+  BudgetApproval,
+  BudgetChargeOptions,
+  BudgetChargeResult,
+  BudgetResult,
+  BudgetSetOptions,
   CalendarFeedResult,
   ClaimAddressOptions,
   ClaimAddressResult,
@@ -42,6 +48,7 @@ import type {
   GetInboxOptions,
   GetInboxResult,
   ListAddressesResult,
+  ListApprovalsResult,
   ListCalendarEventsOptions,
   ListCalendarEventsResult,
   ListWebhooksOptions,
@@ -527,6 +534,108 @@ class AccountNamespace {
   }
 }
 
+// ─── BudgetNamespace ──────────────────────────────────────────────────────────
+
+/**
+ * Spending controls, charge recording, and principal approval flow.
+ *
+ * Amounts are in **atomic USDC units** (1e-6). 1 USDC = `1_000_000`.
+ */
+class BudgetNamespace {
+  constructor(private readonly _req: RequestFn) {}
+
+  /**
+   * Set spending caps and limit behaviour.
+   *
+   * @example
+   * await lair.budget.set({
+   *   daily: 5_000_000,    // 5 USDC/day
+   *   weekly: 20_000_000,  // 20 USDC/week
+   *   on_limit: 'approve', // create approval request instead of blocking
+   * });
+   */
+  async set(options: BudgetSetOptions): Promise<BudgetResult> {
+    return this._req('PUT', '/v1/budget', { body: options });
+  }
+
+  /**
+   * Get current budget configuration and spend totals.
+   *
+   * @example
+   * const { caps, on_limit } = await lair.budget.get();
+   * console.log(caps.daily?.spent_usdc, '/', caps.daily?.limit_usdc, 'USDC');
+   */
+  async get(): Promise<BudgetResult> {
+    return this._req('GET', '/v1/budget');
+  }
+
+  /**
+   * Record a charge against the budget.
+   * Returns immediately (HTTP 200) when within budget,
+   * or creates an approval request (HTTP 202) when `on_limit: 'approve'` and the cap is exceeded.
+   * Throws `AgentLairError` (HTTP 402) when `on_limit: 'reject'` and the cap is exceeded.
+   *
+   * @example
+   * const result = await lair.budget.charge({
+   *   amount: 3_000_000,        // 3 USDC
+   *   category: 'inference',
+   *   description: 'Claude API call',
+   *   reference_id: 'job_abc',
+   * });
+   * if (result.approval_id) {
+   *   // awaiting principal approval
+   * }
+   */
+  async charge(options: BudgetChargeOptions): Promise<BudgetChargeResult> {
+    return this._req('POST', '/v1/charge', { body: options });
+  }
+
+  /**
+   * List approval requests. Optionally filter by status.
+   *
+   * @example
+   * const { approvals } = await lair.budget.approvals('pending');
+   */
+  async approvals(status?: 'pending' | 'approved' | 'rejected' | 'expired'): Promise<ListApprovalsResult> {
+    const query: Record<string, string> = {};
+    if (status) query.status = status;
+    return this._req('GET', '/v1/approvals', { query });
+  }
+
+  /**
+   * Get a single approval request by ID.
+   *
+   * @example
+   * const approval = await lair.budget.getApproval(approvalId);
+   * console.log(approval.status); // 'pending' | 'approved' | 'rejected' | 'expired'
+   */
+  async getApproval(id: string): Promise<BudgetApproval> {
+    return this._req('GET', `/v1/approvals/${encodeURIComponent(id)}`);
+  }
+
+  /**
+   * Approve a pending charge request. Records the charge and debits the budget.
+   *
+   * @example
+   * await lair.budget.approve(approvalId);
+   */
+  async approve(id: string): Promise<ApprovalActionResult> {
+    return this._req('POST', `/v1/approvals/${encodeURIComponent(id)}/approve`);
+  }
+
+  /**
+   * Reject a pending charge request. No charge is recorded.
+   *
+   * @example
+   * await lair.budget.reject(approvalId, 'exceeds quarterly budget');
+   */
+  async reject(id: string, reason?: string): Promise<ApprovalActionResult> {
+    return this._req('POST', `/v1/approvals/${encodeURIComponent(id)}/reject`, {
+      body: reason !== undefined ? { reason } : undefined,
+    });
+  }
+}
+
 // ─── AgentLair (primary class) ────────────────────────────────────────────────
 
 /**
@@ -555,6 +664,8 @@ export class AgentLair {
   readonly observations: ObservationsNamespace;
   /** Account: me / usage / billing */
   readonly account: AccountNamespace;
+  /** Budget: set / get / charge / approvals / getApproval / approve / reject */
+  readonly budget: BudgetNamespace;
 
   /**
    * @param apiKeyOrOptions API key string (e.g. "al_live_...") or options object
@@ -575,6 +686,7 @@ export class AgentLair {
     this.calendar = new CalendarNamespace(req);
     this.observations = new ObservationsNamespace(req);
     this.account = new AccountNamespace(req);
+    this.budget = new BudgetNamespace(req);
   }
 
   private _request<T>(
@@ -639,6 +751,8 @@ export class AgentLairClient {
   readonly observations: ObservationsNamespace;
   /** Account: me / usage / billing */
   readonly account: AccountNamespace;
+  /** Budget: set / get / charge / approvals / getApproval / approve / reject */
+  readonly budget: BudgetNamespace;
 
   constructor(options: AgentLairOptions) {
     this._apiKey = options.apiKey;
@@ -651,6 +765,7 @@ export class AgentLairClient {
     this.calendar = new CalendarNamespace(req);
     this.observations = new ObservationsNamespace(req);
     this.account = new AccountNamespace(req);
+    this.budget = new BudgetNamespace(req);
   }
 
   private _request<T>(
