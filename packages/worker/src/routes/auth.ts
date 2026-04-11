@@ -363,6 +363,7 @@ export async function handleAuthRoutes(
     path === '/v1/auth/keys/activate-backup' ||
     path === '/v1/auth/keys/list' ||
     path === '/v1/account/recovery-email' ||
+    path === '/v1/account/operator-email' ||
     path === '/v1/e2e/rotate-key' ||
     (path === '/v1/auth/keys' && method === 'PATCH')
   )) {
@@ -416,6 +417,25 @@ export async function handleAuthRoutes(
     await env.KEYS.put('recovery-email:' + newEmail, account.id);
 
     return json({ ok: true, recovery_email: newEmail });
+  }
+
+  // POST /v1/account/operator-email — set operator email for credential provisioning
+  // Useful for accounts created before operator_email was added to registration flow.
+  if (path === '/v1/account/operator-email' && method === 'POST') {
+    let body: Record<string, unknown> = {};
+    try { body = await request.json(); } catch {}
+    const newEmail = (typeof body.email === 'string' ? body.email : '').toLowerCase().trim();
+    if (!newEmail || !newEmail.includes('@')) return err('email required (valid email address)', 400, 'invalid_email');
+
+    // Update account with new operator email
+    const keyHash = await env.KEYS.get('account:' + account.id);
+    if (!keyHash) return err('Account not found.', 404, 'not_found');
+
+    const updatedAccount = { ...account, operator_email: newEmail };
+    delete updatedAccount._session;
+    await env.KEYS.put('key:' + keyHash, JSON.stringify(updatedAccount));
+
+    return json({ ok: true, operator_email: newEmail });
   }
 
   // POST /v1/auth/keys/rotate — generate new API key for same account
