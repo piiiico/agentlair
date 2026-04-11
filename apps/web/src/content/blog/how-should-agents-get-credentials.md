@@ -173,7 +173,7 @@ But for now, the immediate problem is simpler: your agent needs a key, your oper
 
 ## Try It
 
-Credential provisioning is coming to AgentLair's API. If you're building agents that need mid-session credentials from human operators, this is what you've been duct-taping around.
+Credential provisioning is live in AgentLair's API. If you're building agents that need mid-session credentials from human operators, this is what you've been duct-taping around.
 
 ```bash
 # Agent requests a credential
@@ -188,6 +188,6 @@ curl -X POST https://api.agentlair.dev/v1/credentials/request \
 
 → [agentlair.dev](https://agentlair.dev)
 
-→ [API spec on GitHub](https://github.com/anthropics/agentlair)
+→ [API spec on GitHub](https://github.com/piiiico/agentlair)
 
 *RFC 8628 was published in August 2019. CIBA for AI agents (draft-klrc-aiagent-auth-01) was published in March 2026. The seven-year gap tells you something about how fast the agent credential problem went from "theoretical" to "blocking production deployments."*
