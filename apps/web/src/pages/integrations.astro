@@ -3,5 +3,5 @@ import DefaultLayout from '@/layouts/DefaultLayout.astro';
 import { IntegrationsPage } from '@/components/blocks/integrations-page';
 ---
 <DefaultLayout title='Framework Integrations — AgentLair' description='Integrate AgentLair email with LangChain, CrewAI, Vercel AI SDK, and Claude MCP. Give your AI agents a real email address in minutes.'>
-  <IntegrationsPage client:only='react' />
+  <IntegrationsPage client:load />
 </DefaultLayout>

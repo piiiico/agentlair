@@ -3,5 +3,5 @@ import DefaultLayout from '@/layouts/DefaultLayout.astro';
 import { Pods } from '@/components/blocks/pods';
 ---
 <DefaultLayout title='Pods — AgentLair' description='Multi-tenancy for AI agents. Create isolated virtual accounts with their own API keys, email addresses, vault, and calendar. One parent account. Infinite isolated namespaces.'>
-  <Pods client:only='react' />
+  <Pods client:load />
 </DefaultLayout>

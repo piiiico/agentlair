@@ -3,5 +3,5 @@ import DefaultLayout from '@/layouts/DefaultLayout.astro';
 import { Vault } from '@/components/blocks/vault';
 ---
 <DefaultLayout title='Vault — AgentLair' description='Zero-knowledge encrypted credential storage for AI agents. Client-side AES-256-GCM. Edge-deployed. 30-second setup. Your secrets are encrypted before they leave your agent.'>
-  <Vault client:only='react' />
+  <Vault client:load />
 </DefaultLayout>

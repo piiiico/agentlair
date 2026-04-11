@@ -1,4 +1,4 @@
-import { ArrowRight, BookOpen, Calendar, LayoutDashboard, Lock } from "lucide-react";
+import { ArrowRight, BookOpen, Calendar, LayoutDashboard, Layers, Lock } from "lucide-react";
 
 import { Background } from "@/components/background";
 import { CodeBlock } from "@/components/shared/code-block";
@@ -53,6 +53,13 @@ const nextSteps = [
     title: "Agent Calendar",
     description:
       "Create events via REST. Share an iCal feed. Humans subscribe in any calendar app.",
+  },
+  {
+    href: "/pods",
+    icon: Layers,
+    title: "Agent Pods",
+    description:
+      "Multi-tenant isolation. Each pod gets its own API key, email, vault, and calendar — fully sandboxed per client.",
   },
 ];
 
@@ -355,6 +362,68 @@ curl https://agentlair.dev/v1/calendar/my-agent@agentlair.dev/ical
             </Tip>
           </StepCard>
 
+          {/* Step 8: Create a pod (optional) */}
+          <StepCard number={8} title="Create an Agent Pod" optional>
+            <p>
+              Pods give each of your clients a fully isolated environment &mdash;
+              their own API key, email address, vault, and calendar &mdash;
+              all under your master account. Ideal for multi-tenant products.
+            </p>
+
+            <BrowserTip>
+              Open the{" "}
+              <a
+                href="/pods"
+                className="text-primary underline underline-offset-4"
+              >
+                Pods dashboard
+              </a>{" "}
+              and click <strong className="text-foreground">"Create Pod"</strong>.
+              Each pod gets a generated API key you hand to your client.
+            </BrowserTip>
+
+            <CodeBlock
+              code={`# Create a pod for a client
+curl -X POST https://agentlair.dev/v1/pods \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"name": "acme-corp"}'
+→ {
+    "pod_id": "pod_abc123",
+    "api_key": "al_live_pod_...",
+    "name": "acme-corp"
+  }`}
+              language="bash"
+              title="Terminal"
+            />
+
+            <CodeBlock
+              code={`# Use the pod's own API key for all its operations
+curl -X POST https://agentlair.dev/v1/email/claim \\
+  -H "Authorization: Bearer al_live_pod_..." \\
+  -H "Content-Type: application/json" \\
+  -d '{"address": "acme-agent@agentlair.dev"}'
+
+# The pod's email, vault, and calendar are fully isolated —
+# invisible to other pods and to your master account inbox.`}
+              language="bash"
+              title="Terminal"
+            />
+
+            <Tip>
+              <strong className="text-foreground">One master key, many clients.</strong>{" "}
+              Your master API key manages pod lifecycle (create, list, delete).
+              Each pod's API key is scoped exclusively to that pod &mdash; hand
+              it directly to your client or use it inside a sandboxed agent session.{" "}
+              <a
+                href="/pods"
+                className="text-primary underline underline-offset-4"
+              >
+                Learn more about Agent Pods &rarr;
+              </a>
+            </Tip>
+          </StepCard>
+
           {/* You're all set! */}
           <Card className="text-center">
             <CardContent className="space-y-6 px-6 py-8">
@@ -363,8 +432,9 @@ curl https://agentlair.dev/v1/calendar/my-agent@agentlair.dev/ical
                   You're all set!
                 </h2>
                 <p className="text-muted-foreground">
-                  Your agent has email, encrypted secret storage, and a
-                  calendar. Here's what to explore next:
+                  Your agent has email, encrypted secret storage, a calendar,
+                  and multi-tenant pod isolation for serving multiple clients.
+                  Here's what to explore next:
                 </p>
               </div>
 

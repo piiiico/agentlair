@@ -231,6 +231,12 @@ app.get('/getting-started', async (c) => {
   return proxyToPages(c, '/getting-started');
 });
 app.get('/', async (c) => {
+  const acceptHeader = c.req.raw.headers.get('Accept') || '';
+  // Accept: text/html always wins — serve landing page regardless of agent signals.
+  // This allows curl -H 'Accept: text/html' to work for developer testing.
+  if (acceptHeader.includes('text/html')) {
+    return proxyToPages(c, '/');
+  }
   // Agent-first content negotiation: agents get the manifest
   const detection = detectAgent(c.req.raw.headers);
   if (detection.isAgent && (detection.confidence === 'high' || detection.confidence === 'medium')) {
@@ -245,11 +251,8 @@ app.get('/', async (c) => {
       },
     });
   }
-  // Non-browser API clients get JSON API discovery
-  const acceptHtml = c.req.raw.headers.get('Accept')?.includes('text/html');
-  if (!acceptHtml) return json(API_DISCOVERY);
-  // Human visitors get the Astro landing page
-  return proxyToPages(c, '/');
+  // No Accept header or JSON-only: API discovery
+  return json(API_DISCOVERY);
 });
 
 app.get('/api', (c) => {

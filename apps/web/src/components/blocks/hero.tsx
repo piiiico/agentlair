@@ -2,10 +2,10 @@ import {
   ArrowRight,
   Mail,
   Shield,
-  CalendarDays,
   Box,
-  Eye,
-  Zap,
+  ScrollText,
+  Fingerprint,
+  Sparkles,
 } from "lucide-react";
 
 import { DashedLine } from "@/components/dashed-line";
@@ -13,34 +13,29 @@ import { Button } from "@/components/ui/button";
 
 const features = [
   {
-    title: "Email",
-    description: "@agentlair.dev addresses with send, receive, drafts, and threading.",
+    title: "Permanent address",
+    description: "@agentlair.dev email that survives session restarts.",
     icon: Mail,
   },
   {
-    title: "Vault",
-    description: "Zero-knowledge encrypted credential storage with versioning.",
+    title: "Permanent credentials",
+    description: "Zero-knowledge vault. Not env vars.",
     icon: Shield,
   },
   {
-    title: "Calendar",
-    description: "Events via API with iCal feeds for Google/Apple/Outlook.",
-    icon: CalendarDays,
+    title: "Permanent record",
+    description: "Every action signed, chained, provable.",
+    icon: ScrollText,
   },
   {
-    title: "Pods",
-    description: "Multi-tenant isolation — one sandbox per client.",
+    title: "Permanent namespace",
+    description: "Isolated pods. One per client.",
     icon: Box,
   },
   {
-    title: "Observations",
-    description: "Shared key-value coordination between agents.",
-    icon: Eye,
-  },
-  {
-    title: "Real-time",
-    description: "WebSocket notifications — no polling needed.",
-    icon: Zap,
+    title: "Permanent reputation",
+    description: "Behavioral trust across sessions. Coming soon.",
+    icon: Sparkles,
   },
 ];
 
@@ -50,17 +45,23 @@ export const Hero = () => {
       <div className="container flex flex-col justify-between gap-8 md:gap-14 lg:flex-row lg:gap-20">
         {/* Left side - Main content */}
         <div className="flex-1">
+          <div className="mb-4 inline-flex items-center gap-2 rounded-full border bg-muted/60 px-3 py-1 font-mono text-xs text-muted-foreground">
+            <Fingerprint className="size-3" />
+            Persistent identity infrastructure
+          </div>
+
           <h1 className="text-foreground max-w-160 text-3xl tracking-tight md:text-4xl lg:text-5xl">
-            The infrastructure platform for AI agents
+            Your agent dies every session. Its identity doesn't have to.
           </h1>
 
-          <p className="text-muted-foreground text-1xl mt-5 md:text-3xl">
-            Email, encrypted storage, calendar, isolation, and real-time coordination — everything your agent needs to operate.
+          <p className="text-muted-foreground text-1xl mt-5 md:text-2xl">
+            Give your agent a permanent address, credentials, audit trail, and
+            namespace — everything it needs to operate across sessions.
           </p>
 
           <div className="mt-8 flex flex-wrap items-center gap-4 lg:flex-nowrap">
             <Button asChild>
-              <a href="/getting-started">Get started</a>
+              <a href="/getting-started">Register your agent</a>
             </Button>
             <Button
               variant="outline"
@@ -115,40 +116,38 @@ export const Hero = () => {
           <pre className="overflow-x-auto p-6 font-mono text-sm leading-relaxed">
             <code>
               <span className="text-muted-foreground">$</span>{" "}
-              <span className="text-foreground">curl https://agentlair.dev/agents/pico</span>
+              <span className="text-foreground">curl -X POST https://agentlair.dev/v1/auth/agent-register \</span>
               {"\n"}
-              <span className="text-muted-foreground">{"# Agent requests get JSON, browsers get HTML"}</span>
+              {"  "}
+              <span className="text-foreground">-H "Content-Type: application/json" \</span>
+              {"\n"}
+              {"  "}
+              <span className="text-foreground">{`-d '{"name": "my-agent"}'`}</span>
               {"\n\n"}
               <span className="text-primary">{"{"}</span>
               {"\n"}
               {"  "}
-              <span className="text-primary">"name"</span>
+              <span className="text-primary">"agent_id"</span>
               <span className="text-muted-foreground">:</span>{" "}
-              <span className="text-green-600 dark:text-green-400">"PicoClaw"</span>
+              <span className="text-green-600 dark:text-green-400">"agt_7f3k9x2m"</span>
               <span className="text-muted-foreground">,</span>
               {"\n"}
               {"  "}
               <span className="text-primary">"email"</span>
               <span className="text-muted-foreground">:</span>{" "}
-              <span className="text-green-600 dark:text-green-400">"pico@agentlair.dev"</span>
+              <span className="text-green-600 dark:text-green-400">"my-agent@agentlair.dev"</span>
               <span className="text-muted-foreground">,</span>
               {"\n"}
               {"  "}
-              <span className="text-primary">"capabilities"</span>
+              <span className="text-primary">"vault_id"</span>
               <span className="text-muted-foreground">:</span>{" "}
-              <span className="text-primary">[</span>
-              <span className="text-green-600 dark:text-green-400">"email"</span>
-              <span className="text-muted-foreground">,</span>{" "}
-              <span className="text-green-600 dark:text-green-400">"web"</span>
-              <span className="text-muted-foreground">,</span>{" "}
-              <span className="text-green-600 dark:text-green-400">"code"</span>
-              <span className="text-primary">]</span>
+              <span className="text-green-600 dark:text-green-400">"vlt_c8p2n5qr"</span>
               <span className="text-muted-foreground">,</span>
               {"\n"}
               {"  "}
-              <span className="text-primary">"api"</span>
+              <span className="text-primary">"aat"</span>
               <span className="text-muted-foreground">:</span>{" "}
-              <span className="text-green-600 dark:text-green-400">"https://agentlair.dev/api"</span>
+              <span className="text-green-600 dark:text-green-400">"eyJhbGciOiJFZERTQSJ9..."</span>
               {"\n"}
               <span className="text-primary">{"}"}</span>
             </code>

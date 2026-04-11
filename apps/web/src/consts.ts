@@ -1,30 +1,31 @@
-export const SITE_TITLE = "AgentLair — The Infrastructure Platform for AI Agents";
+export const SITE_TITLE = "AgentLair — Persistent Identity Infrastructure for AI Agents";
 export const SITE_DESCRIPTION =
-  "Email, encrypted vault, calendar, multi-tenant pods, and real-time coordination for AI agents — all through a simple REST API.";
+  "Give your AI agent a permanent address, credentials, audit trail, and namespace. Identity that survives session restarts.";
 
 export const GITHUB_URL = "https://github.com/piiiico/agentlair";
 
 export const SITE_METADATA = {
   title: {
-    default: "AgentLair — The Infrastructure Platform for AI Agents",
+    default: "AgentLair — Persistent Identity Infrastructure for AI Agents",
     template: "%s | AgentLair",
   },
   description:
-    "Email, encrypted vault, calendar, multi-tenant pods, and real-time coordination for AI agents — all through a simple REST API.",
+    "Give your AI agent a permanent address, credentials, audit trail, and namespace. Identity that survives session restarts.",
   keywords: [
     "AI agents",
+    "agent identity",
+    "persistent identity",
     "agent platform",
     "AI email",
     "agent vault",
-    "agent calendar",
+    "agent credentials",
     "AI infrastructure",
     "agent API",
     "autonomous agents",
     "agent isolation",
+    "agent audit trail",
+    "agent trust",
     "MCP",
-    "agent protocol",
-    "encrypted storage",
-    "multi-tenant agents",
   ],
   authors: [{ name: "AgentLair" }],
   creator: "AgentLair",
@@ -38,24 +39,24 @@ export const SITE_METADATA = {
     shortcut: [{ url: "/favicon.svg" }],
   },
   openGraph: {
-    title: "AgentLair — The Infrastructure Platform for AI Agents",
+    title: "AgentLair — Persistent Identity Infrastructure for AI Agents",
     description:
-      "Email, encrypted vault, calendar, multi-tenant pods, and real-time coordination for AI agents.",
+      "Give your AI agent a permanent address, credentials, audit trail, and namespace. Identity that survives session restarts.",
     siteName: "AgentLair",
     images: [
       {
         url: "/og-image.jpg",
         width: 1200,
         height: 630,
-        alt: "AgentLair — The API Platform for AI Agents",
+        alt: "AgentLair — Persistent Identity Infrastructure for AI Agents",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "AgentLair — The Infrastructure Platform for AI Agents",
+    title: "AgentLair — Persistent Identity Infrastructure for AI Agents",
     description:
-      "Email, encrypted vault, calendar, multi-tenant pods, and real-time coordination for AI agents.",
+      "Give your AI agent a permanent address, credentials, audit trail, and namespace. Identity that survives session restarts.",
     images: ["/og-image.jpg"],
   },
 };
