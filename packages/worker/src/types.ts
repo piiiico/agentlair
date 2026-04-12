@@ -56,6 +56,8 @@ export interface Account {
   // RFC 9421 signing key fields (set when agent has registered an Ed25519 signing key)
   signing_key_public?: string;  // base64url-encoded 32-byte Ed25519 public key
   signing_keyid?: string;        // base64url(SHA-256(pubkey)).slice(0, 22)
+  // Scope ceiling — if set, POST /v1/tokens/issue validates requested scopes are a subset
+  allowed_scopes?: string[];
   [key: string]: unknown;
 }
 

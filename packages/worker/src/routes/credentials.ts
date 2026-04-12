@@ -60,6 +60,22 @@ const MAX_APPROVAL_ATTEMPTS = 5;
 const POLL_INTERVAL = 5;
 const VERIFICATION_BASE_URL = 'https://agentlair.dev/v1/credentials/approve';
 
+// ─── Pure helpers (exported for unit testing) ─────────────────────────────────
+
+/**
+ * Determine whether a credential approval should be blocked due to account restriction.
+ * - Denials (isDenial === true) are always allowed, regardless of account status.
+ * - Approvals for a restricted account are blocked (fail-closed).
+ * - Approvals for non-restricted accounts proceed normally.
+ */
+export function shouldBlockCredentialApproval(
+  isDenial: boolean,
+  agentAccount: Record<string, unknown>,
+): boolean {
+  if (isDenial) return false;
+  return agentAccount.status === 'restricted';
+}
+
 // ─── User code generation ─────────────────────────────────────────────────────
 // 8 chars from ambiguity-free charset (no 0/O/I/1/l). Format: XXXX-XXXX.
 // ~2B combinations, adequate for 10-minute windows.
@@ -381,10 +397,12 @@ export async function handleCredentialRoutes(
     }
 
     // Operator email required for approval binding
-    const operatorEmail = (account.operator_email || account.email || '') as string;
+    // Fall back to recovery_email if not encrypted (handles accounts created before operator_email field)
+    const recoveryEmailFallback = !account.recovery_email_encrypted ? account.recovery_email : undefined;
+    const operatorEmail = (account.operator_email || account.email || recoveryEmailFallback || '') as string;
     if (!operatorEmail) {
       return err(
-        'Account must have a registered operator email. Complete OTP verification first.',
+        'Account must have a registered operator email. Set it via POST /v1/account/operator-email with {"email": "you@example.com"}.',
         403,
         'no_operator_email',
       );
@@ -550,6 +568,14 @@ export async function handleCredentialRoutes(
       credentialValue = typeof body.credential_value === 'string' ? body.credential_value : undefined;
       vaultKeyFinal = typeof body.vault_key === 'string' ? body.vault_key.trim() : undefined;
       operatorEmail = typeof body.operator_email === 'string' ? body.operator_email.trim().toLowerCase() : undefined;
+      // Parse deny action from JSON body — accept 'action', '_action', or legacy 'approved' bool
+      if (typeof body.approved === 'boolean' && !body.approved) {
+        action = 'deny';
+      } else if (typeof body.action === 'string') {
+        action = body.action;
+      } else if (typeof body._action === 'string') {
+        action = body._action;
+      }
     }
 
     const isDenial = action === 'deny';
@@ -648,6 +674,33 @@ export async function handleCredentialRoutes(
         });
       }
       return err('operator_email does not match the account\'s registered email.', 400, 'email_mismatch');
+    }
+
+    // ── Approver privilege check ──────────────────────────────────────────
+    // The operator email binding above is the primary auth mechanism.
+    // Additionally: verify the agent account is not restricted.
+    // Restricted accounts must not receive approved credentials (fail-closed for
+    // approval; denial is always allowed to let operators close stale requests).
+    try {
+      const agentKeyHash = await env.KEYS.get('account:' + credReq.account_id);
+      if (agentKeyHash) {
+        const agentRaw = await env.KEYS.get('key:' + agentKeyHash);
+        if (agentRaw) {
+          const agentAccount = JSON.parse(agentRaw) as Record<string, unknown>;
+          if (shouldBlockCredentialApproval(isDenial, agentAccount)) {
+            if (contentType.includes('application/x-www-form-urlencoded')) {
+              return renderApprovalPage({
+                prefillCode: userCodeRaw!,
+                error: 'Cannot approve credentials for a restricted account. Contact support.',
+              });
+            }
+            return err('Cannot approve credentials for a restricted account.', 403, 'account_restricted');
+          }
+        }
+      }
+    } catch {
+      // fail-open: if account lookup fails, allow the approval to proceed.
+      // The email binding check above is still enforced.
     }
 
     const now = new Date().toISOString();

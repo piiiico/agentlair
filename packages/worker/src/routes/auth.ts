@@ -8,7 +8,7 @@
 // Protected routes (account !== null): account info, key rotation, backup, e2e
 
 import { nanoid, sha256hex, json, err, html } from '../utils.js';
-import type { Env, RouteContext, KeyHistoryEntry } from '../types.js';
+import type { Env, RouteContext, KeyHistoryEntry, Account } from '../types.js';
 import { sendMagicLinkEmail } from '../middleware/auth.js';
 import { checkIpRateLimit } from '../middleware/ratelimit.js';
 import { saveKeysList, ensureKeysList } from '../platform-crypto.js';
@@ -17,6 +17,15 @@ import {
   SERVICE_PRICES, make402Response, verifyX402Payment, settleX402Payment,
   trackX402Spend, getX402Spend,
 } from '../x402.js';
+
+// ─── Helper: strip ephemeral fields before KV write ───────────────────────────
+// Prevents session tokens and other runtime-only state from being persisted.
+// Apply before every account KV write in mutation endpoints.
+export function stripEphemeral(account: Account): Account {
+  const copy = { ...account };
+  delete copy._session;
+  return copy;
+}
 
 export async function handleAuthRoutes(
   request: Request,
@@ -409,8 +418,7 @@ export async function handleAuthRoutes(
     const keyHash = await env.KEYS.get('account:' + account.id);
     if (!keyHash) return err('Account not found.', 404, 'not_found');
 
-    const updatedAccount = { ...account, recovery_email: newEmail };
-    delete updatedAccount._session;
+    const updatedAccount = stripEphemeral({ ...account, recovery_email: newEmail });
     await env.KEYS.put('key:' + keyHash, JSON.stringify(updatedAccount));
 
     // Index by recovery email for magic link lookup
@@ -431,8 +439,7 @@ export async function handleAuthRoutes(
     const keyHash = await env.KEYS.get('account:' + account.id);
     if (!keyHash) return err('Account not found.', 404, 'not_found');
 
-    const updatedAccount = { ...account, operator_email: newEmail };
-    delete updatedAccount._session;
+    const updatedAccount = stripEphemeral({ ...account, operator_email: newEmail });
     await env.KEYS.put('key:' + keyHash, JSON.stringify(updatedAccount));
 
     return json({ ok: true, operator_email: newEmail });
@@ -447,8 +454,7 @@ export async function handleAuthRoutes(
     const newKeyPrefix = newKeyValue.slice(0, 12);
     const now = new Date().toISOString();
 
-    const updatedAccount = { ...account, key_prefix: newKeyPrefix, rotated_at: now };
-    delete updatedAccount._session;
+    const updatedAccount = stripEphemeral({ ...account, key_prefix: newKeyPrefix, rotated_at: now });
 
     await env.KEYS.put('key:' + newKeyHash, JSON.stringify(updatedAccount));
     await env.KEYS.put('account:' + account.id, newKeyHash);
@@ -811,9 +817,9 @@ export async function handleAdminRoutes(
       delete account.tier_expires_at;
     }
 
-    // Remove session token if present (shouldn't be stored in KV)
-    delete account._session;
-    await env.KEYS.put('key:' + keyHash, JSON.stringify(account));
+    // Strip ephemeral fields before persisting
+    const safeAccount = stripEphemeral(account);
+    await env.KEYS.put('key:' + keyHash, JSON.stringify(safeAccount));
 
     return json({
       ok: true,

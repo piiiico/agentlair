@@ -28,6 +28,19 @@ const MIN_TTL = 60; // 1 minute
 const SCOPE_PATTERN = /^[a-z][a-z0-9._:-]*$/;
 const MAX_SCOPES = 20;
 
+// ─── Pure helpers (exported for unit testing) ─────────────────────────────────
+
+/**
+ * Validate scope ceiling: return disallowed scopes or null if ceiling is not enforced.
+ * - null means check skipped (allowedScopes empty/undefined — backward compat)
+ * - non-empty array means the request must be rejected (scope_ceiling_exceeded)
+ */
+export function validateScopeCeiling(requestedScopes: string[], allowedScopes: unknown): string[] | null {
+  if (!Array.isArray(allowedScopes) || allowedScopes.length === 0) return null;
+  const disallowed = requestedScopes.filter((s) => !(allowedScopes as string[]).includes(s));
+  return disallowed.length > 0 ? disallowed : null;
+}
+
 // ─── Token Routes ─────────────────────────────────────────────────────────────
 
 export const tokenRoutes = new Hono<HonoEnv>();
@@ -96,6 +109,19 @@ tokenRoutes.post('/issue', async (c) => {
         'invalid_scope',
       );
     }
+  }
+
+  // ── Scope ceiling check ────────────────────────────────────────────────
+  // If the account has allowed_scopes set, requested scopes must be a subset.
+  // This enforces per-account scope ceilings (e.g., tier-based restrictions).
+  // Fail-closed: any scope not in the ceiling is rejected.
+  const disallowedScopes = validateScopeCeiling(scopes as string[], account.allowed_scopes);
+  if (disallowedScopes !== null) {
+    return err(
+      `Requested scopes exceed account ceiling: ${disallowedScopes.join(', ')}`,
+      403,
+      'scope_ceiling_exceeded',
+    );
   }
 
   // ── Validate TTL ──────────────────────────────────────────────────────
