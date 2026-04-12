@@ -1,0 +1,80 @@
+{
+  "name": "@agentlair/mastra",
+  "version": "0.1.0",
+  "description": "AgentLair integration for Mastra — agent identity verification, behavioral trust scoring, and trust-gated tool execution.",
+  "keywords": [
+    "agentlair",
+    "mastra",
+    "ai-agent",
+    "trust",
+    "identity",
+    "eddsa",
+    "jwt",
+    "jwks",
+    "agent-security",
+    "behavioral-trust"
+  ],
+  "homepage": "https://agentlair.dev",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/piiiico/agentlair"
+  },
+  "license": "MIT",
+  "author": "AgentLair",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./tools": {
+      "import": "./dist/tools.js",
+      "types": "./dist/tools.d.ts"
+    },
+    "./auth": {
+      "import": "./dist/auth.js",
+      "types": "./dist/auth.d.ts"
+    },
+    "./middleware": {
+      "import": "./dist/middleware.js",
+      "types": "./dist/middleware.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "peerDependencies": {
+    "@mastra/core": ">=0.10.0",
+    "zod": ">=3.22.0"
+  },
+  "peerDependenciesMeta": {
+    "@mastra/core": {
+      "optional": false
+    },
+    "zod": {
+      "optional": false
+    }
+  },
+  "devDependencies": {
+    "@mastra/core": "^0.10.0",
+    "@types/node": "^22.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.9.3",
+    "vitest": "^3.0.0",
+    "zod": "^3.24.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
