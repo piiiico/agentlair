@@ -134,6 +134,10 @@ export const OPENAPI_SPEC = {
       "description": "Usage and billing information"
     },
     {
+      "name": "budget",
+      "description": "Per-agent spending caps, charge declaration, and approval flow"
+    },
+    {
       "name": "e2e",
       "description": "End-to-end encryption key management"
     },
@@ -424,6 +428,48 @@ export const OPENAPI_SPEC = {
           }
         }
       },
+      "SpendingCaps": {
+        "type": "object",
+        "description": "Atomic USDC spending caps per calendar period (UTC). 1 USDC = 1,000,000 atomic units. Values must be positive integers with daily ≤ weekly ≤ monthly.",
+        "properties": {
+          "daily": {
+            "type": "integer",
+            "description": "Maximum atomic USDC per calendar day (UTC)",
+            "example": 1000000
+          },
+          "weekly": {
+            "type": "integer",
+            "description": "Maximum atomic USDC per ISO calendar week (UTC)",
+            "example": 5000000
+          },
+          "monthly": {
+            "type": "integer",
+            "description": "Maximum atomic USDC per calendar month (UTC)",
+            "example": 20000000
+          }
+        }
+      },
+      "PodRateLimits": {
+        "type": "object",
+        "description": "Request rate limits for a pod. Values must be positive integers with requests_per_minute ≤ requests_per_hour ≤ requests_per_day.",
+        "properties": {
+          "requests_per_minute": {
+            "type": "integer",
+            "description": "Maximum requests per minute",
+            "example": 60
+          },
+          "requests_per_hour": {
+            "type": "integer",
+            "description": "Maximum requests per hour",
+            "example": 1000
+          },
+          "requests_per_day": {
+            "type": "integer",
+            "description": "Maximum requests per day",
+            "example": 10000
+          }
+        }
+      },
       "Pod": {
         "type": "object",
         "properties": {
@@ -433,6 +479,7 @@ export const OPENAPI_SPEC = {
           },
           "name": {
             "type": "string",
+            "nullable": true,
             "example": "my-app"
           },
           "status": {
@@ -448,6 +495,20 @@ export const OPENAPI_SPEC = {
           },
           "parent_account_id": {
             "type": "string"
+          },
+          "rate_limits": {
+            "nullable": true,
+            "allOf": [
+              { "$ref": "#/components/schemas/PodRateLimits" }
+            ],
+            "description": "Request rate limits for this pod, or null if not set"
+          },
+          "spending_caps": {
+            "nullable": true,
+            "allOf": [
+              { "$ref": "#/components/schemas/SpendingCaps" }
+            ],
+            "description": "Atomic USDC spending caps for this pod, or null if not set"
           }
         }
       },
@@ -533,7 +594,7 @@ export const OPENAPI_SPEC = {
                     },
                     "version": {
                       "type": "string",
-                      "example": "0.18.1"
+                      "example": "0.18.3"
                     }
                   }
                 }
@@ -1036,6 +1097,65 @@ export const OPENAPI_SPEC = {
         }
       }
     },
+    "/v1/account/operator-email": {
+      "post": {
+        "tags": [
+          "account"
+        ],
+        "summary": "Set operator email",
+        "description": "Set or update the operator notification email for the account. Pod keys are blocked (403 pod_auth_forbidden).",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "email"
+                ],
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "format": "email"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Operator email updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "operator_email": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid email"
+          },
+          "403": {
+            "description": "Pod keys not allowed (pod_auth_forbidden)"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
     "/v1/e2e/rotate-key": {
       "post": {
         "tags": [
@@ -1337,7 +1457,7 @@ export const OPENAPI_SPEC = {
     "/v1/budget": {
       "get": {
         "tags": [
-          "billing"
+          "budget"
         ],
         "summary": "Get spending caps",
         "description": "Returns current spending caps and remaining budget for the authenticated account.\nAmounts are in atomic USDC units (6 decimals). 1,000,000 = 1.00 USDC.\n",
@@ -1455,10 +1575,10 @@ export const OPENAPI_SPEC = {
       },
       "put": {
         "tags": [
-          "billing"
+          "budget"
         ],
         "summary": "Set spending caps",
-        "description": "Set or update per-period spending caps for the authenticated account.\nAt least one of `caps`, `on_limit`, or `single_tx_limit_cents` must be provided.\nCap amounts are in atomic USDC units (1,000,000 = 1.00 USDC).\nOrdering constraint: daily ≤ weekly ≤ monthly.\n",
+        "description": "Set or update per-period spending caps for the authenticated account.\nAt least one of `caps`, `on_limit`, or `single_tx_limit_cents` must be provided.\nCap amounts are in atomic USDC units (1,000,000 = 1.00 USDC).\nOrdering constraint: daily ≤ weekly ≤ monthly.\n\n**Flat format supported:** You can pass `daily`, `weekly`, `monthly` at the top level without wrapping in a `caps` object:\n```json\n{\"daily\": 10000000, \"on_limit\": \"approve\"}\n```\n\n**on_limit=approve:** When set, charges exceeding the cap return HTTP 202 with an `approval_id` instead of 402.\nThe principal can then approve or reject via `POST /v1/approvals/{id}/approve` or `/reject`.\n",
         "security": [
           {
             "bearerAuth": []
@@ -1471,9 +1591,33 @@ export const OPENAPI_SPEC = {
               "schema": {
                 "type": "object",
                 "properties": {
+                  "daily": {
+                    "nullable": true,
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1000000000,
+                    "description": "Daily cap in atomic USDC units (flat format). Alternative to caps.daily.",
+                    "example": 10000000
+                  },
+                  "weekly": {
+                    "nullable": true,
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1000000000,
+                    "description": "Weekly cap in atomic USDC units (flat format). Alternative to caps.weekly.",
+                    "example": 50000000
+                  },
+                  "monthly": {
+                    "nullable": true,
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1000000000,
+                    "description": "Monthly cap in atomic USDC units (flat format). Alternative to caps.monthly.",
+                    "example": 100000000
+                  },
                   "caps": {
                     "type": "object",
-                    "description": "Per-period cap amounts. Pass null for a period to remove that cap.",
+                    "description": "Per-period cap amounts (nested format). Pass null for a period to remove that cap.",
                     "properties": {
                       "daily": {
                         "nullable": true,
@@ -1501,14 +1645,14 @@ export const OPENAPI_SPEC = {
                   "on_limit": {
                     "type": "string",
                     "enum": ["reject", "approve"],
-                    "description": "Action when spending cap is reached. 'reject' blocks the transaction; 'approve' allows it."
+                    "description": "Action when spending cap is reached. 'reject' (default) returns 402; 'approve' returns 202 with an approval_id for the principal to act on."
                   },
                   "single_tx_limit_cents": {
                     "nullable": true,
                     "type": "integer",
                     "minimum": 1,
                     "maximum": 1000000000,
-                    "description": "Maximum allowed single-transaction amount in atomic USDC units. Null to remove."
+                    "description": "Maximum allowed single-transaction amount in atomic USDC units. Null to remove. Charges above this limit trigger the approval flow even if within period budget."
                   }
                 }
               }
@@ -1577,7 +1721,7 @@ export const OPENAPI_SPEC = {
     "/v1/budget/history": {
       "get": {
         "tags": [
-          "billing"
+          "budget"
         ],
         "summary": "Get spending history",
         "description": "Returns paginated spend history from the ledger for the authenticated account.\nEntries are returned newest-first. Use `before` for cursor-based pagination.\nAmounts are in atomic USDC units (1,000,000 = 1.00 USDC).\n",
@@ -1711,7 +1855,7 @@ export const OPENAPI_SPEC = {
     },
     "/v1/charge": {
       "post": {
-        "tags": ["billing"],
+        "tags": ["budget"],
         "summary": "Declare spending intent",
         "description": "Declare intent to spend. If within budget, records spend immediately and returns completed status. If over budget and on_limit=approve, creates an approval request (202). If over budget and on_limit=reject, returns 402.",
         "security": [{ "bearerAuth": [] }],
@@ -1743,7 +1887,7 @@ export const OPENAPI_SPEC = {
     },
     "/v1/approvals": {
       "get": {
-        "tags": ["billing"],
+        "tags": ["budget"],
         "summary": "List approval requests",
         "description": "List pending (or resolved) approval requests for the authenticated account.",
         "security": [{ "bearerAuth": [] }],
@@ -1757,9 +1901,46 @@ export const OPENAPI_SPEC = {
         }
       }
     },
+    "/v1/approvals/{id}": {
+      "get": {
+        "tags": ["budget"],
+        "summary": "Get single approval request",
+        "description": "Returns full detail for a single approval request. Automatically marks as expired if past expiry.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "example": "apr_abc123" } }],
+        "responses": {
+          "200": {
+            "description": "Approval request detail",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": { "type": "string", "example": "apr_abc123" },
+                    "account_id": { "type": "string" },
+                    "amount_usdc": { "type": "integer", "description": "Amount in atomic USDC units" },
+                    "category": { "type": "string" },
+                    "description": { "type": "string" },
+                    "reference_id": { "type": "string", "nullable": true },
+                    "status": { "type": "string", "enum": ["pending", "approved", "rejected", "expired"] },
+                    "created_at": { "type": "string", "format": "date-time" },
+                    "resolved_at": { "type": "string", "format": "date-time", "nullable": true },
+                    "resolved_by": { "type": "string", "nullable": true },
+                    "expires_at": { "type": "string", "format": "date-time" },
+                    "metadata": { "type": "object", "nullable": true }
+                  }
+                }
+              }
+            }
+          },
+          "404": { "description": "Not found" },
+          "401": { "description": "Unauthorized" }
+        }
+      }
+    },
     "/v1/approvals/{id}/approve": {
       "post": {
-        "tags": ["billing"],
+        "tags": ["budget"],
         "summary": "Approve a charge request",
         "description": "Approve a pending charge request. Records the spend to the budget ledger.",
         "security": [{ "bearerAuth": [] }],
@@ -1774,7 +1955,7 @@ export const OPENAPI_SPEC = {
     },
     "/v1/approvals/{id}/reject": {
       "post": {
-        "tags": ["billing"],
+        "tags": ["budget"],
         "summary": "Reject a charge request",
         "description": "Reject a pending charge request. No spend is recorded.",
         "security": [{ "bearerAuth": [] }],
@@ -2212,7 +2393,7 @@ export const OPENAPI_SPEC = {
           "email"
         ],
         "summary": "Send email",
-        "description": "Send an email from an `@agentlair.dev` address you own.\nFree tier: 10 emails/day, 10 recipients/send.\nPaid tier: 50 recipients/send, higher limits.\n\nWhen rate limited, returns HTTP 402 with x402 payment requirements.\nInclude `X-PAYMENT` header with a valid payment to bypass limits (0.01 USDC on Base).\n",
+        "description": "Send an email from an `@agentlair.dev` address you own.\nFree tier: 10 emails/day, 10 recipients/send.\nPaid tier: 50 recipients/send, higher limits.\n\nWhen rate limited, returns HTTP 402 with x402 payment requirements.\nInclude `X-PAYMENT` header with a valid payment to bypass limits (0.01 USDC on Base).\n\n**Intra-domain delivery:** When sending to another `@agentlair.dev` address, delivery is internal (no external SMTP/Resend). Response includes `provider: \"internal\"` and `internal_recipients` array. Received messages have `auth.method: \"internal\"`.\n",
         "requestBody": {
           "required": true,
           "content": {
@@ -2294,6 +2475,29 @@ export const OPENAPI_SPEC = {
                     "sent_at": {
                       "type": "string",
                       "format": "date-time"
+                    },
+                    "provider": {
+                      "type": "string",
+                      "description": "Delivery provider used. 'internal' when all recipients are @agentlair.dev addresses (no external SMTP).",
+                      "example": "resend"
+                    },
+                    "internal_recipients": {
+                      "type": "array",
+                      "description": "Present when at least one recipient is an @agentlair.dev address. Each entry shows whether internal delivery succeeded.",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "address": {
+                            "type": "string"
+                          },
+                          "delivered": {
+                            "type": "boolean"
+                          },
+                          "error": {
+                            "type": "string"
+                          }
+                        }
+                      }
                     },
                     "rate_limit": {
                       "type": "object",
@@ -3469,11 +3673,24 @@ export const OPENAPI_SPEC = {
                     "type": "string",
                     "description": "Optional label for the pod",
                     "example": "customer-123"
+                  },
+                  "rate_limits": {
+                    "$ref": "#/components/schemas/PodRateLimits",
+                    "description": "Optional request rate limits for this pod"
+                  },
+                  "spending_caps": {
+                    "$ref": "#/components/schemas/SpendingCaps",
+                    "description": "Optional atomic USDC spending caps for this pod"
                   }
                 }
               },
               "example": {
-                "name": "customer-123"
+                "name": "customer-123",
+                "spending_caps": {
+                  "daily": 1000000,
+                  "weekly": 5000000,
+                  "monthly": 20000000
+                }
               }
             }
           }
@@ -3497,6 +3714,7 @@ export const OPENAPI_SPEC = {
                     },
                     "name": {
                       "type": "string",
+                      "nullable": true,
                       "example": "customer-123"
                     },
                     "status": {
@@ -3509,6 +3727,18 @@ export const OPENAPI_SPEC = {
                     "created_at": {
                       "type": "string",
                       "format": "date-time"
+                    },
+                    "rate_limits": {
+                      "nullable": true,
+                      "allOf": [
+                        { "$ref": "#/components/schemas/PodRateLimits" }
+                      ]
+                    },
+                    "spending_caps": {
+                      "nullable": true,
+                      "allOf": [
+                        { "$ref": "#/components/schemas/SpendingCaps" }
+                      ]
                     }
                   }
                 }
@@ -3619,6 +3849,140 @@ export const OPENAPI_SPEC = {
           },
           "401": {
             "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Pod not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "pods"
+        ],
+        "summary": "Update pod",
+        "description": "Update a pod's name, rate limits, and/or spending caps. Only platform keys (al_live_...) can update pods. Set rate_limits or spending_caps to null to remove them.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "pod_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "pod_abc123def456"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "nullable": true,
+                    "description": "New label for the pod. Set to null or empty string to clear.",
+                    "example": "updated-name"
+                  },
+                  "rate_limits": {
+                    "nullable": true,
+                    "allOf": [
+                      { "$ref": "#/components/schemas/PodRateLimits" }
+                    ],
+                    "description": "New rate limits for this pod. Set to null to remove rate limits."
+                  },
+                  "spending_caps": {
+                    "nullable": true,
+                    "allOf": [
+                      { "$ref": "#/components/schemas/SpendingCaps" }
+                    ],
+                    "description": "New spending caps for this pod. Set to null to remove spending caps."
+                  }
+                }
+              },
+              "example": {
+                "spending_caps": {
+                  "daily": 1000000,
+                  "weekly": 5000000,
+                  "monthly": 20000000
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Pod updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "example": "pod_abc123def456"
+                    },
+                    "name": {
+                      "type": "string",
+                      "nullable": true,
+                      "example": "updated-name"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": ["active", "suspended"]
+                    },
+                    "rate_limits": {
+                      "nullable": true,
+                      "allOf": [
+                        { "$ref": "#/components/schemas/PodRateLimits" }
+                      ]
+                    },
+                    "spending_caps": {
+                      "nullable": true,
+                      "allOf": [
+                        { "$ref": "#/components/schemas/SpendingCaps" }
+                      ]
+                    },
+                    "updated": {
+                      "type": "boolean",
+                      "example": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — pod keys cannot update pod settings",
             "content": {
               "application/json": {
                 "schema": {
