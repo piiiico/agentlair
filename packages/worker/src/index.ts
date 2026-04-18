@@ -40,6 +40,10 @@ import { handleRegisterRoute } from './routes/register.js';
 import { handleRegisterVerifyRoute } from './routes/register-verify.js';
 import { handleCredentialRoutes } from './routes/credentials.js';
 import { approvalRoutes, chargeRoutes } from './routes/approvals.js';
+import { trustRoutes } from './routes/trust.js';
+import { handleTaskRoutes } from './routes/tasks.js';
+import { telemetryRoutes } from './routes/telemetry.js';
+import { didRoutes } from './routes/did.js';
 
 // ─── Hono App Type ──────────────────────────────────────────────────────────────
 
@@ -93,7 +97,7 @@ function getServiceForPath(path: string, method?: string): ServicePaymentConfig 
   if (method === 'GET') {
     return SERVICE_PRICES.general_api;
   }
-  if (path.startsWith('/v1/email') || path.startsWith('/v1/inbox')) {
+  if (path.startsWith('/v1/email') || path.startsWith('/v1/inbox') || path.startsWith('/v1/tasks')) {
     return SERVICE_PRICES.email_send;
   }
   if (path.startsWith('/v1/vault')) {
@@ -119,6 +123,7 @@ const SELF_HANDLING_X402: Array<[string, string]> = [
   ['POST', '/v1/calendar/events'],
   ['POST', '/v1/stack'],
   ['POST', '/v1/account/upgrade'],
+  ['POST', '/v1/tasks'],
 ];
 
 function hasOwnX402Handler(method: string, path: string): boolean {
@@ -304,10 +309,14 @@ app.get('/.well-known/mcp/server.json', () =>
   })
 );
 
-// ── Platform JWKS — AAT verification key ─────────────────────────────────────
+// ── Platform JWKS — AAT verification key(s) ──────────────────────────────────
 // Exposes the Ed25519 public key used to sign Agent Auth Tokens (AATs).
 // Enables offline JWT verification by VWM and any third-party service.
 // URL advertised in GET /v1/tokens/info jwks_uri field.
+//
+// Multi-key note: verifiers MUST select by kid (JWT header → JWK kid field),
+// NOT by array position. A future ML-DSA key will be added alongside EdDSA
+// without a breaking change. See buildJWKS() in jwt.ts for full contract.
 
 app.get('/.well-known/jwks.json', async (c) => {
   if (!c.env.AUDIT_SIGNING_KEY) {
@@ -468,22 +477,36 @@ app.get('/v1/agents/:id/public-key', async (c) => {
 
 // DID Web JWKS endpoint for Verifiable Intent cnf.jwk binding.
 // did:web:agentlair.dev:agents:{name} resolves to this URL per DID Web spec.
+// Accepts both agent name format (lowercase alphanumeric + hyphens) and
+// acc_ ID format (acc_ prefix + alphanumeric/dash/underscore) so that DID
+// Documents pointing to /agents/acc_xxx/.well-known/jwks.json resolve correctly.
 app.get('/agents/:name/.well-known/jwks.json', async (c) => {
   const name = c.req.param('name');
-  // Validate name: lowercase alphanumeric + hyphens only
-  if (!name || !/^[a-z0-9][a-z0-9-]{0,29}$/.test(name)) {
-    return err('Invalid agent name format.', 400, 'invalid_agent_name');
+
+  // Accept acc_ IDs (e.g. acc_picoclaw) OR agent names (e.g. picoclaw)
+  const isAccId = /^acc_[A-Za-z0-9_-]{1,32}$/.test(name ?? '');
+  const isAgentName = /^[a-z0-9][a-z0-9-]{0,29}$/.test(name ?? '');
+
+  if (!name || (!isAccId && !isAgentName)) {
+    return err('Invalid agent identifier format.', 400, 'invalid_agent_name');
   }
 
-  // Resolve name → accountId via email address (name@agentlair.dev is canonical)
-  const emailAddress = `${name}@agentlair.dev`;
-  const accountId = await c.env.EMAILS.get('email-owner:' + emailAddress);
-  if (!accountId) {
-    return err('Agent not found.', 404, 'agent_not_found');
+  let resolvedAccountId: string | null;
+
+  if (isAccId) {
+    // acc_ ID: use directly — no email resolution needed
+    resolvedAccountId = name;
+  } else {
+    // Agent name: resolve name → accountId via canonical email address
+    const emailAddress = `${name}@agentlair.dev`;
+    resolvedAccountId = await c.env.EMAILS.get('email-owner:' + emailAddress);
+    if (!resolvedAccountId) {
+      return err('Agent not found.', 404, 'agent_not_found');
+    }
   }
 
   // Look up active signing key
-  const indexRaw = await c.env.KEYS.get('signing-key-by-account:' + accountId);
+  const indexRaw = await c.env.KEYS.get('signing-key-by-account:' + resolvedAccountId);
   if (!indexRaw) {
     return err('No signing key registered for this agent.', 404, 'no_signing_key');
   }
@@ -513,6 +536,11 @@ app.get('/agents/:name/.well-known/jwks.json', async (c) => {
     },
   });
 });
+
+// DID Web document endpoint: did:web:agentlair.dev:agents:acc_xxx → /agents/acc_xxx/did.json
+// Per W3C DID Web spec (https://w3c-ccg.github.io/did-method-web/)
+// Public endpoint — no auth required. Enables MCP-I Level 2 DID resolution.
+app.route('/agents', didRoutes);
 
 // ── 3. Public API routes (no auth required) ──────────────────────────────────
 
@@ -817,6 +845,9 @@ app.use('/v1/email/domains/*', legacyHandler(handleDomainRoutes));
 app.use('/v1/email/*', legacyHandler(handleEmailRoutes));
 app.use('/v1/inbox/*', legacyHandler(handleEmailRoutes));
 
+// Task delegation routes
+app.use('/v1/tasks', legacyHandler(handleTaskRoutes));
+
 // Vault routes (protected)
 app.use('/v1/vault', legacyHandler(handleVaultRoutes));
 app.use('/v1/vault/*', legacyHandler(handleVaultRoutes));
@@ -851,6 +882,14 @@ app.route('/v1/approvals', approvalRoutes);
 // Credential provisioning routes (device flow): request, approve, poll
 app.use('/v1/credentials/*', legacyHandler(handleCredentialRoutes));
 app.use('/v1/credentials', legacyHandler(handleCredentialRoutes));
+
+// Trust scoring routes: GET /v1/trust/:agentId — behavioral trust score from observations
+app.route('/v1/trust', trustRoutes);
+
+// Telemetry ingestion routes: POST /v1/telemetry/submit — ingest behavioral events from external runtimes
+// GET /v1/telemetry/status — integration health check (event count, last seen)
+// Integration: Springdrift (seamus-brady/springdrift issue #27) — first external partner
+app.route('/v1/telemetry', telemetryRoutes);
 
 // ── 7. Stubbed routes ───────────────────────────────────────────────────────────
 
