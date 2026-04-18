@@ -156,6 +156,13 @@ tokenRoutes.post('/issue', async (c) => {
   const now = Math.floor(Date.now() / 1000);
   const jti = 'aat_' + nanoid(16);
 
+  // Compute did:web claim for MCP-I Level 2 interop.
+  // Format: did:web:agentlair.dev:agents:<account_id>
+  // Resolves to https://agentlair.dev/agents/<account_id>/did.json
+  // The did:web method uses ':' as path separator (RFC did-web spec).
+  // JWKS at .well-known/jwks.json already acts as the key material backing this DID.
+  const did = `did:web:agentlair.dev:agents:${account.id}`;
+
   const claims: AATClaims = {
     iss: ISSUER,
     sub: account.id,
@@ -163,6 +170,7 @@ tokenRoutes.post('/issue', async (c) => {
     exp: now + ttl,
     iat: now,
     jti,
+    did,
     al_scopes: scopes as string[],
     al_audit_url: `${ISSUER}/v1/audit/${jti}`,
   };
@@ -293,6 +301,7 @@ publicTokenRoutes.post('/introspect', async (c) => {
     al_audit_url: claims.al_audit_url,
   };
 
+  if (claims.did) response.did = claims.did;
   if (claims.al_name) response.al_name = claims.al_name;
   if (claims.al_email) response.al_email = claims.al_email;
 

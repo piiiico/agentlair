@@ -1,0 +1,210 @@
+/**
+ * DID Document Resolution — Unit + Integration Tests
+ *
+ * Unit tests: buildDIDDocument function (no network)
+ * Integration tests: GET /agents/:id/did.json (requires running worker)
+ *
+ * Run:   bun test src/routes/did.test.ts
+ * Live:  BASE_URL=https://agentlair.dev bun test src/routes/did.test.ts
+ */
+
+import { describe, test, expect } from 'bun:test';
+import { buildDIDDocument } from './did.js';
+import type { SigningKeyRecord } from './signing-keys.js';
+
+const BASE_URL = process.env.BASE_URL ?? 'https://agentlair.dev';
+
+// ─── Fixtures ────────────────────────────────────────────────────────────────
+
+function makeSigningKey(overrides: Partial<SigningKeyRecord> = {}): SigningKeyRecord {
+  return {
+    keyid: 'test-keyid-abc123456789',
+    algorithm: 'ed25519',
+    public_key: 'dGVzdC1wdWJsaWMta2V5LWJhc2U2NHVybA', // base64url test value
+    agent_id: 'acc_test123',
+    registered_at: '2026-04-18T00:00:00.000Z',
+    status: 'active',
+    ...overrides,
+  };
+}
+
+// ─── Unit Tests: buildDIDDocument ────────────────────────────────────────────
+
+describe('buildDIDDocument', () => {
+  test('returns valid DID Document structure with active signing key', () => {
+    const key = makeSigningKey();
+    const doc = buildDIDDocument('acc_test123', key);
+
+    // Required W3C DID Core fields
+    expect(doc['@context']).toContain('https://www.w3.org/ns/did/v1');
+    expect(doc.id).toBe('did:web:agentlair.dev:agents:acc_test123');
+    expect(Array.isArray(doc.verificationMethod)).toBe(true);
+    expect(Array.isArray(doc.authentication)).toBe(true);
+    expect(Array.isArray(doc.assertionMethod)).toBe(true);
+  });
+
+  test('DID id follows did:web spec — colons encode path segments', () => {
+    const doc = buildDIDDocument('acc_xyz789', null);
+    // did:web:agentlair.dev:agents:acc_xyz789 resolves to
+    // https://agentlair.dev/agents/acc_xyz789/did.json
+    expect(doc.id).toBe('did:web:agentlair.dev:agents:acc_xyz789');
+  });
+
+  test('includes JsonWebKey2020 verification method when signing key is active', () => {
+    const key = makeSigningKey({ public_key: 'abc123pubkey' });
+    const doc = buildDIDDocument('acc_test123', key);
+
+    expect(doc.verificationMethod.length).toBe(1);
+    const vm = doc.verificationMethod[0];
+    expect(vm.id).toBe('did:web:agentlair.dev:agents:acc_test123#key-1');
+    expect(vm.type).toBe('JsonWebKey2020');
+    expect(vm.controller).toBe('did:web:agentlair.dev:agents:acc_test123');
+    expect(vm.publicKeyJwk.kty).toBe('OKP');
+    expect(vm.publicKeyJwk.crv).toBe('Ed25519');
+    expect(vm.publicKeyJwk.x).toBe('abc123pubkey');
+    expect(vm.publicKeyJwk.use).toBe('sig');
+    expect(vm.publicKeyJwk.alg).toBe('EdDSA');
+  });
+
+  test('authentication and assertionMethod reference the key when present', () => {
+    const key = makeSigningKey();
+    const doc = buildDIDDocument('acc_test123', key);
+
+    const keyRef = 'did:web:agentlair.dev:agents:acc_test123#key-1';
+    expect(doc.authentication).toContain(keyRef);
+    expect(doc.assertionMethod).toContain(keyRef);
+  });
+
+  test('no verification method when signing key is null', () => {
+    const doc = buildDIDDocument('acc_test123', null);
+
+    expect(doc.verificationMethod.length).toBe(0);
+    expect(doc.authentication.length).toBe(0);
+    expect(doc.assertionMethod.length).toBe(0);
+  });
+
+  test('no verification method when signing key is revoked', () => {
+    const key = makeSigningKey({ status: 'revoked' });
+    const doc = buildDIDDocument('acc_test123', key);
+
+    expect(doc.verificationMethod.length).toBe(0);
+    expect(doc.authentication.length).toBe(0);
+    expect(doc.assertionMethod.length).toBe(0);
+  });
+
+  test('always includes JWKS service endpoint', () => {
+    // With key
+    const docWithKey = buildDIDDocument('acc_test123', makeSigningKey());
+    expect(docWithKey.service).toBeDefined();
+    expect(docWithKey.service!.length).toBe(1);
+    expect(docWithKey.service![0].type).toBe('JsonWebKeySet2020');
+    expect(docWithKey.service![0].serviceEndpoint).toBe(
+      'https://agentlair.dev/agents/acc_test123/.well-known/jwks.json',
+    );
+
+    // Without key
+    const docWithoutKey = buildDIDDocument('acc_test123', null);
+    expect(docWithoutKey.service).toBeDefined();
+    expect(docWithoutKey.service!.length).toBe(1);
+    expect(docWithoutKey.service![0].serviceEndpoint).toBe(
+      'https://agentlair.dev/agents/acc_test123/.well-known/jwks.json',
+    );
+  });
+
+  test('service endpoint id contains did fragment #jwks', () => {
+    const doc = buildDIDDocument('acc_test123', null);
+    expect(doc.service![0].id).toBe('did:web:agentlair.dev:agents:acc_test123#jwks');
+  });
+
+  test('includes JWS-2020 security context', () => {
+    const doc = buildDIDDocument('acc_test123', null);
+    expect(doc['@context']).toContain('https://w3id.org/security/suites/jws-2020/v1');
+  });
+
+  test('different account IDs produce different DIDs', () => {
+    const doc1 = buildDIDDocument('acc_alpha', null);
+    const doc2 = buildDIDDocument('acc_beta', null);
+    expect(doc1.id).not.toBe(doc2.id);
+    expect(doc1.service![0].serviceEndpoint).not.toBe(doc2.service![0].serviceEndpoint);
+  });
+});
+
+// ─── Integration Tests: GET /agents/:id/did.json ─────────────────────────────
+
+describe('GET /agents/:id/did.json', () => {
+  test('returns 400 for invalid agent ID format', async () => {
+    const res = await fetch(`${BASE_URL}/agents/invalid-no-prefix/did.json`);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe('invalid_agent_id');
+  });
+
+  test('returns 400 for empty agent ID', async () => {
+    // This would be /agents//did.json which won't match the route,
+    // so it should 404 at the router level
+    const res = await fetch(`${BASE_URL}/agents//did.json`);
+    expect([400, 404]).toContain(res.status);
+  });
+
+  test('returns 400 for agent ID with special characters', async () => {
+    const res = await fetch(`${BASE_URL}/agents/acc_test<script>/did.json`);
+    expect(res.status).toBe(400);
+  });
+
+  test('returns 200 with valid DID Document for any acc_ prefixed ID', async () => {
+    // Even if the account doesn't have a signing key, we return a minimal DID Doc
+    const accountId = 'acc_did_test_' + Math.random().toString(36).slice(2, 8);
+    const res = await fetch(`${BASE_URL}/agents/${accountId}/did.json`);
+    expect(res.status).toBe(200);
+
+    // Content-Type must be application/did+json per W3C spec
+    expect(res.headers.get('content-type')).toBe('application/did+json');
+
+    // Cache headers
+    expect(res.headers.get('cache-control')).toContain('max-age=300');
+
+    const doc = await res.json();
+
+    // W3C DID Core required fields
+    expect(doc['@context']).toContain('https://www.w3.org/ns/did/v1');
+    expect(doc.id).toBe(`did:web:agentlair.dev:agents:${accountId}`);
+    expect(Array.isArray(doc.verificationMethod)).toBe(true);
+    expect(Array.isArray(doc.authentication)).toBe(true);
+    expect(Array.isArray(doc.assertionMethod)).toBe(true);
+  });
+
+  test('includes JWKS service endpoint in response', async () => {
+    const accountId = 'acc_did_svc_test';
+    const res = await fetch(`${BASE_URL}/agents/${accountId}/did.json`);
+    expect(res.status).toBe(200);
+
+    const doc = await res.json();
+    expect(Array.isArray(doc.service)).toBe(true);
+    expect(doc.service.length).toBeGreaterThanOrEqual(1);
+
+    const jwksSvc = doc.service.find((s: any) => s.type === 'JsonWebKeySet2020');
+    expect(jwksSvc).toBeDefined();
+    expect(jwksSvc.serviceEndpoint).toBe(
+      `https://agentlair.dev/agents/${accountId}/.well-known/jwks.json`,
+    );
+  });
+
+  test('response is valid JSON-serialized DID Document', async () => {
+    const res = await fetch(`${BASE_URL}/agents/acc_json_test/did.json`);
+    expect(res.status).toBe(200);
+
+    // Should be parseable JSON
+    const text = await res.text();
+    expect(() => JSON.parse(text)).not.toThrow();
+
+    // Pretty-printed (contains newlines)
+    expect(text).toContain('\n');
+  });
+
+  test('rejects overly long account IDs', async () => {
+    // acc_ + 33 chars (exceeds the 32-char limit after prefix)
+    const longId = 'acc_' + 'a'.repeat(33);
+    const res = await fetch(`${BASE_URL}/agents/${longId}/did.json`);
+    expect(res.status).toBe(400);
+  });
+});

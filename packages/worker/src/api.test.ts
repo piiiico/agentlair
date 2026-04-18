@@ -1432,6 +1432,9 @@ describe('authenticated API', () => {
       expect(Array.isArray(introR.body.al_scopes)).toBe(true);
       expect(typeof introR.body.al_audit_url).toBe('string');
       expect(introR.body.exp).toBeGreaterThan(Math.floor(Date.now() / 1000));
+      // MCP-I Level 2: did:web claim must be present and correctly formatted
+      expect(typeof introR.body.did).toBe('string');
+      expect(introR.body.did).toBe(`did:web:agentlair.dev:agents:${accountId}`);
     });
 
     test('GET /v1/tokens/info — returns token service info', async () => {
@@ -1441,6 +1444,81 @@ describe('authenticated API', () => {
         expect(r.body.issuer).toBe('https://agentlair.dev');
         expect(typeof r.body.default_ttl).toBe('number');
         expect(typeof r.body.max_ttl).toBe('number');
+      }
+    });
+  });
+
+  describe('telemetry', () => {
+    const validPayload = () => ({
+      event: 'axiom.committed',
+      agent_id: `springdrift-test-agent-${RUN_ID}`,
+      timestamp: new Date().toISOString(),
+      axiom_hash: 'a'.repeat(64),
+      action_type: 'tool_call',
+      outcome: 'success',
+      context_ref: `test-run-${RUN_ID}`,
+    });
+
+    test('POST /v1/telemetry/submit — accepts valid telemetry event', async () => {
+      const r = await req('/v1/telemetry/submit', {
+        method: 'POST',
+        body: JSON.stringify(validPayload()),
+      }, apiKey);
+      // 201 = stored, 429 = rate limited, 502 = Turso unavailable
+      expect([201, 429, 502]).toContain(r.status);
+      if (r.status === 201) {
+        expect(r.body.accepted).toBe(true);
+        expect(typeof r.body.agent_token).toBe('string');
+        expect(typeof r.body.observation_id).toBe('string');
+        expect(typeof r.body.ingested_at).toBe('string');
+      }
+    });
+
+    test('POST /v1/telemetry/submit — missing event returns 400', async () => {
+      const payload = validPayload();
+      const { event: _event, ...rest } = payload;
+      const r = await req('/v1/telemetry/submit', {
+        method: 'POST',
+        body: JSON.stringify(rest),
+      }, apiKey);
+      expect([400, 429]).toContain(r.status);
+      if (r.status === 400) expect(r.body.error).toBeDefined();
+    });
+
+    test('POST /v1/telemetry/submit — invalid axiom_hash returns 400', async () => {
+      const r = await req('/v1/telemetry/submit', {
+        method: 'POST',
+        body: JSON.stringify({ ...validPayload(), axiom_hash: 'not-a-sha256' }),
+      }, apiKey);
+      expect([400, 429]).toContain(r.status);
+      if (r.status === 400) expect(r.body.error).toBeDefined();
+    });
+
+    test('POST /v1/telemetry/submit — invalid action_type returns 400', async () => {
+      const r = await req('/v1/telemetry/submit', {
+        method: 'POST',
+        body: JSON.stringify({ ...validPayload(), action_type: 'invalid_type' }),
+      }, apiKey);
+      expect([400, 429]).toContain(r.status);
+      if (r.status === 400) expect(r.body.error).toBeDefined();
+    });
+
+    test('POST /v1/telemetry/submit — requires authentication', async () => {
+      const r = await req('/v1/telemetry/submit', {
+        method: 'POST',
+        body: JSON.stringify(validPayload()),
+      });
+      expect(r.status).toBe(401);
+    });
+
+    test('GET /v1/telemetry/status — returns integration health check', async () => {
+      const r = await req('/v1/telemetry/status', {}, apiKey);
+      expect([200, 429, 502]).toContain(r.status);
+      if (r.status === 200) {
+        expect(r.body.ok).toBe(true);
+        expect(typeof r.body.account_id).toBe('string');
+        expect(typeof r.body.telemetry_events).toBe('number');
+        expect(typeof r.body.trust_url).toBe('string');
       }
     });
   });

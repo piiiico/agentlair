@@ -85,6 +85,9 @@ export interface AATClaims {
   iat: number; // Issued at (Unix seconds)
   jti: string; // Unique token ID
 
+  // DID claim — MCP-I Level 2 interop (did:web anchored to JWKS at .well-known)
+  did?: string; // e.g. "did:web:agentlair.dev:agents:acc_xxx"
+
   // AgentLair-specific claims
   al_name?: string; // Agent's registered name
   al_email?: string; // Agent's email address
@@ -169,11 +172,29 @@ export function verifyJWT(token: string, publicKeyBytes: Uint8Array): AATClaims 
 // ─── JWKS document builder ────────────────────────────────────────────────────
 
 /**
- * Build a JWKS document containing the AgentLair signing public key.
+ * Build a JWKS document containing the AgentLair signing public key(s).
+ *
+ * Multi-key design (algorithm agility):
+ * The `keys` array intentionally supports multiple entries. When a future
+ * ML-DSA (FIPS 204, PQ Phase 1) key is added alongside the EdDSA key,
+ * existing verifiers will continue to work without modification — they
+ * simply ignore keys whose `alg` or `kid` they don't recognise.
+ *
+ * Verifier contract:
+ * - Verifiers MUST select the key by matching `kid` from the JWT header
+ *   against the `kid` field of each JWK entry. Do NOT select by position.
+ * - Verifiers MUST reject tokens whose `kid` has no matching entry in the set.
+ * - Each JWK entry includes an explicit `alg` field so verifiers can assert
+ *   the expected algorithm before processing the key material.
+ *
+ * Current keys:
+ * - EdDSA / Ed25519 (AUDIT_SIGNING_KEY)  — active, all AATs signed with this
+ * - ML-DSA / FIPS 204                    — planned, PQ Phase 1 (post-2028)
  */
 export async function buildJWKS(privateKeyB64: string): Promise<{ keys: Record<string, string>[] }> {
   const publicKeyBytes = getPublicKey(privateKeyB64);
   const kid = await computeKeyId(publicKeyBytes);
   const jwk = await publicKeyToJWK(publicKeyBytes, kid);
+  // Future PQ key goes here: push({ kty:'OKP', crv:'ML-DSA-65', alg:'MLDSA65', ... })
   return { keys: [jwk] };
 }
