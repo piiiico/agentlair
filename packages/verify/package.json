@@ -1,0 +1,52 @@
+{
+  "name": "@agentlair/verify",
+  "version": "0.1.0",
+  "description": "Lightweight AAT (Agent Authentication Token) verification for Node.js, Bun, and edge runtimes. Fetches JWKS from agentlair.dev, caches keys, and validates EdDSA JWTs in one call.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "bun run build"
+  },
+  "keywords": [
+    "agentlair",
+    "aat",
+    "jwt",
+    "verification",
+    "agent-authentication",
+    "eddsa",
+    "jwks",
+    "typescript",
+    "ai-agent"
+  ],
+  "author": "AgentLair",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/piiiico/agentlair"
+  },
+  "homepage": "https://agentlair.dev",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "jose": "^5.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}
