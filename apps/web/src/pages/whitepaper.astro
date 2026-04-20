@@ -1,0 +1,144 @@
+---
+import { getCollection, render } from 'astro:content';
+import BaseHead from '@/components/BaseHead.astro';
+import { Footer } from '@/components/blocks/footer';
+import { Navbar } from '@/components/blocks/navbar';
+
+const whitepapers = await getCollection('whitepaper');
+const doc = whitepapers[0];
+const { Content } = await render(doc);
+---
+
+<html lang="en">
+  <head>
+    <BaseHead
+      title="Behavioral Trust for Autonomous Agents: Closing the TOCTOU Gap — AgentLair"
+      description="AgentLair Technical Whitepaper: A multi-dimensional behavioral trust scoring system for AI agents. Computes trust from observed runtime behavior and enables real-time cross-organizational trust decisions."
+    />
+    <!-- Open Graph / Social -->
+    <meta property="og:title" content="Behavioral Trust for Autonomous Agents: Closing the TOCTOU Gap in Agent Identity" />
+    <meta property="og:description" content="AgentLair's formal specification for behavioral trust as MCP-I Level 4: three-dimensional scoring (consistency, restraint, transparency), cold-start handling, and cross-organizational trust attestation." />
+    <meta property="og:type" content="article" />
+    <meta property="og:url" content="https://agentlair.dev/whitepaper" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Behavioral Trust for Autonomous Agents: Closing the TOCTOU Gap" />
+    <meta name="twitter:description" content="AgentLair Technical Whitepaper v1.0: Formal specification for behavioral trust scoring in AI agent identity." />
+    <!-- Canonical -->
+    <link rel="canonical" href="https://agentlair.dev/whitepaper" />
+    <!-- Mermaid.js for diagram rendering -->
+    <script type="module">
+      import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+      mermaid.initialize({
+        startOnLoad: false,
+        theme: document.documentElement.classList.contains('dark') ? 'dark' : 'default',
+        securityLevel: 'loose',
+        fontFamily: 'Inter, DM Sans, sans-serif',
+      });
+
+      document.addEventListener('DOMContentLoaded', () => {
+        // Find all <pre><code class="language-mermaid"> blocks
+        const mermaidBlocks = document.querySelectorAll('pre > code.language-mermaid');
+        mermaidBlocks.forEach((codeEl, index) => {
+          const pre = codeEl.parentElement;
+          const content = codeEl.textContent || '';
+          const div = document.createElement('div');
+          div.className = 'mermaid-diagram not-prose my-8 overflow-x-auto';
+          div.innerHTML = `<div class="mermaid">${content}</div>`;
+          pre.replaceWith(div);
+        });
+        mermaid.run();
+      });
+    </script>
+    <style>
+      .mermaid-diagram svg {
+        max-width: 100%;
+        height: auto;
+      }
+    </style>
+  </head>
+  <body class="h-screen antialiased">
+    <Navbar client:only="react" />
+    <main>
+      <!-- Hero -->
+      <section class="mx-auto max-w-3xl px-4 pt-28 lg:pt-44">
+        <div class="flex flex-wrap items-center gap-2 mb-4">
+          <span class="text-sm font-medium tracking-widest uppercase text-primary">Whitepaper</span>
+          <span class="text-muted-foreground/40 text-sm">|</span>
+          <span class="text-sm text-muted-foreground">Technical Specification</span>
+        </div>
+        <h1 class="text-3xl md:text-4xl font-bold tracking-tight leading-tight mb-6">
+          Behavioral Trust for Autonomous Agents:<br class="hidden md:block" /> Closing the TOCTOU Gap in Agent Identity
+        </h1>
+        <p class="text-lg text-muted-foreground leading-relaxed mb-6">
+          A formal specification for behavioral trust as MCP-I Level 4: three-dimensional scoring (consistency, restraint, transparency), cold-start handling, manipulation resistance, and cross-organizational trust attestation.
+        </p>
+        <div class="flex flex-wrap items-center gap-4 text-sm text-muted-foreground border-t pt-6 mt-2">
+          <div class="flex items-center gap-1.5">
+            <span class="font-medium text-foreground">AgentLair Research</span>
+          </div>
+          <span class="text-muted-foreground/40">|</span>
+          <span>v1.0</span>
+          <span class="text-muted-foreground/40">|</span>
+          <span>April 2026</span>
+          <span class="text-muted-foreground/40">|</span>
+          <span class="text-primary font-medium">Public</span>
+        </div>
+
+        <!-- Download / share actions -->
+        <div class="flex flex-wrap gap-3 mt-6 pb-8 border-b">
+          <a
+            href="mailto:research@agentlair.dev?subject=Whitepaper%20Inquiry"
+            class="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+            Contact authors
+          </a>
+          <span class="text-muted-foreground/40 text-sm">|</span>
+          <a
+            href="https://agentlair.dev/whitepaper"
+            class="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+            Cite: agentlair.dev/whitepaper
+          </a>
+        </div>
+      </section>
+
+      <!-- Content -->
+      <section class="mx-auto max-w-3xl px-4 py-12 lg:pb-32">
+        <article class="prose prose-lg dark:prose-invert prose-headings:tracking-tight prose-headings:font-bold prose-h2:text-2xl prose-h3:text-xl prose-table:text-sm prose-code:text-sm max-w-none">
+          <Content />
+        </article>
+
+        <!-- CTA -->
+        <div class="mt-16 pt-8 border-t">
+          <p class="text-sm text-muted-foreground mb-6">
+            Questions or contributions? Reach us at{' '}
+            <a href="mailto:research@agentlair.dev" class="text-primary hover:underline">research@agentlair.dev</a>
+          </p>
+          <div class="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
+            <a
+              href="/register"
+              class="inline-flex items-center justify-center rounded-md bg-primary px-6 py-3 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90 transition-colors"
+            >
+              Start building with AgentLair
+            </a>
+            <a
+              href="/thesis"
+              class="inline-flex items-center justify-center rounded-md border border-input px-6 py-3 text-sm font-medium hover:bg-accent hover:text-accent-foreground transition-colors"
+            >
+              Read the Behavioral Trust Thesis
+            </a>
+            <a
+              href="/blog"
+              class="inline-flex items-center justify-center text-sm font-medium text-muted-foreground hover:text-foreground transition-colors px-2 py-3"
+            >
+              Blog &rarr;
+            </a>
+          </div>
+        </div>
+      </section>
+    </main>
+    <Footer />
+  </body>
+</html>
