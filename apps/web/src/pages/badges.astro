@@ -1,0 +1,10 @@
+---
+import { BadgeBuilder } from '@/components/blocks/badge-builder';
+import DefaultLayout from '@/layouts/DefaultLayout.astro';
+---
+<DefaultLayout
+  title="Trust Badges — AgentLair"
+  description="Embeddable shields.io-style SVG badges showing real-time agent trust scores. Add to READMEs, docs, and agent metadata."
+>
+  <BadgeBuilder client:only='react' />
+</DefaultLayout>
