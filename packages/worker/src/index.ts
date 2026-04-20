@@ -12,7 +12,7 @@ import { API_DISCOVERY, OPENAPI_SPEC, SCALAR_DOCS_HTML } from './openapi.js';
 import { AGENT_CARD } from './a2a.js';
 import { LLMS_TXT } from './llms-txt.js';
 import { authenticateAny } from './middleware/auth.js';
-import { buildJWKS } from './jwt.js';
+import { buildJWKS, getPublicKey, computeKeyId, publicKeyToJWK } from './jwt.js';
 import { checkRateLimit, checkPodRateLimit } from './middleware/ratelimit.js';
 import { detectAgent, AGENTLAIR_MANIFEST } from './middleware/agent-detect.js';
 import { securityHeaders } from './middleware/security-headers.js';
@@ -41,9 +41,12 @@ import { handleRegisterVerifyRoute } from './routes/register-verify.js';
 import { handleCredentialRoutes } from './routes/credentials.js';
 import { approvalRoutes, chargeRoutes } from './routes/approvals.js';
 import { trustRoutes } from './routes/trust.js';
+import { badgeRoutes } from './routes/badge.js';
 import { handleTaskRoutes } from './routes/tasks.js';
 import { telemetryRoutes } from './routes/telemetry.js';
 import { didRoutes } from './routes/did.js';
+import { specRoutes } from './routes/spec.js';
+import { idpRoutes, revokeRoutes, buildOIDCDiscovery } from './idp/index.js';
 
 // ─── Hono App Type ──────────────────────────────────────────────────────────────
 
@@ -270,6 +273,12 @@ app.get('/api', (c) => {
 
 app.get('/health', () => json({ status: 'ok', timestamp: new Date().toISOString(), version: '0.18.3' }));
 
+// L4 Behavioral Trust Specification — public, no auth required
+app.route('/spec', specRoutes);
+
+// Trust badges — public SVG images for embedding in READMEs (no auth — img tags can't carry headers)
+app.route('/badge', badgeRoutes);
+
 app.on(['GET', 'HEAD'], '/docs', () =>
   new Response(SCALAR_DOCS_HTML, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=3600', 'X-Powered-By': 'AgentLair' } })
 );
@@ -335,23 +344,76 @@ app.get('/.well-known/jwks.json', async (c) => {
   });
 });
 
+// ── Platform DID Document — did:web:agentlair.dev ────────────────────────────
+// Exposes the platform-level DID Document per the W3C DID Web spec.
+// DID: did:web:agentlair.dev → resolves to /.well-known/did.json
+// Verification key = Ed25519 public key from AUDIT_SIGNING_KEY (same as JWKS).
+// Required for MCP-I Level 2 compliance — the `did` claim in AATs anchors here.
+// Per-agent DID Documents are at /agents/:id/did.json (see routes/did.ts).
+
+app.get('/.well-known/did.json', async (c) => {
+  if (!c.env.AUDIT_SIGNING_KEY) {
+    return new Response(JSON.stringify({ error: 'DID Document unavailable' }), {
+      status: 503,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  const publicKeyBytes = getPublicKey(c.env.AUDIT_SIGNING_KEY);
+  const kid = await computeKeyId(publicKeyBytes);
+  const jwk = await publicKeyToJWK(publicKeyBytes, kid);
+
+  const did = 'did:web:agentlair.dev';
+  const keyId = `${did}#${kid}`;
+
+  const didDocument = {
+    '@context': [
+      'https://www.w3.org/ns/did/v1',
+      'https://w3id.org/security/suites/jws-2020/v1',
+    ],
+    id: did,
+    verificationMethod: [
+      {
+        id: keyId,
+        type: 'JsonWebKey2020',
+        controller: did,
+        publicKeyJwk: jwk,
+      },
+    ],
+    authentication: [keyId],
+    assertionMethod: [keyId],
+    service: [
+      {
+        id: `${did}#jwks`,
+        type: 'JsonWebKeySet2020',
+        serviceEndpoint: 'https://agentlair.dev/.well-known/jwks.json',
+      },
+      {
+        id: `${did}#openid-configuration`,
+        type: 'OpenIDConnect',
+        serviceEndpoint: 'https://agentlair.dev/.well-known/openid-configuration',
+      },
+    ],
+  };
+
+  return new Response(JSON.stringify(didDocument, null, 2), {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/did+json',
+      'Cache-Control': 'public, max-age=3600',
+    },
+  });
+});
+
 // ── OpenID Connect Discovery ───────────────────────────────────────────────────
 // Standard auto-discovery for JWT library integration.
 // Low-priority Gap 2 from VWM E002 integration spec.
 
+// ── OpenID Connect Discovery (enhanced — RFC-001 Phase 1) ─────────────────────
+// Replaced minimal implementation with buildOIDCDiscovery() from IdP module.
+// Includes MCP-I extensions, revocation endpoint, and AgentLair L4 trust fields.
 app.get('/.well-known/openid-configuration', (_c) => {
-  const baseUrl = 'https://agentlair.dev';
-  const config = {
-    issuer: baseUrl,
-    jwks_uri: `${baseUrl}/.well-known/jwks.json`,
-    token_endpoint: `${baseUrl}/v1/tokens/issue`,
-    introspection_endpoint: `${baseUrl}/v1/tokens/introspect`,
-    token_endpoint_auth_methods_supported: ['none'],
-    id_token_signing_alg_values_supported: ['EdDSA'],
-    subject_types_supported: ['public'],
-    response_types_supported: ['token'],
-    grant_types_supported: ['agent_credentials'],
-  };
+  const config = buildOIDCDiscovery();
   return new Response(JSON.stringify(config, null, 2), {
     status: 200,
     headers: {
@@ -541,6 +603,10 @@ app.get('/agents/:name/.well-known/jwks.json', async (c) => {
 // Per W3C DID Web spec (https://w3c-ccg.github.io/did-method-web/)
 // Public endpoint — no auth required. Enables MCP-I Level 2 DID resolution.
 app.route('/agents', didRoutes);
+
+// ── IdP routes — public (no auth required) ───────────────────────────────────
+// Mounted before auth middleware per RFC-001: IdP status and discovery are public.
+app.route('/v1/idp', idpRoutes);
 
 // ── 3. Public API routes (no auth required) ──────────────────────────────────
 
@@ -856,8 +922,10 @@ app.use('/v1/vault/*', legacyHandler(handleVaultRoutes));
 app.use('/v1/calendar/*', legacyHandler(handleCalendarRoutes));
 
 // Token routes: introspect (public — auth skipped in section 5), issue + info (auth required)
+// revokeRoutes: POST /v1/tokens/revoke — auth required (RFC-001 Phase 1)
 app.route('/v1/tokens', publicTokenRoutes);
 app.route('/v1/tokens', tokenRoutes);
+app.route('/v1/tokens', revokeRoutes);
 
 // Signing key routes (RFC 9421): register, get, delete per-agent Ed25519 keys
 app.route('/v1/agents', signingKeyRoutes);
