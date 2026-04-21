@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.piiiico/agentlair",
   "title": "AgentLair",
-  "description": "Give AI agents a real @agentlair.dev email address, encrypted vault, and calendar. Tamper-evident audit trail for EU AI Act Article 12 compliance. Works with Claude Code, Cursor, Windsurf, and any MCP client. No SMTP setup.",
+  "description": "AI agent email, vault, and calendar. Tamper-evident audit trail for EU AI Act compliance.",
   "version": "1.2.0",
   "repository": {
     "url": "https://github.com/piiiico/agentlair",
@@ -21,7 +21,7 @@
       "environmentVariables": [
         {
           "name": "AGENTLAIR_API_KEY",
-          "description": "AgentLair API key. Get one free at https://agentlair.dev and POST /v1/auth/keys. No credit card required.",
+          "description": "AgentLair API key. Get one free at https://agentlair.dev",
           "isRequired": true,
           "isSecret": true,
           "format": "string"
