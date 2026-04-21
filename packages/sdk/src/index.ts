@@ -91,6 +91,16 @@ export type {
   BudgetApproval,
   ListApprovalsResult,
   ApprovalActionResult,
+  // Events
+  EventCategory,
+  EventResult,
+  EmitEventOptions,
+  EventError,
+  EmitEventResult,
+  // Trust
+  TrustDimension,
+  TrustScoreResult,
+  TrustBadgeStyle,
   // Errors
   AgentLairErrorBody,
 } from './types.js';

@@ -571,6 +571,108 @@ export interface ApprovalActionResult {
   id: string;
 }
 
+// ─── Events ───────────────────────────────────────────────────────────────────
+
+/**
+ * Behavioral event category (RFC-003).
+ * - tool: SDK/tool invocations
+ * - resource: resource access (files, APIs)
+ * - auth: authentication/authorization
+ * - session: session lifecycle (start/end)
+ * - escalation: escalations to humans
+ * - delegation: sub-agent delegation
+ * - error: error conditions
+ */
+export type EventCategory = 'tool' | 'resource' | 'auth' | 'session' | 'escalation' | 'delegation' | 'error';
+
+/** Behavioral event outcome */
+export type EventResult = 'success' | 'failure' | 'denied' | 'timeout';
+
+/** Behavioral event to emit to the AgentLair trust engine (RFC-003 § 2.1). */
+export interface EmitEventOptions {
+  /** Behavioral category */
+  category: EventCategory;
+  /** Specific action (e.g. 'session_start', 'tool_call', 'email_send') */
+  action: string;
+  /** Outcome */
+  result: EventResult;
+  /** Optional resource type (e.g. 'tool', 'email', 'file') */
+  resource_type?: string;
+  /** Optional duration in milliseconds */
+  duration_ms?: number;
+  /** Optional error code (for result: 'failure') */
+  error_code?: string;
+  /** Optional scope used */
+  scope_used?: string;
+  /** Optional metadata (max 10 keys, string/number/boolean values, max 256 chars each) */
+  metadata?: Record<string, string | number | boolean>;
+  /** Optional Ed25519 signature for signed events */
+  signature?: string;
+  /** Optional event ID (UUID) — auto-generated if omitted */
+  event_id?: string;
+  /** Optional ISO 8601 timestamp — defaults to now if omitted */
+  timestamp?: string;
+  /** Optional session ID for grouping related events */
+  session_id?: string;
+}
+
+/** Detail for a rejected event */
+export interface EventError {
+  event_id: string;
+  reason: 'invalid_schema' | 'duplicate' | 'too_old' | 'future_timestamp' | 'rate_limited';
+}
+
+/** Response from POST /v1/events */
+export interface EmitEventResult {
+  accepted: number;
+  rejected: number;
+  errors?: EventError[];
+  rate_limit: {
+    remaining: number;
+    reset_at: string;
+  };
+}
+
+// ─── Trust ────────────────────────────────────────────────────────────────────
+
+/** Trust dimension with score and confidence */
+export interface TrustDimension {
+  /** Score 0–100 */
+  score: number;
+  /** Confidence 0–1 */
+  confidence: number;
+}
+
+/** Agent trust profile from GET /badge/{agentId}/score.json */
+export interface TrustScoreResult {
+  /** Agent account ID */
+  agentId: string;
+  /** Composite trust score 0–100 */
+  score: number;
+  /** Confidence 0–1 */
+  confidence: number;
+  /** AgentLair Trust Framework level */
+  atfLevel: 'intern' | 'junior' | 'senior' | 'principal';
+  /** Score trend (e.g. 'stable', 'improving', 'declining') */
+  trend: string;
+  /** Per-dimension breakdown */
+  dimensions: {
+    /** Behavioral consistency over time */
+    consistency: TrustDimension;
+    /** Restraint in resource/capability use */
+    restraint: TrustDimension;
+    /** Transparency in actions and reporting */
+    transparency: TrustDimension;
+  };
+  /** Number of behavioral observations used */
+  observationCount: number;
+  /** ISO timestamp of last score computation */
+  computedAt: string;
+}
+
+/** Badge style for trust badge SVG */
+export type TrustBadgeStyle = 'flat' | 'flat-square' | 'for-the-badge';
+
 // ─── Errors ───────────────────────────────────────────────────────────────────
 
 export interface AgentLairErrorBody {

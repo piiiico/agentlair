@@ -44,6 +44,8 @@ import type {
   DeleteCalendarEventResult,
   DeleteMessageResult,
   DeleteWebhookResult,
+  EmitEventOptions,
+  EmitEventResult,
   FullMessage,
   GetInboxOptions,
   GetInboxResult,
@@ -65,6 +67,8 @@ import type {
   Stack,
   CreateStackOptions,
   ListStacksResult,
+  TrustBadgeStyle,
+  TrustScoreResult,
   UpdateMessageOptions,
   UpdateMessageResult,
   UsageResult,
@@ -636,6 +640,145 @@ class BudgetNamespace {
   }
 }
 
+// ─── EventsNamespace ─────────────────────────────────────────────────────────
+
+/**
+ * Behavioral event reporting for the AgentLair trust engine (RFC-003).
+ *
+ * Events feed the trust score algorithm. Emit events for tool uses, session
+ * lifecycle, resource access, and errors to build your agent's trust profile.
+ */
+class EventsNamespace {
+  constructor(private readonly _req: RequestFn) {}
+
+  /**
+   * Emit one or more behavioral events to the AgentLair trust engine.
+   *
+   * `event_id` and `timestamp` are auto-generated if omitted.
+   * Events are submitted as a batch even when a single event is passed.
+   *
+   * @example Single event
+   * await lair.events.emit({
+   *   category: 'tool',
+   *   action: 'web_search',
+   *   result: 'success',
+   *   metadata: { query_length: 42 },
+   * });
+   *
+   * @example Session lifecycle
+   * await lair.events.emit({ category: 'session', action: 'start', result: 'success' });
+   * // ... do work ...
+   * await lair.events.emit({ category: 'session', action: 'end', result: 'success' });
+   *
+   * @example Batch
+   * await lair.events.emit([
+   *   { category: 'tool', action: 'read_file', result: 'success' },
+   *   { category: 'tool', action: 'write_file', result: 'success' },
+   * ]);
+   */
+  async emit(event: EmitEventOptions | EmitEventOptions[]): Promise<EmitEventResult> {
+    const events = Array.isArray(event) ? event : [event];
+    // Extract session_id from the first event if present (batch-level field)
+    const sessionId = Array.isArray(event) ? undefined : event.session_id;
+
+    const normalized = events.map(e => {
+      const out: Record<string, unknown> = {
+        event_id: e.event_id ?? crypto.randomUUID(),
+        timestamp: e.timestamp ?? new Date().toISOString(),
+        category: e.category,
+        action: e.action,
+        result: e.result,
+      };
+      if (e.resource_type !== undefined) out.resource_type = e.resource_type;
+      if (e.duration_ms !== undefined) out.duration_ms = e.duration_ms;
+      if (e.error_code !== undefined) out.error_code = e.error_code;
+      if (e.scope_used !== undefined) out.scope_used = e.scope_used;
+      if (e.metadata !== undefined) out.metadata = e.metadata;
+      if (e.signature !== undefined) out.signature = e.signature;
+      return out;
+    });
+
+    const body: Record<string, unknown> = { events: normalized };
+    if (sessionId !== undefined) body.session_id = sessionId;
+
+    return this._req('POST', '/v1/events', { body });
+  }
+}
+
+// ─── TrustNamespace ───────────────────────────────────────────────────────────
+
+/**
+ * Trust score and badge access.
+ *
+ * Trust scores are computed from behavioral events. The score endpoint is
+ * public — no auth required. Useful for embedding in dashboards and READMEs.
+ */
+class TrustNamespace {
+  constructor(
+    private readonly _req: RequestFn,
+    private readonly _baseUrl: string,
+  ) {}
+
+  /**
+   * Get the trust score for an agent. Public endpoint — no auth required.
+   *
+   * If `agentId` is omitted, fetches the current account's own score.
+   *
+   * @example Own score
+   * const { score, atfLevel } = await lair.trust.score();
+   * console.log(`Score: ${score} (${atfLevel})`);
+   *
+   * @example Another agent
+   * const profile = await lair.trust.score('acc_xyz123');
+   * console.log(profile.dimensions.consistency.score);
+   */
+  async score(agentId?: string): Promise<TrustScoreResult> {
+    let id = agentId;
+    if (!id) {
+      const me = await this._req<AccountMeResult>('GET', '/v1/account/me');
+      id = me.account_id;
+    }
+    const url = `${this._baseUrl}/badge/${encodeURIComponent(id)}/score.json`;
+    const response = await fetch(url, {
+      headers: { Accept: 'application/json' },
+    });
+    let data: unknown;
+    const contentType = response.headers.get('content-type') ?? '';
+    if (contentType.includes('application/json')) {
+      data = await response.json();
+    } else {
+      data = await response.text();
+    }
+    if (!response.ok) {
+      const body = data as { error?: string; message?: string };
+      throw new AgentLairError(
+        body?.message ?? `HTTP ${response.status}`,
+        response.status,
+        body?.error ?? 'error',
+      );
+    }
+    return data as TrustScoreResult;
+  }
+
+  /**
+   * Get the URL of an agent's trust badge SVG.
+   *
+   * Suitable for embedding in GitHub READMEs: `![Trust](await lair.trust.badge('acc_xyz'))`.
+   *
+   * @example
+   * const url = lair.trust.badge('acc_xyz123');
+   * // → https://agentlair.dev/badge/acc_xyz123
+   *
+   * const badgeUrl = lair.trust.badge('acc_xyz123', 'for-the-badge');
+   * // → https://agentlair.dev/badge/acc_xyz123?style=for-the-badge
+   */
+  badge(agentId: string, style?: TrustBadgeStyle): string {
+    const url = `${this._baseUrl}/badge/${encodeURIComponent(agentId)}`;
+    if (style) return `${url}?style=${encodeURIComponent(style)}`;
+    return url;
+  }
+}
+
 // ─── AgentLair (primary class) ────────────────────────────────────────────────
 
 /**
@@ -666,6 +809,10 @@ export class AgentLair {
   readonly account: AccountNamespace;
   /** Budget: set / get / charge / approvals / getApproval / approve / reject */
   readonly budget: BudgetNamespace;
+  /** Events: emit behavioral events to the trust engine (RFC-003) */
+  readonly events: EventsNamespace;
+  /** Trust: score / badge — read agent trust profiles */
+  readonly trust: TrustNamespace;
 
   /**
    * @param apiKeyOrOptions API key string (e.g. "al_live_...") or options object
@@ -687,6 +834,8 @@ export class AgentLair {
     this.observations = new ObservationsNamespace(req);
     this.account = new AccountNamespace(req);
     this.budget = new BudgetNamespace(req);
+    this.events = new EventsNamespace(req);
+    this.trust = new TrustNamespace(req, this._baseUrl);
   }
 
   private _request<T>(
@@ -753,6 +902,10 @@ export class AgentLairClient {
   readonly account: AccountNamespace;
   /** Budget: set / get / charge / approvals / getApproval / approve / reject */
   readonly budget: BudgetNamespace;
+  /** Events: emit behavioral events to the trust engine (RFC-003) */
+  readonly events: EventsNamespace;
+  /** Trust: score / badge — read agent trust profiles */
+  readonly trust: TrustNamespace;
 
   constructor(options: AgentLairOptions) {
     this._apiKey = options.apiKey;
@@ -766,6 +919,8 @@ export class AgentLairClient {
     this.observations = new ObservationsNamespace(req);
     this.account = new AccountNamespace(req);
     this.budget = new BudgetNamespace(req);
+    this.events = new EventsNamespace(req);
+    this.trust = new TrustNamespace(req, this._baseUrl);
   }
 
   private _request<T>(

@@ -837,3 +837,185 @@ describe('AgentLairClient legacy methods', () => {
     expect(calledUrl).toContain('/v1/email/messages/');
   });
 });
+
+// ─── lair.events ──────────────────────────────────────────────────────────────
+
+describe('lair.events.emit', () => {
+  test('emits a single event — POST /v1/events', async () => {
+    const mockResult = {
+      accepted: 1,
+      rejected: 0,
+      rate_limit: { remaining: 99, reset_at: '2026-04-21T01:00:00Z' },
+    };
+    const fetchMock = mockFetch([{ status: 202, body: mockResult }]);
+
+    const lair = new AgentLair('al_test_key');
+    const result = await lair.events.emit({
+      category: 'tool',
+      action: 'web_search',
+      result: 'success',
+    });
+
+    expect(result.accepted).toBe(1);
+    expect(result.rejected).toBe(0);
+    expect(result.rate_limit.remaining).toBe(99);
+
+    const [[calledUrl, init]] = fetchMock.mock.calls as unknown as [[string, RequestInit]];
+    expect(calledUrl).toContain('/v1/events');
+    expect(init.method).toBe('POST');
+
+    const body = JSON.parse(init.body as string) as { events: unknown[] };
+    expect(body.events).toHaveLength(1);
+    const ev = body.events[0] as Record<string, unknown>;
+    expect(ev.category).toBe('tool');
+    expect(ev.action).toBe('web_search');
+    expect(ev.result).toBe('success');
+    // event_id and timestamp auto-generated
+    expect(typeof ev.event_id).toBe('string');
+    expect(typeof ev.timestamp).toBe('string');
+  });
+
+  test('emits a batch of events', async () => {
+    const mockResult = {
+      accepted: 2,
+      rejected: 0,
+      rate_limit: { remaining: 98, reset_at: '2026-04-21T01:00:00Z' },
+    };
+    const fetchMock = mockFetch([{ status: 202, body: mockResult }]);
+
+    const lair = new AgentLair('al_test_key');
+    const result = await lair.events.emit([
+      { category: 'session', action: 'start', result: 'success' },
+      { category: 'session', action: 'end', result: 'success' },
+    ]);
+
+    expect(result.accepted).toBe(2);
+
+    const [[_url, init]] = fetchMock.mock.calls as unknown as [[string, RequestInit]];
+    const body = JSON.parse(init.body as string) as { events: unknown[] };
+    expect(body.events).toHaveLength(2);
+  });
+
+  test('preserves provided event_id and timestamp', async () => {
+    const mockResult = { accepted: 1, rejected: 0, rate_limit: { remaining: 99, reset_at: '2026-04-21T01:00:00Z' } };
+    const fetchMock = mockFetch([{ status: 202, body: mockResult }]);
+
+    const lair = new AgentLair('al_test_key');
+    const fixedId = 'evt_custom_id_123';
+    const fixedTs = '2026-04-21T00:00:00.000Z';
+    await lair.events.emit({
+      category: 'auth',
+      action: 'key_rotation',
+      result: 'success',
+      event_id: fixedId,
+      timestamp: fixedTs,
+    });
+
+    const [[_url, init]] = fetchMock.mock.calls as unknown as [[string, RequestInit]];
+    const body = JSON.parse(init.body as string) as { events: Array<Record<string, unknown>> };
+    expect(body.events[0]?.event_id).toBe(fixedId);
+    expect(body.events[0]?.timestamp).toBe(fixedTs);
+  });
+
+  test('sends session_id at batch level', async () => {
+    const mockResult = { accepted: 1, rejected: 0, rate_limit: { remaining: 99, reset_at: '2026-04-21T01:00:00Z' } };
+    const fetchMock = mockFetch([{ status: 202, body: mockResult }]);
+
+    const lair = new AgentLair('al_test_key');
+    await lair.events.emit({
+      category: 'resource',
+      action: 'file_read',
+      result: 'success',
+      session_id: 'sess_abc123',
+    });
+
+    const [[_url, init]] = fetchMock.mock.calls as unknown as [[string, RequestInit]];
+    const body = JSON.parse(init.body as string) as { session_id?: string };
+    expect(body.session_id).toBe('sess_abc123');
+  });
+
+  test('throws AgentLairError on non-2xx response', async () => {
+    mockFetch([{ status: 401, body: { error: 'unauthorized', message: 'Invalid API key' } }]);
+
+    const lair = new AgentLair('al_bad_key');
+    await expect(
+      lair.events.emit({ category: 'tool', action: 'test', result: 'failure' }),
+    ).rejects.toBeInstanceOf(AgentLairError);
+  });
+});
+
+// ─── lair.trust ───────────────────────────────────────────────────────────────
+
+describe('lair.trust.score', () => {
+  const mockProfile = {
+    agentId: 'acc_abc123',
+    score: 72,
+    confidence: 0.85,
+    atfLevel: 'senior',
+    trend: 'stable',
+    dimensions: {
+      consistency: { score: 75, confidence: 0.9 },
+      restraint: { score: 68, confidence: 0.8 },
+      transparency: { score: 73, confidence: 0.85 },
+    },
+    observationCount: 42,
+    computedAt: '2026-04-21T00:00:00Z',
+  };
+
+  test('fetches score from public endpoint with explicit agentId', async () => {
+    const fetchMock = mockFetch([{ body: mockProfile }]);
+
+    const lair = new AgentLair('al_test_key');
+    const result = await lair.trust.score('acc_abc123');
+
+    expect(result.score).toBe(72);
+    expect(result.atfLevel).toBe('senior');
+    expect(result.dimensions.consistency.score).toBe(75);
+
+    const [[calledUrl]] = fetchMock.mock.calls as unknown as [[string, RequestInit]];
+    expect(calledUrl).toContain('/badge/acc_abc123/score.json');
+  });
+
+  test('auto-resolves own agentId when none provided', async () => {
+    const meMock = { account_id: 'acc_self456', tier: 'free', created_at: '2026-01-01T00:00:00Z' };
+    const fetchMock = mockFetch([
+      { body: meMock },    // First: GET /v1/account/me
+      { body: mockProfile }, // Second: GET /badge/.../score.json
+    ]);
+
+    const lair = new AgentLair('al_test_key');
+    await lair.trust.score();
+
+    expect(fetchMock.mock.calls).toHaveLength(2);
+    const calls = fetchMock.mock.calls as unknown as [[string, RequestInit]];
+    expect((calls[0] as unknown as string[])[0]).toContain('/v1/account/me');
+    expect((calls[1] as unknown as string[])[0]).toContain('/badge/acc_self456/score.json');
+  });
+
+  test('throws AgentLairError for unknown agent', async () => {
+    mockFetch([{ status: 400, body: { error: 'invalid_id', message: 'Invalid agent ID format.' } }]);
+
+    const lair = new AgentLair('al_test_key');
+    await expect(lair.trust.score('invalid_id')).rejects.toBeInstanceOf(AgentLairError);
+  });
+});
+
+describe('lair.trust.badge', () => {
+  test('returns badge SVG URL', () => {
+    const lair = new AgentLair('al_test_key');
+    const url = lair.trust.badge('acc_abc123');
+    expect(url).toBe('https://agentlair.dev/badge/acc_abc123');
+  });
+
+  test('appends style query param when provided', () => {
+    const lair = new AgentLair('al_test_key');
+    const url = lair.trust.badge('acc_abc123', 'for-the-badge');
+    expect(url).toBe('https://agentlair.dev/badge/acc_abc123?style=for-the-badge');
+  });
+
+  test('respects custom baseUrl', () => {
+    const lair = new AgentLair({ apiKey: 'al_test_key', baseUrl: 'http://localhost:8787' });
+    const url = lair.trust.badge('acc_abc123');
+    expect(url).toBe('http://localhost:8787/badge/acc_abc123');
+  });
+});

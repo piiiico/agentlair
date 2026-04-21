@@ -294,6 +294,75 @@ const { topics } = await lair.observations.topics();
 
 ---
 
+## Events (Behavioral Trust)
+
+Report behavioral events to the AgentLair trust engine. Events feed your agent's [trust score](https://agentlair.dev/docs/trust).
+
+### `lair.events.emit(event | event[])`
+
+```typescript
+// Single event
+await lair.events.emit({
+  category: 'tool',    // 'tool' | 'resource' | 'auth' | 'session' | 'escalation' | 'delegation' | 'error'
+  action: 'web_search',
+  result: 'success',   // 'success' | 'failure' | 'denied' | 'timeout'
+  metadata: { query_length: 42 },
+});
+
+// Session lifecycle
+await lair.events.emit({ category: 'session', action: 'start', result: 'success', session_id: 'sess_abc' });
+// ... do work ...
+await lair.events.emit({ category: 'session', action: 'end', result: 'success', session_id: 'sess_abc' });
+
+// Batch
+await lair.events.emit([
+  { category: 'tool', action: 'read_file', result: 'success', duration_ms: 12 },
+  { category: 'tool', action: 'write_file', result: 'success', duration_ms: 23 },
+]);
+```
+
+`event_id` and `timestamp` are auto-generated if omitted. Supports optional `resource_type`, `duration_ms`, `error_code`, `scope_used`, `metadata`, and `signature` fields.
+
+---
+
+## Trust
+
+Read agent trust scores and get badge URLs. The score endpoint is **public** — no auth required.
+
+### `lair.trust.score(agentId?)`
+
+```typescript
+// Own score (resolves account_id automatically)
+const { score, atfLevel, confidence, dimensions } = await lair.trust.score();
+console.log(`Trust: ${score}/100 (${atfLevel})`);
+// → Trust: 72/100 (senior)
+
+// Another agent's score
+const profile = await lair.trust.score('acc_xyz123');
+console.log(profile.dimensions.consistency.score);
+
+// ATF levels: 'intern' | 'junior' | 'senior' | 'principal'
+```
+
+### `lair.trust.badge(agentId, style?)`
+
+Returns a URL for embedding the trust badge SVG in READMEs and dashboards.
+
+```typescript
+const url = lair.trust.badge('acc_xyz123');
+// → https://agentlair.dev/badge/acc_xyz123
+
+const forTheBadge = lair.trust.badge('acc_xyz123', 'for-the-badge');
+// → https://agentlair.dev/badge/acc_xyz123?style=for-the-badge
+
+// In a Markdown README:
+// ![AgentLair Trust](https://agentlair.dev/badge/acc_xyz123)
+```
+
+Styles: `'flat'` (default), `'flat-square'`, `'for-the-badge'`.
+
+---
+
 ## Account
 
 ```typescript
@@ -340,6 +409,13 @@ import type {
   VaultGetResult,
   Observation,
   Stack,
+  // Events + Trust
+  EmitEventOptions,
+  EmitEventResult,
+  EventCategory,
+  EventResult,
+  TrustScoreResult,
+  TrustBadgeStyle,
 } from '@agentlair/sdk';
 ```
 
@@ -377,6 +453,7 @@ E2E decryption is not included in `@agentlair/sdk` (requires `@noble/curves` for
 ## Related
 
 - [`@agentlair/vault-crypto`](https://www.npmjs.com/package/@agentlair/vault-crypto) — Client-side encryption for the Vault
+- [`@agentlair/verify`](https://www.npmjs.com/package/@agentlair/verify) — Verify incoming AATs on your server (JWKS-based, zero config)
 
 ---
 

@@ -1,7 +1,7 @@
 {
   "name": "@agentlair/sdk",
-  "version": "0.3.0",
-  "description": "Official TypeScript/JavaScript SDK for AgentLair — email, vault, and account management for AI agents. Zero dependencies. Works in Node, Bun, Deno, and browsers.",
+  "version": "0.4.0",
+  "description": "Official TypeScript/JavaScript SDK for AgentLair — email, vault, behavioral events, trust scores, and account management for AI agents. Zero dependencies. Works in Node, Bun, Deno, and browsers.",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -27,6 +27,9 @@
     "ai-agent",
     "email",
     "vault",
+    "events",
+    "trust",
+    "behavioral-trust",
     "sdk",
     "typescript"
   ],
