@@ -736,7 +736,8 @@ class TrustNamespace {
     let id = agentId;
     if (!id) {
       const me = await this._req<AccountMeResult>('GET', '/v1/account/me');
-      id = me.account_id;
+      // API returns `id`; type says `account_id` — accept either
+      id = (me as unknown as { id?: string }).id ?? me.account_id;
     }
     const url = `${this._baseUrl}/badge/${encodeURIComponent(id)}/score.json`;
     const response = await fetch(url, {

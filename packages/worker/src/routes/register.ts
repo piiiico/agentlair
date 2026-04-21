@@ -19,9 +19,9 @@ export async function handleRegisterRoute(
 ): Promise<Response | null> {
   if (path !== '/v1/register' || method !== 'POST') return null;
 
-  // Rate limit: 5 registrations per IP per hour
+  // Rate limit: 20 registrations per IP per hour (generous for devs testing quickstart)
   const clientIp = request.headers.get('CF-Connecting-IP') || request.headers.get('X-Forwarded-For') || 'unknown';
-  const ipCheck = await checkIpRateLimit(env, clientIp, 'agent-register', 5);
+  const ipCheck = await checkIpRateLimit(env, clientIp, 'agent-register', 20);
   if (!ipCheck.allowed) {
     return new Response(JSON.stringify({
       error: 'rate_limited',
