@@ -7,8 +7,9 @@
 
 import { nanoid, sha256hex, json, err } from '../utils.js';
 import type { Env, RouteContext } from '../types.js';
-import { checkIpRateLimit } from '../middleware/ratelimit.js';
+import { checkIpRateLimit, getAgentCount, incrementAgentCount, AGENT_LIMITS } from '../middleware/ratelimit.js';
 import { validateLocalPart, isReservedAddress } from '../reserved.js';
+import { SERVICE_PRICES, make402Response, verifyX402Payment, settleX402Payment, trackX402Spend } from '../x402.js';
 
 export async function handleRegisterRoute(
   request: Request,
@@ -42,6 +43,43 @@ export async function handleRegisterRoute(
   const public_key = typeof body.public_key === 'string' ? body.public_key : undefined;
   const recovery_email = typeof body.recovery_email === 'string' ? body.recovery_email : undefined;
 
+  // ── Agent registration limit ───────────────────────────────────────────────────
+  // Free tier: max 3 agents per operator email (recovery_email).
+  // Anonymous registrations (no recovery_email) are not subject to this limit.
+  if (recovery_email) {
+    const agentCount = await getAgentCount(env, recovery_email);
+    const agentLimit = AGENT_LIMITS.free; // Always check free limit at registration
+    if (agentCount >= agentLimit) {
+      const paymentHeader = request.headers.get('X-PAYMENT');
+      if (!paymentHeader) {
+        return make402Response(SERVICE_PRICES.agent_provision, {
+          error: 'agent_limit_exceeded',
+          message: `Free tier allows ${agentLimit} agents per operator email. Register ${agentCount}/${agentLimit} used. Upgrade at https://agentlair.dev/pricing or pay 0.01 USDC via x402 to register an additional agent.`,
+          current_agents: agentCount,
+          limit: agentLimit,
+          upgrade_url: 'https://agentlair.dev/pricing',
+        });
+      }
+      // x402 payment provided — verify and settle
+      const payment = await verifyX402Payment(paymentHeader, SERVICE_PRICES.agent_provision);
+      if (!payment.valid) {
+        return new Response(JSON.stringify({
+          error: 'payment_invalid',
+          message: payment.error,
+        }), {
+          status: 402,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      // Payment valid — settle (non-blocking, proceed with registration)
+      void settleX402Payment(paymentHeader, SERVICE_PRICES.agent_provision);
+      void trackX402Spend(env, recovery_email + ':agent', SERVICE_PRICES.agent_provision.amount, {
+        payer: payment.payer,
+        service: 'agent_provision',
+      });
+    }
+  }
+
   // capabilities: optional array of strings, max 10 items
   let capabilities: string[] | undefined;
   if (Array.isArray(body.capabilities)) {
@@ -50,9 +88,10 @@ export async function handleRegisterRoute(
       .slice(0, 10);
   }
 
-  // Security: approval_bypass is NOT accepted from registration requests.
-  // All new accounts default to approval_required: true.
-  const agentApprovalRequired = true;
+  // approval_required defaults to false for new accounts.
+  // Budget escalation (budget.ts) sets approval_required=true when limits are exceeded.
+  // Sandbox mode: first emails work without human intervention — the core product promise.
+  const agentApprovalRequired = false;
 
   let emailAddress = '';
 
@@ -163,6 +202,8 @@ export async function handleRegisterRoute(
     // Optional: index by recovery email for magic link lookup
     if (recovery_email) {
       await env.KEYS.put('recovery-email:' + recovery_email.toLowerCase(), accountId);
+      // Increment agent count for this operator email (non-blocking, fail-open)
+      void incrementAgentCount(env, recovery_email);
     }
   } catch (kvErr: unknown) {
     const msg = kvErr instanceof Error ? kvErr.message : '';

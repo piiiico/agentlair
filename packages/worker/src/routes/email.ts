@@ -27,7 +27,7 @@ async function addToAccountAddresses(env: Env, accountId: string, address: strin
   }
 }
 
-async function getAccountAddresses(env: Env, accountId: string): Promise<string[]> {
+export async function getAccountAddresses(env: Env, accountId: string): Promise<string[]> {
   if (!env.EMAILS) return [];
   const key = `account-addresses:${accountId}`;
   const raw = await env.EMAILS.get(key);

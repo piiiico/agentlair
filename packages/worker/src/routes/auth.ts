@@ -237,10 +237,10 @@ export async function handleAuthRoutes(
       const address = typeof body.address === 'string' ? body.address : undefined;
       const public_key = typeof body.public_key === 'string' ? body.public_key : undefined;
       const recovery_email = typeof body.recovery_email === 'string' ? body.recovery_email : undefined;
-      // Security: approval_bypass is NOT accepted from registration requests.
-      // All new accounts default to approval_required: true.
-      // Agents can disable approval via dashboard settings after account creation.
-      const agentApprovalRequired = true;
+      // approval_required defaults to false for new accounts.
+      // Budget escalation (budget.ts) sets approval_required=true when limits are exceeded.
+      // Sandbox mode: first emails work without human intervention — the core product promise.
+      const agentApprovalRequired = false;
 
       let emailAddress = '';
 
