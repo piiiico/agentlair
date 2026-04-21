@@ -1,0 +1,10 @@
+---
+import { Explore } from '@/components/blocks/explore';
+import DefaultLayout from '@/layouts/DefaultLayout.astro';
+---
+<DefaultLayout
+  title="Agent Trust Score Explorer — AgentLair"
+  description="Explore real-time behavioral trust scores for AI agents. See how consistency, restraint, and transparency are measured from audit trails — not self-reports."
+>
+  <Explore client:load />
+</DefaultLayout>

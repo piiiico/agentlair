@@ -252,7 +252,69 @@ function svgResponse(svg: string): Response {
   });
 }
 
+// ─── Public Trust Score JSON ─────────────────────────────────────────────────
+//
+// GET /badge/:agentId/score.json
+//
+// Public endpoint returning full trust profile as JSON. No auth required.
+// Designed for the /explore page and third-party integrations.
+//
+// Returns: { agentId, score, confidence, atfLevel, trend, dimensions, observationCount, computedAt }
+// Cache: 5-minute max-age (same as badge SVGs).
+
+async function handleScoreJsonRequest(c: any): Promise<Response> {
+  const agentId = c.req.param('agentId') || '';
+
+  if (!agentId || !AGENT_ID_RE.test(agentId)) {
+    return new Response(JSON.stringify({ error: 'Invalid agent ID format. Expected: acc_<alphanumeric>.' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+    });
+  }
+
+  const db = c.env.AUDIT;
+  if (!db) {
+    return new Response(JSON.stringify({ error: 'Trust scoring unavailable.' }), {
+      status: 503,
+      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+    });
+  }
+
+  try {
+    const profile = await computeTrustScore(db, agentId);
+    // Return public-safe subset (omit internal tier caps and raw signals)
+    const publicProfile = {
+      agentId: profile.agentId,
+      score: Math.round(profile.score),
+      confidence: Math.round(profile.confidence * 1000) / 1000,
+      atfLevel: profile.atfLevel,
+      trend: profile.trend,
+      dimensions: {
+        consistency: { score: Math.round(profile.dimensions.consistency.score), confidence: profile.dimensions.consistency.confidence },
+        restraint: { score: Math.round(profile.dimensions.restraint.score), confidence: profile.dimensions.restraint.confidence },
+        transparency: { score: Math.round(profile.dimensions.transparency.score), confidence: profile.dimensions.transparency.confidence },
+      },
+      observationCount: profile.observationCount,
+      computedAt: profile.computedAt,
+    };
+    return new Response(JSON.stringify(publicProfile), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'public, max-age=300, s-maxage=300',
+        'Access-Control-Allow-Origin': '*',
+      },
+    });
+  } catch {
+    return new Response(JSON.stringify({ error: 'Trust score computation failed.' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+    });
+  }
+}
+
 // ─── Mount Routes ────────────────────────────────────────────────────────────
 // Handles both /badge/:agentId and /badge/:agentId.svg
 
+badgeRoutes.get('/:agentId/score.json', handleScoreJsonRequest);
 badgeRoutes.get('/:agentId', handleBadgeRequest);
