@@ -1,14 +1,18 @@
-// ─── AgentLair Trust Engine — Phase 1 ───────────────────────────────────────────
+// ─── AgentLair Trust Engine — Phase 2b ──────────────────────────────────────────
 //
 // Implements the behavioral trust scoring algorithm specified at:
 //   memory/knowledge/agentlair-trust-scoring-algorithm.md
+//   rfcs/RFC-003-behavioral-event-ingestion.md (Section 7)
 //
-// Phase 1 scope:
+// Phase 2b scope:
 //   - 3 active dimensions: consistency, restraint, transparency
-//   - Data source: audit_log D1 table (90-day window)
+//   - Data source: audit_log + behavioral_events D1 tables (90-day window)
 //   - Cold-start prior: 0.30 (skeptical by design)
 //   - ATF maturity levels: intern → junior → senior → principal
 //   - Confidence intervals: observation-count based
+//   - Tier-based event weight multipliers (Free: 0.5x, Starter/Pro: 1.0x)
+//   - Internal/external ratio level caps (RFC-003 §7.4)
+//   - Live telemetry_reporting signal from behavioral_events
 //
 // Weights: crossOrgCoherence (0.20) and resilience (0.10) redistributed to
 // the 3 active dimensions, normalized to sum to 1.0:
@@ -33,7 +37,56 @@ export interface AuditEvent {
   signature: string;
   resource_type?: string | null;
   error_code?: string | null;
+  /** Phase 2b: event source for weight differentiation */
+  _source?: 'internal' | 'external_signed' | 'external_unsigned';
 }
+
+// ─── Phase 2b: Tier & Options ─────────────────────────────────────────────────
+
+export type TrustTier = 'free' | 'starter' | 'pro';
+
+export interface TrustComputeOptions {
+  /** Account tier — determines event weight multiplier and level caps */
+  tier?: TrustTier;
+  /** KV namespace to look up account tier (if tier not explicitly provided) */
+  kv?: KVNamespace;
+}
+
+/** Event weight multipliers by source (RFC-003 §7.2) */
+export const EVENT_WEIGHTS = {
+  internal: 1.0,
+  external_signed: 0.85,
+  external_unsigned: 0.7,
+} as const;
+
+/** Tier-based weight multiplier for external events (revenue-activation.md §2) */
+export const TIER_WEIGHT_MULTIPLIER: Record<TrustTier, number> = {
+  free: 0.5,
+  starter: 1.0,
+  pro: 1.0,
+} as const;
+
+/** Max achievable ATF level per tier (revenue-activation.md §2) */
+export const TIER_LEVEL_CAP: Record<TrustTier, ATFLevel> = {
+  free: 'junior',
+  starter: 'senior',
+  pro: 'principal',
+} as const;
+
+/** Telemetry reporting ceiling per tier (revenue-activation.md §2) */
+export const TIER_TELEMETRY_CEILING: Record<TrustTier, number> = {
+  free: 0.60,
+  starter: 0.85,
+  pro: 1.0,
+} as const;
+
+/** Internal/external ratio requirements for level gates (RFC-003 §7.4) */
+export const LEVEL_REQUIREMENTS: Record<ATFLevel, { minInternal: number; minExternalDays: number; minCategories: number }> = {
+  intern: { minInternal: 0, minExternalDays: 0, minCategories: 0 },
+  junior: { minInternal: 0, minExternalDays: 0, minCategories: 1 },
+  senior: { minInternal: 10, minExternalDays: 7, minCategories: 2 },
+  principal: { minInternal: 50, minExternalDays: 14, minCategories: 3 },
+} as const;
 
 export interface DimensionScore {
   /** [0, 100] */
@@ -139,6 +192,256 @@ function normalizedEntropy(dist: number[]): number {
     if (p > 0) entropy -= p * Math.log2(p);
   }
   return clamp(entropy / maxEntropy, 0, 1);
+}
+
+// ─── Chain Integrity Verification ────────────────────────────────────────────────
+//
+// Verifies that each event's prev_hash equals the previous event's id, forming
+// a sequential chain. This is the one structural defense against fabricated audit
+// trails — it requires actual knowledge of each preceding event's identity.
+//
+// Returns [0.0, 1.0] where 1.0 = unbroken chain, 0.0 = every link broken.
+// A single-event trail (no links to verify) is considered integral (1.0).
+
+export function verifyChainIntegrity(sorted: AuditEvent[]): number {
+  if (sorted.length <= 1) return 1.0;
+  let broken = 0;
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i].prev_hash !== sorted[i - 1].id) broken++;
+  }
+  return 1 - broken / (sorted.length - 1);
+}
+
+// ─── Entropy Penalty (spec §4.1) ──────────────────────────────────────────────────
+//
+// "Perfect behavior is suspicious. Real agents have natural variance."
+// Applied to rawScore after dimension weighting, before cold-start prior:
+//   - All dimensions > 0.95: multiply by 0.85 (cap effective max at ~85%)
+//   - Dimension variance < 0.005 (suspiciously uniform): multiply by 0.90
+//   - Otherwise: no penalty (multiplier = 1.0)
+
+export function applyEntropyPenalty(
+  rawScore: number,
+  dimensionScores: { consistency: number; restraint: number; transparency: number },
+): number {
+  const scores = [dimensionScores.consistency, dimensionScores.restraint, dimensionScores.transparency];
+
+  // Check "perfect robot" pattern
+  if (scores.every(s => s > 0.95)) return rawScore * 0.85;
+
+  // Check suspiciously uniform scores
+  const mean = scores.reduce((a, b) => a + b, 0) / scores.length;
+  const variance = scores.reduce((acc, s) => acc + (s - mean) ** 2, 0) / scores.length;
+  if (variance < 0.005) return rawScore * 0.90;
+
+  return rawScore;
+}
+
+// ─── Phase 2b: Combined Event Fetching ─────────────────────────────────────────
+
+interface BehavioralEventRow {
+  id: string;
+  event_id: string;
+  agent_id: string;
+  timestamp: string;
+  category: string;
+  action: string;
+  result: string;
+  resource_type: string | null;
+  error_code: string | null;
+  signed: number;  // 0 or 1
+  session_id: string | null;
+}
+
+/** Normalizes a behavioral_events row to AuditEvent with source annotation */
+function normalizeBehavioralEvent(row: BehavioralEventRow): AuditEvent {
+  return {
+    id: row.id,
+    timestamp: row.timestamp,
+    account_id: row.agent_id,
+    actor_id: row.agent_id,
+    category: row.category,
+    action: row.action,
+    result: row.result,
+    prev_hash: '',       // External events have no hash chain
+    signature: '',       // Signature is binary flag, not the actual sig
+    resource_type: row.resource_type,
+    error_code: row.error_code,
+    _source: row.signed ? 'external_signed' : 'external_unsigned',
+  };
+}
+
+/** Metadata about the event mix — used for tier gates and telemetry signal */
+export interface EventMixMetrics {
+  internalCount: number;
+  externalCount: number;
+  externalSignedCount: number;
+  externalUnsignedCount: number;
+  externalUniqueDays: number;
+  externalCategories: Set<string>;
+  totalActiveDays: number;
+}
+
+/**
+ * Fetches events from both audit_log and behavioral_events tables.
+ * Returns the merged, sorted event list and mix metrics.
+ */
+export async function fetchCombinedEvents(
+  db: D1Database,
+  agentId: string,
+  windowDays = 90,
+): Promise<{ events: AuditEvent[]; metrics: EventMixMetrics }> {
+  const cutoff = new Date(Date.now() - windowDays * 86_400_000).toISOString();
+
+  // Fetch from both tables in parallel
+  const [internalResult, externalResult] = await Promise.all([
+    db.prepare(
+      `SELECT id, timestamp, account_id, actor_id, category, action, result, prev_hash, signature, resource_type, error_code
+       FROM audit_log
+       WHERE actor_id = ?
+         AND timestamp >= ?
+       ORDER BY timestamp ASC
+       LIMIT 5000`,
+    ).bind(agentId, cutoff).all<AuditEvent>(),
+    db.prepare(
+      `SELECT id, event_id, agent_id, timestamp, category, action, result, resource_type, error_code, signed, session_id
+       FROM behavioral_events
+       WHERE agent_id = ?
+         AND timestamp >= ?
+       ORDER BY timestamp ASC
+       LIMIT 5000`,
+    ).bind(agentId, cutoff).all<BehavioralEventRow>(),
+  ]);
+
+  const internalEvents = (internalResult.results ?? []).map(e => ({ ...e, _source: 'internal' as const }));
+  const externalRows = externalResult.results ?? [];
+  const externalEvents = externalRows.map(normalizeBehavioralEvent);
+
+  // Merge and sort by timestamp
+  const allEvents = [...internalEvents, ...externalEvents].sort(
+    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+  );
+
+  // Compute mix metrics
+  const externalDays = new Set(externalRows.map(r => r.timestamp.slice(0, 10)));
+  const externalCats = new Set(externalRows.map(r => r.category));
+  const allDays = new Set(allEvents.map(e => e.timestamp.slice(0, 10)));
+
+  const metrics: EventMixMetrics = {
+    internalCount: internalEvents.length,
+    externalCount: externalEvents.length,
+    externalSignedCount: externalRows.filter(r => r.signed === 1).length,
+    externalUnsignedCount: externalRows.filter(r => r.signed === 0).length,
+    externalUniqueDays: externalDays.size,
+    externalCategories: externalCats,
+    totalActiveDays: allDays.size,
+  };
+
+  return { events: allEvents, metrics };
+}
+
+/**
+ * Computes the effective observation count considering:
+ * 1. Burst protection (unique_days * 15 cap)
+ * 2. Source-based weighting (internal 1.0, external_signed 0.85, external_unsigned 0.7)
+ * 3. Tier-based multiplier for external events (free 0.5x, starter/pro 1.0x)
+ */
+export function computeEffectiveObservations(
+  events: AuditEvent[],
+  tier: TrustTier = 'free',
+): number {
+  let weightedCount = 0;
+  const tierMult = TIER_WEIGHT_MULTIPLIER[tier];
+
+  for (const e of events) {
+    const source = e._source ?? 'internal';
+    if (source === 'internal') {
+      weightedCount += EVENT_WEIGHTS.internal;
+    } else {
+      const sourceWeight = source === 'external_signed'
+        ? EVENT_WEIGHTS.external_signed
+        : EVENT_WEIGHTS.external_unsigned;
+      weightedCount += sourceWeight * tierMult;
+    }
+  }
+
+  // Burst protection: cap by unique days * 15
+  const uniqueDays = new Set(events.map(e => e.timestamp.slice(0, 10))).size;
+  return Math.min(weightedCount, uniqueDays * 15);
+}
+
+/**
+ * Computes the live telemetry_reporting signal (RFC-003 §7.1).
+ * Measures reporting consistency: external_event_days / total_active_days.
+ * Maps to [0.5, ceiling] range — never below 0.5 (RFC-003 §9.3 backward compat).
+ * Capped by tier ceiling.
+ */
+export function computeTelemetryReporting(
+  metrics: EventMixMetrics,
+  tier: TrustTier = 'free',
+): number {
+  // No external events → remain at neutral 0.5 (backward compatible, RFC-003 §9.3)
+  if (metrics.externalCount === 0) return 0.5;
+
+  // Compute reporting consistency ratio
+  const activeDays = Math.max(metrics.totalActiveDays, 1);
+  const consistencyRatio = metrics.externalUniqueDays / activeDays;
+
+  // Map to [0.5, ceiling]: external events can only improve, never reduce
+  const ceiling = TIER_TELEMETRY_CEILING[tier];
+  return 0.5 + consistencyRatio * (ceiling - 0.5);
+}
+
+/**
+ * Applies level cap based on tier and internal/external ratio (RFC-003 §7.4).
+ * Returns the maximum ATF level the agent can achieve.
+ */
+export function applyLevelCaps(
+  computedLevel: ATFLevel,
+  metrics: EventMixMetrics,
+  tier: TrustTier = 'free',
+): ATFLevel {
+  const ATF_RANK: Record<ATFLevel, number> = { intern: 0, junior: 1, senior: 2, principal: 3 };
+  const RANK_TO_LEVEL: ATFLevel[] = ['intern', 'junior', 'senior', 'principal'];
+
+  let maxRank = ATF_RANK[computedLevel];
+
+  // 1. Tier-based ceiling (revenue-activation.md)
+  const tierCap = TIER_LEVEL_CAP[tier];
+  maxRank = Math.min(maxRank, ATF_RANK[tierCap]);
+
+  // 2. Internal/external ratio requirements (RFC-003 §7.4)
+  // Walk down from computed level until requirements are met
+  while (maxRank > 0) {
+    const level = RANK_TO_LEVEL[maxRank];
+    const req = LEVEL_REQUIREMENTS[level];
+    if (
+      metrics.internalCount >= req.minInternal &&
+      metrics.externalUniqueDays >= req.minExternalDays &&
+      metrics.externalCategories.size >= req.minCategories
+    ) {
+      break;
+    }
+    maxRank--;
+  }
+
+  return RANK_TO_LEVEL[maxRank];
+}
+
+/**
+ * Detects suspiciously low failure rate in external events (RFC-003 §7.3).
+ * Returns a penalty multiplier [0.9, 1.0].
+ */
+export function detectSelectiveReporting(events: AuditEvent[]): number {
+  const external = events.filter(e => e._source === 'external_signed' || e._source === 'external_unsigned');
+  if (external.length <= 100) return 1.0; // Not enough data to judge
+
+  const failures = external.filter(e => e.result === 'failure' || e.result === 'denied' || e.result === 'timeout').length;
+  const failureRate = failures / external.length;
+
+  // Suspiciously perfect: < 1% failure rate with 100+ events
+  if (failureRate < 0.01) return 0.9;
+  return 1.0;
 }
 
 // ─── Event Windowing ─────────────────────────────────────────────────────────────
@@ -339,37 +642,44 @@ export function computeRestraint(events: AuditEvent[]): { score: number; signals
 // ─── Dimension 3: TRANSPARENCY (spec §1.2) ───────────────────────────────────────
 //
 // Signals:
-//   audit_coverage      — volume-based coverage approximation
-//   chain_integrity     — presence of prev_hash on all events
+//   audit_coverage      — volume-based coverage approximation (includes external events)
+//   chain_integrity     — hash chain verification (internal events only)
 //   auth_hygiene        — auth failure rate + auth event presence
-//   telemetry_reporting — neutral (0.5) until Phase 2 telemetry ingestion
+//   telemetry_reporting — Phase 2b: live signal from behavioral_events reporting
 
-export function computeTransparency(events: AuditEvent[]): { score: number; signals: Record<string, number> } {
+export function computeTransparency(
+  events: AuditEvent[],
+  telemetrySignal?: number,
+): { score: number; signals: Record<string, number> } {
   const e90d = windowEvents(events, 90);
 
-  // Chain integrity: events without prev_hash are broken links
-  const sorted = [...e90d].sort(
+  // Chain integrity: only verify internal events (external events have no hash chain)
+  const internalEvents = e90d.filter(e => (e._source ?? 'internal') === 'internal');
+  const sorted = [...internalEvents].sort(
     (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
   );
-  const brokenLinks = sorted.filter(e => !e.prev_hash).length;
-  const chainIntegrity = sorted.length > 0
-    ? clamp(1 - brokenLinks / sorted.length, 0, 1)
-    : 1.0; // No events = no broken chain
+  const chainIntegrity = verifyChainIntegrity(sorted);
 
-  // If chain is broken, return 0 immediately (spec says it's catastrophic)
-  if (chainIntegrity === 0) {
+  // If chain is broken (for internal events), return 0 immediately
+  if (chainIntegrity === 0 && internalEvents.length > 1) {
     return {
       score: 0,
-      signals: { audit_coverage: 0, chain_integrity: 0, auth_hygiene: 0.5, telemetry_reporting: 0.5 },
+      signals: { audit_coverage: 0, chain_integrity: 0, auth_hygiene: 0.5, telemetry_reporting: telemetrySignal ?? 0.5 },
     };
   }
 
-  // Audit trail coverage: approximated by event density
-  // More events over 90 days = better coverage signal
+  // Audit trail coverage: includes both internal and external events.
+  // More categories + more events = higher coverage.
   let coverage: number;
   if (e90d.length === 0) coverage = 0.3;
   else if (e90d.length < 5) coverage = 0.5;
-  else coverage = Math.min(1.0, 0.5 + Math.log10(e90d.length) * 0.25);
+  else {
+    const volumeComponent = Math.min(1.0, 0.5 + Math.log10(e90d.length) * 0.25);
+    // Bonus for category diversity (external events add categories)
+    const uniqueCategories = new Set(e90d.map(e => e.category)).size;
+    const categoryBonus = Math.min(0.1, uniqueCategories * 0.015);
+    coverage = Math.min(1.0, volumeComponent + categoryBonus);
+  }
 
   // Auth hygiene: auth failure rate + presence of auth events
   const authEvents = e90d.filter(e => e.category === 'auth');
@@ -379,8 +689,8 @@ export function computeTransparency(events: AuditEvent[]): { score: number; sign
   const hasAuth = authEvents.length > 0 ? 1.0 : 0.5;
   const authHygiene = weightedMean([[failurePenalty, 0.6], [hasAuth, 0.4]] as const);
 
-  // Telemetry: neutral until Phase 2
-  const telemetryReporting = 0.5;
+  // Telemetry: Phase 2b live signal (from computeTelemetryReporting)
+  const telemetryReporting = telemetrySignal ?? 0.5;
 
   const score = weightedMean([
     [coverage, 0.35],
@@ -474,32 +784,85 @@ function dimensionConfidence(observationCount: number): number {
   return Math.min(0.95, 1 / (1 + Math.exp(-0.06 * (observationCount - 30))));
 }
 
+// ─── Tier Lookup (Phase 2b) ───────────────────────────────────────────────────
+
+async function lookupAccountTier(kv: KVNamespace, agentId: string): Promise<TrustTier> {
+  try {
+    const keyHash = await kv.get('account:' + agentId);
+    if (!keyHash) return 'free';
+    const raw = await kv.get('key:' + keyHash);
+    if (!raw) return 'free';
+    const account = JSON.parse(raw);
+    // Map plan field to TrustTier
+    if (account.plan === 'pro') return 'pro';
+    if (account.plan === 'starter') return 'starter';
+    if (account.tier === 'paid') return 'starter'; // paid without specific plan = starter
+    return 'free';
+  } catch {
+    return 'free'; // Fail-safe: default to free
+  }
+}
+
 // ─── Main: Compute Trust Score ────────────────────────────────────────────────────
 
 export async function computeTrustScore(
   db: D1Database,
   agentId: string,
+  options?: TrustComputeOptions,
 ): Promise<TrustProfile> {
-  // Fetch 90 days of audit events for this agent
-  const cutoff = new Date(Date.now() - 90 * 86_400_000).toISOString();
-  const { results: events } = await db
-    .prepare(
-      `SELECT id, timestamp, account_id, actor_id, category, action, result, prev_hash, signature, resource_type, error_code
-       FROM audit_log
-       WHERE actor_id = ?
-         AND timestamp >= ?
-       ORDER BY timestamp ASC
-       LIMIT 5000`,
-    )
-    .bind(agentId, cutoff)
-    .all<AuditEvent>();
+  // Resolve tier
+  let tier: TrustTier = options?.tier ?? 'free';
+  if (!options?.tier && options?.kv) {
+    tier = await lookupAccountTier(options.kv, agentId);
+  }
 
-  const evtList = events ?? [];
+  // Phase 2b: Fetch from BOTH audit_log and behavioral_events
+  let evtList: AuditEvent[];
+  let metrics: EventMixMetrics;
 
-  // Compute dimension scores
+  try {
+    const combined = await fetchCombinedEvents(db, agentId, 90);
+    evtList = combined.events;
+    metrics = combined.metrics;
+  } catch (e) {
+    // Graceful degradation: if behavioral_events table doesn't exist yet,
+    // fall back to audit_log only (Phase 1 behavior)
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg.includes('behavioral_events') || msg.includes('no such table')) {
+      const cutoff = new Date(Date.now() - 90 * 86_400_000).toISOString();
+      const { results: events } = await db
+        .prepare(
+          `SELECT id, timestamp, account_id, actor_id, category, action, result, prev_hash, signature, resource_type, error_code
+           FROM audit_log
+           WHERE actor_id = ?
+             AND timestamp >= ?
+           ORDER BY timestamp ASC
+           LIMIT 5000`,
+        )
+        .bind(agentId, cutoff)
+        .all<AuditEvent>();
+      evtList = (events ?? []).map(e => ({ ...e, _source: 'internal' as const }));
+      metrics = {
+        internalCount: evtList.length,
+        externalCount: 0,
+        externalSignedCount: 0,
+        externalUnsignedCount: 0,
+        externalUniqueDays: 0,
+        externalCategories: new Set(),
+        totalActiveDays: new Set(evtList.map(e => e.timestamp.slice(0, 10))).size,
+      };
+    } else {
+      throw e;
+    }
+  }
+
+  // Compute live telemetry_reporting signal (Phase 2b)
+  const telemetrySignal = computeTelemetryReporting(metrics, tier);
+
+  // Compute dimension scores (transparency now gets live telemetry signal)
   const consistencyResult  = computeConsistency(evtList);
   const restraintResult    = computeRestraint(evtList);
-  const transparencyResult = computeTransparency(evtList);
+  const transparencyResult = computeTransparency(evtList, telemetrySignal);
 
   // Weighted raw score [0.0, 1.0]
   const rawScore =
@@ -507,14 +870,32 @@ export async function computeTrustScore(
     restraintResult.score    * PHASE1_WEIGHTS.restraint +
     transparencyResult.score * PHASE1_WEIGHTS.transparency;
 
-  // Apply cold-start prior
-  const { score: adjustedScore, confidence } = applyColdStartPrior(rawScore, evtList.length);
+  // Apply selective reporting penalty (RFC-003 Section 7.3)
+  const selectiveReportingMult = detectSelectiveReporting(evtList);
+  const adjustedRawScore = rawScore * selectiveReportingMult;
+
+  // Apply entropy penalty (spec Section 4.1): penalise suspiciously perfect or uniform scores
+  const penalizedScore = applyEntropyPenalty(adjustedRawScore, {
+    consistency:  consistencyResult.score,
+    restraint:    restraintResult.score,
+    transparency: transparencyResult.score,
+  });
+
+  // Phase 2b: effective observations considers source weights and tier multiplier
+  const effectiveObs = computeEffectiveObservations(evtList, tier);
+
+  // Apply cold-start prior (using effective observation count)
+  const { score: coldStartScore, confidence } = applyColdStartPrior(penalizedScore, effectiveObs);
 
   // Scale to 0-100
-  const score = Math.round(adjustedScore * 100);
+  const score = Math.round(coldStartScore * 100);
 
-  // Derive ATF level and confidence interval
-  const atfLevel = deriveATFLevel(score, confidence);
+  // Derive base ATF level
+  let atfLevel = deriveATFLevel(score, confidence);
+
+  // Phase 2b: Apply tier and ratio level caps
+  atfLevel = applyLevelCaps(atfLevel, metrics, tier);
+
   const ci       = computeConfidenceInterval(score, evtList.length);
   const dimConf  = dimensionConfidence(evtList.length);
 
@@ -605,6 +986,7 @@ export async function checkTrustGate(
   db: D1Database,
   agentId: string,
   minLevel: ATFLevel = 'intern',
+  options?: TrustComputeOptions,
 ): Promise<{
   agentId: string;
   score: number;
@@ -627,24 +1009,32 @@ export async function checkTrustGate(
       .first<{ score: number; confidence: number; atf_level: string; computed_at: string }>();
 
     if (cached) {
-      const atfLevel = cached.atf_level as ATFLevel;
-      return {
-        agentId,
-        score:         cached.score,
-        atfLevel,
-        meetsMinimum:  ATF_RANK[atfLevel] >= ATF_RANK[minLevel],
-        requiredLevel: minLevel,
-        confidence:    cached.confidence,
-        computedAt:    cached.computed_at,
-        cached:        true,
-      };
+      // H3: TTL check — reject stale cache. Without this, an agent could build a high
+      // score, stop normal operations, and the gate would keep authorising based on the
+      // old score indefinitely.
+      const MAX_CACHE_AGE_MS = 3_600_000; // 1 hour
+      const ageMs = Date.now() - new Date(cached.computed_at).getTime();
+      if (ageMs <= MAX_CACHE_AGE_MS) {
+        const atfLevel = cached.atf_level as ATFLevel;
+        return {
+          agentId,
+          score:         cached.score,
+          atfLevel,
+          meetsMinimum:  ATF_RANK[atfLevel] >= ATF_RANK[minLevel],
+          requiredLevel: minLevel,
+          confidence:    cached.confidence,
+          computedAt:    cached.computed_at,
+          cached:        true,
+        };
+      }
+      // Stale cache — fall through to full recomputation
     }
   } catch {
     // Cache miss or table not yet created — fall through to full computation
   }
 
-  // Full computation fallback
-  const profile = await computeTrustScore(db, agentId);
+  // Full computation fallback (passes tier options for Phase 2b)
+  const profile = await computeTrustScore(db, agentId, options);
   return {
     agentId,
     score:         profile.score,
