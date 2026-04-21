@@ -8,7 +8,11 @@ import type { Env, X402VerifyResult, X402SettleResult } from './types.js';
 export const X402_CONFIG = {
   network: 'eip155:8453',
   asset: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', // USDC on Base
+  /** Primary facilitator — ultravioletadao.xyz (supports Base mainnet).
+   *  CDP facilitator (x402.org) only supports Base Sepolia as of 2026-04-21.
+   *  When CDP adds Base mainnet, swap primary/fallback. */
   facilitator: 'https://facilitator.ultravioletadao.xyz',
+  facilitatorFallback: 'https://x402.org/facilitator',
   payTo: '0x90EE1EbcCFA2021711C595E1410e22401570B4AC',
   maxTimeoutSeconds: 60,
   x402Version: 2,
@@ -23,6 +27,92 @@ export interface ServicePaymentConfig {
   resource: string;
   description: string;
   mimeType: string;
+  /** Bazaar discovery metadata — enables agentic.market auto-indexing. */
+  discovery?: BazaarDiscovery;
+}
+
+// ─── Bazaar Discovery Metadata ────────────────────────────────────────────────
+// Inline Bazaar extension builder — same output as @x402/extensions/bazaar
+// but zero dependencies. Structure matches x402 Bazaar spec.
+
+export interface BazaarDiscovery {
+  bodyType?: 'json' | 'form-data' | 'text';
+  input?: Record<string, unknown>;
+  inputSchema?: {
+    properties: Record<string, { type: string; description?: string; enum?: string[]; required?: boolean; default?: unknown }>;
+    required?: string[];
+  };
+  output?: { example: Record<string, unknown> };
+}
+
+/** Build Bazaar discovery extension object for inclusion in 402 response `extensions`. */
+function buildBazaarExtension(discovery: BazaarDiscovery) {
+  const isPost = !!discovery.bodyType;
+
+  const inputInfo: Record<string, unknown> = { type: 'http' };
+  const inputSchemaProps: Record<string, unknown> = {
+    type: { type: 'string', const: 'http' },
+    method: {
+      type: 'string',
+      enum: isPost ? ['POST', 'PUT', 'PATCH'] : ['GET', 'HEAD', 'DELETE'],
+    },
+  };
+  const inputSchemaRequired: string[] = ['type', 'method'];
+
+  if (isPost) {
+    inputInfo.bodyType = discovery.bodyType;
+    if (discovery.input) inputInfo.body = discovery.input;
+    inputSchemaProps.bodyType = { type: 'string', enum: ['json', 'form-data', 'text'] };
+    if (discovery.inputSchema) {
+      inputSchemaProps.body = {
+        properties: discovery.inputSchema.properties,
+        ...(discovery.inputSchema.required ? { required: discovery.inputSchema.required } : {}),
+      };
+    }
+    inputSchemaRequired.push('bodyType', 'body');
+  } else {
+    if (discovery.input) inputInfo.queryParams = discovery.input;
+    if (discovery.inputSchema) {
+      inputSchemaProps.queryParams = {
+        type: 'object',
+        properties: discovery.inputSchema.properties,
+        ...(discovery.inputSchema.required ? { required: discovery.inputSchema.required } : {}),
+      };
+    }
+  }
+
+  const outputInfo: Record<string, unknown> = { type: 'json' };
+  if (discovery.output?.example) outputInfo.example = discovery.output.example;
+
+  return {
+    bazaar: {
+      info: {
+        input: inputInfo,
+        output: outputInfo,
+      },
+      schema: {
+        $schema: 'https://json-schema.org/draft/2020-12/schema',
+        type: 'object',
+        properties: {
+          input: {
+            type: 'object',
+            properties: inputSchemaProps,
+            required: inputSchemaRequired,
+            additionalProperties: false,
+          },
+          output: {
+            type: 'object',
+            properties: {
+              type: { type: 'string' },
+              example: { type: 'object' },
+            },
+            required: ['type'],
+          },
+        },
+        required: ['input'],
+      },
+    },
+  };
 }
 
 export const SERVICE_PRICES: Record<string, ServicePaymentConfig> = {
@@ -31,36 +121,239 @@ export const SERVICE_PRICES: Record<string, ServicePaymentConfig> = {
     resource: 'https://agentlair.dev/v1/email/send',
     description: 'AgentLair email send — 0.01 USDC per email when rate limit exceeded.',
     mimeType: 'application/json',
+    discovery: {
+      bodyType: 'json',
+      input: { to: 'recipient@example.com', subject: 'Hello', text: 'Message body' },
+      inputSchema: {
+        properties: {
+          to: { type: 'string', description: 'Recipient email address' },
+          subject: { type: 'string', description: 'Email subject line' },
+          text: { type: 'string', description: 'Plain text email body' },
+          html: { type: 'string', description: 'HTML email body (optional)' },
+        },
+        required: ['to', 'subject', 'text'],
+      },
+      output: { example: { messageId: 'msg_abc123', status: 'sent' } },
+    },
   },
   vault_write: {
     amount: '10000', // 0.01 USDC
     resource: 'https://agentlair.dev/v1/vault',
     description: 'AgentLair vault write — 0.01 USDC per key beyond free tier limit.',
     mimeType: 'application/json',
+    discovery: {
+      bodyType: 'json',
+      input: { key: 'my-secret', value: 'encrypted-data' },
+      inputSchema: {
+        properties: {
+          key: { type: 'string', description: 'Vault key name' },
+          value: { type: 'string', description: 'Encrypted value (client-side AES-256-GCM)' },
+        },
+        required: ['key', 'value'],
+      },
+      output: { example: { key: 'my-secret', written: true } },
+    },
   },
   calendar_event: {
     amount: '10000', // 0.01 USDC
     resource: 'https://agentlair.dev/v1/calendar/events',
     description: 'AgentLair calendar event — 0.01 USDC per event beyond free tier limit.',
     mimeType: 'application/json',
+    discovery: {
+      bodyType: 'json',
+      input: { title: 'Meeting', start: '2026-05-01T10:00:00Z', end: '2026-05-01T11:00:00Z' },
+      inputSchema: {
+        properties: {
+          title: { type: 'string', description: 'Event title' },
+          start: { type: 'string', description: 'Start time (ISO 8601)' },
+          end: { type: 'string', description: 'End time (ISO 8601)' },
+          description: { type: 'string', description: 'Event description' },
+        },
+        required: ['title', 'start'],
+      },
+      output: { example: { id: 'evt_123', title: 'Meeting', created: true } },
+    },
   },
   stack_create: {
     amount: '10000', // 0.01 USDC
     resource: 'https://agentlair.dev/v1/stack',
     description: 'AgentLair stack provision — 0.01 USDC per stack beyond free tier limit.',
     mimeType: 'application/json',
+    discovery: {
+      bodyType: 'json',
+      input: { name: 'my-agent-stack' },
+      inputSchema: {
+        properties: {
+          name: { type: 'string', description: 'Stack name' },
+          config: { type: 'string', description: 'Stack configuration (JSON)' },
+        },
+        required: ['name'],
+      },
+      output: { example: { id: 'stk_abc', name: 'my-agent-stack', status: 'provisioned' } },
+    },
   },
   tier_upgrade: {
     amount: '5000000', // 5.00 USDC
     resource: 'https://agentlair.dev/v1/account/upgrade',
     description: 'AgentLair tier upgrade — 5.00 USDC for 30 days of paid tier (10K req/day, 1K emails/day, 999 stacks).',
     mimeType: 'application/json',
+    discovery: {
+      bodyType: 'json',
+      input: {},
+      inputSchema: { properties: {}, required: [] },
+      output: { example: { tier: 'paid', expires_at: '2026-06-01T00:00:00Z' } },
+    },
   },
   general_api: {
     amount: '1000', // 0.001 USDC
     resource: 'https://agentlair.dev/v1/*',
     description: 'AgentLair API request — 0.001 USDC per request beyond free tier.',
     mimeType: 'application/json',
+  },
+  token_verify: {
+    amount: '1000', // 0.001 USDC
+    resource: 'https://agentlair.dev/v1/tokens/introspect',
+    description: 'AgentLair token verification — 0.001 USDC per verification beyond free tier (1,000/month).',
+    mimeType: 'application/json',
+    discovery: {
+      bodyType: 'json',
+      input: { token: 'aat_...' },
+      inputSchema: {
+        properties: {
+          token: { type: 'string', description: 'Agent Authentication Token (AAT) to verify' },
+        },
+        required: ['token'],
+      },
+      output: { example: { valid: true, agent_id: 'agent_123', issuer: 'agentlair.dev', expires_at: '2026-05-01T00:00:00Z' } },
+    },
+  },
+  agent_provision: {
+    amount: '10000', // 0.01 USDC
+    resource: 'https://agentlair.dev/v1/register',
+    description: 'AgentLair agent registration — 0.01 USDC per agent beyond free tier (3 agents).',
+    mimeType: 'application/json',
+    discovery: {
+      bodyType: 'json',
+      input: { name: 'my-agent' },
+      inputSchema: {
+        properties: {
+          name: { type: 'string', description: 'Agent display name' },
+          description: { type: 'string', description: 'Agent description' },
+        },
+        required: ['name'],
+      },
+      output: { example: { agent_id: 'agent_abc', name: 'my-agent', aat: 'aat_...' } },
+    },
+  },
+  // Event submit overage pricing — three tiers, one resource URL.
+  // Free tier hits daily limit first (500/day); overage at $0.001/event.
+  // Starter tier hits at 5,000/day; overage at $0.0005/event.
+  // Pro tier hits at 50,000/day; overage at $0.0003/event.
+  event_submit_free: {
+    amount: '1000', // 0.001 USDC ($0.001)
+    resource: 'https://agentlair.dev/v1/events',
+    description: 'AgentLair event submit — 0.001 USDC per event when Free tier daily limit (500/day) is exceeded.',
+    mimeType: 'application/json',
+    discovery: {
+      bodyType: 'json',
+      input: { type: 'audit', action: 'email.send', agent_id: 'agent_123' },
+      inputSchema: {
+        properties: {
+          type: { type: 'string', description: 'Event type (audit, metric, log)' },
+          action: { type: 'string', description: 'Action identifier' },
+          agent_id: { type: 'string', description: 'Source agent ID' },
+          data: { type: 'string', description: 'Event payload (JSON)' },
+        },
+        required: ['type', 'action', 'agent_id'],
+      },
+      output: { example: { id: 'evt_abc', accepted: true } },
+    },
+  },
+  event_submit_paid: {
+    amount: '500', // 0.0005 USDC ($0.0005)
+    resource: 'https://agentlair.dev/v1/events',
+    description: 'AgentLair event submit — 0.0005 USDC per event when Starter tier daily limit (5,000/day) is exceeded.',
+    mimeType: 'application/json',
+  },
+  event_submit_pro: {
+    amount: '300', // 0.0003 USDC ($0.0003)
+    resource: 'https://agentlair.dev/v1/events',
+    description: 'AgentLair event submit — 0.0003 USDC per event when Pro tier daily limit (50,000/day) is exceeded.',
+    mimeType: 'application/json',
+  },
+  // ─── Anonymous (no API key) x402-gated endpoints ─────────────────────────────
+  // These are accessible without an AgentLair account — payment IS the authentication.
+  trust_query: {
+    amount: '10000', // 0.01 USDC
+    resource: 'https://agentlair.dev/v1/trust',
+    description: 'AgentLair trust score query — 0.01 USDC per lookup.',
+    mimeType: 'application/json',
+    discovery: {
+      input: { agent_id: 'acc_abc123' },
+      inputSchema: {
+        properties: {
+          agent_id: { type: 'string', description: 'Agent ID to query trust score for (acc_...)' },
+        },
+        required: ['agent_id'],
+      },
+      output: {
+        example: {
+          agent_id: 'acc_abc123',
+          score: 78.4,
+          atf_level: 'junior',
+          confidence: 0.82,
+          observations: 142,
+        },
+      },
+    },
+  },
+  agent_lookup: {
+    amount: '5000', // 0.005 USDC
+    resource: 'https://agentlair.dev/v1/agents/lookup',
+    description: 'AgentLair agent discovery lookup — 0.005 USDC to resolve agent name to identity.',
+    mimeType: 'application/json',
+    discovery: {
+      input: { handle: 'research-agent' },
+      inputSchema: {
+        properties: {
+          handle: { type: 'string', description: 'Agent handle (name part of @agentlair.dev email)' },
+          email: { type: 'string', description: 'Full @agentlair.dev email address' },
+          id: { type: 'string', description: 'Agent account ID (acc_...)' },
+        },
+      },
+      output: {
+        example: {
+          id: 'acc_abc123',
+          name: 'research-agent',
+          email: 'research-agent@agentlair.dev',
+          did: 'did:web:agentlair.dev:agents:acc_abc123',
+          jwks_url: 'https://agentlair.dev/agents/acc_abc123/.well-known/jwks.json',
+          registered_at: '2026-03-15T10:00:00Z',
+          verified: true,
+        },
+      },
+    },
+  },
+  event_submit_anon: {
+    amount: '100', // 0.0001 USDC
+    resource: 'https://agentlair.dev/v1/events',
+    description: 'AgentLair behavioral event submission — 0.0001 USDC per batch (anonymous, no API key required).',
+    mimeType: 'application/json',
+    discovery: {
+      bodyType: 'json',
+      input: {
+        agent_id: 'acc_abc123',
+        events: [{ event_id: 'evt_001', timestamp: '2026-04-21T00:00:00Z', category: 'tool', action: 'tool.call', result: 'success' }],
+      },
+      inputSchema: {
+        properties: {
+          agent_id: { type: 'string', description: 'Agent account ID (acc_...) — required for anonymous submission', required: true },
+          events: { type: 'string', description: 'Array of behavioral event objects' },
+        },
+        required: ['agent_id', 'events'],
+      },
+      output: { example: { accepted: 1, rejected: 0, source: 'anonymous' } },
+    },
   },
 } as const;
 
@@ -75,6 +368,9 @@ export const EMAIL_PAYMENT_REQUIRED_RESPONSE = {
   x402Version: X402_CONFIG.x402Version,
   error: 'Payment required: 0.01 USDC on Base to send email beyond rate limit.',
   accepts: [EMAIL_PAYMENT_REQUIREMENTS],
+  ...(SERVICE_PRICES.email_send.discovery
+    ? { extensions: buildBazaarExtension(SERVICE_PRICES.email_send.discovery) }
+    : {}),
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -104,12 +400,17 @@ function formatUSDC(atomicAmount: string): string {
 /** Build a full 402 response body for a given service. */
 export function make402ResponseBody(service: ServicePaymentConfig, extra?: Record<string, unknown>) {
   const requirements = getPaymentRequirements(service);
-  return {
+  const body: Record<string, unknown> = {
     x402Version: X402_CONFIG.x402Version,
     error: `Payment required: ${formatUSDC(service.amount)} USDC on Base — ${service.description}`,
     accepts: [requirements],
     ...extra,
   };
+  // Include Bazaar discovery metadata if defined — enables agentic.market auto-indexing
+  if (service.discovery) {
+    body.extensions = buildBazaarExtension(service.discovery);
+  }
+  return body;
 }
 
 /** Build a complete HTTP 402 Response for a service limit. */
