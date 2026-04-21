@@ -1,1 +1,23 @@
-{"$schema":"https://glama.ai/mcp/schemas/server.json","maintainers":["piiiico"]}
+{
+  "$schema": "https://glama.ai/mcp/schemas/server.json",
+  "maintainers": ["piiiico"],
+  "name": "agentlair",
+  "description": "Give AI agents a real @agentlair.dev email address, encrypted vault, and calendar. Tamper-evident audit trail for EU AI Act Article 12 compliance. Works with Claude Code, Cursor, Windsurf, and any MCP client. No SMTP setup — just an API key.",
+  "category": "Productivity",
+  "tags": [
+    "email",
+    "vault",
+    "calendar",
+    "audit-trail",
+    "eu-ai-act",
+    "compliance",
+    "ai-agent",
+    "identity",
+    "mcp",
+    "cloudflare-workers"
+  ],
+  "author": "piiiico",
+  "license": "MIT",
+  "repository": "https://github.com/piiiico/agentlair",
+  "homepage": "https://agentlair.dev"
+}
