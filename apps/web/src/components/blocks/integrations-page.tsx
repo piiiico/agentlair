@@ -299,7 +299,7 @@ const frameworkTabs: FrameworkTab[] = [
     label: "MCP",
     title: "MCP (Claude Desktop / Cursor)",
     description:
-      "Add AgentLair as an MCP server. Your AI assistant gets 13 tools automatically — email (send_email, check_inbox, claim_address) and calendar (create_event, list_events, update_event, delete_event, get_ical_feed).",
+      "Add AgentLair as an MCP server. Your AI assistant gets 14 tools automatically — email (claim_address, send_email, check_inbox, read_message, list_addresses), vault (vault_put, vault_get, vault_list, vault_delete), calendar (calendar_create_event, calendar_list_events, calendar_delete_event, calendar_get_feed), and task delegation (delegate_task).",
     installCmd: "npx @agentlair/mcp@latest",
     installTitle: "Install",
     language: "bash",
