@@ -50,6 +50,7 @@ import { didRoutes } from './routes/did.js';
 import { specRoutes } from './routes/spec.js';
 import { idpRoutes, revokeRoutes, buildOIDCDiscovery } from './idp/index.js';
 import { demoRoutes } from './routes/demo.js';
+import { EXPLORE_HTML } from './routes/explore.js';
 import { computeTrustScore } from './trust-engine.js';
 
 // ─── Hono App Type ──────────────────────────────────────────────────────────────
@@ -395,6 +396,18 @@ app.get('/getting-started', async (c) => {
   // Always serve the Astro HTML page — this is a developer onboarding page
   // and must be human-readable even when accessed via curl or automated tools.
   return proxyToPages(c, '/getting-started');
+});
+app.get('/explore', (_c) => {
+  // Interactive trust explorer — served inline (no CF Pages dependency).
+  // Zero-friction entry point for Show HN / onboarding. Calls /v1/demo client-side.
+  return new Response(EXPLORE_HTML, {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'public, max-age=300',
+      'X-Powered-By': 'AgentLair',
+    },
+  });
 });
 app.get('/', async (c) => {
   const acceptHeader = c.req.raw.headers.get('Accept') || '';
