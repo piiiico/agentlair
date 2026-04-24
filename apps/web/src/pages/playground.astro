@@ -1,0 +1,12 @@
+---
+import { Playground } from '@/components/blocks/playground';
+import { TrustPlayground } from '@/components/blocks/trust-playground';
+import DefaultLayout from '@/layouts/DefaultLayout.astro';
+---
+<DefaultLayout
+  title="Playground — AgentLair"
+  description="Try AgentLair in 30 seconds. Generate tokens, verify them live, and watch the trust engine score behavioral events in real-time."
+>
+  <Playground client:only='react' />
+  <TrustPlayground client:only='react' />
+</DefaultLayout>
