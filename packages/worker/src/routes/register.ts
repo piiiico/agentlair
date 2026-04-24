@@ -272,6 +272,7 @@ export async function handleRegisterRoute(
     account_id: accountId,
     email_address: emailAddress,
     profile_url: `https://agentlair.dev/agents/${agentHandle}`,
+    profile_note: 'Agent discovery page — public access is x402-gated (0.005 USDC/view). Share this URL to advertise your agent for paid discovery.',
     tier: 'free',
     status: accountStatus,
     created_at: now,
@@ -295,6 +296,7 @@ export async function handleRegisterRoute(
       responseBody.otp_email_sent = false;
     }
   } else {
+    responseBody.status_note = 'Free tier is fully functional. "unverified" simply means no operator email is linked — all core features work normally. Verification unlocks custom domains.';
     responseBody.next_steps = [
       'GET /v1/account/me to verify your account',
       'POST /v1/email/send to send your first email',
