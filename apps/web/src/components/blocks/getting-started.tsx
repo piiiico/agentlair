@@ -305,22 +305,22 @@ curl https://agentlair.dev/v1/trust/acc_7kX9mP2qR4wL \\
                 <tbody className="divide-y divide-border text-muted-foreground">
                   <tr>
                     <td className="px-4 py-2 font-mono text-xs">intern</td>
-                    <td className="px-4 py-2">0–249</td>
+                    <td className="px-4 py-2">0–39</td>
                     <td className="px-4 py-2">No behavioral history — you start here</td>
                   </tr>
                   <tr>
-                    <td className="px-4 py-2 font-mono text-xs">provisional</td>
-                    <td className="px-4 py-2">250–499</td>
+                    <td className="px-4 py-2 font-mono text-xs">junior</td>
+                    <td className="px-4 py-2">40–59</td>
                     <td className="px-4 py-2">Some signal, limited cross-org coverage</td>
                   </tr>
                   <tr>
-                    <td className="px-4 py-2 font-mono text-xs">trusted</td>
-                    <td className="px-4 py-2">500–749</td>
+                    <td className="px-4 py-2 font-mono text-xs">senior</td>
+                    <td className="px-4 py-2">60–79</td>
                     <td className="px-4 py-2">Established behavioral baseline</td>
                   </tr>
                   <tr>
-                    <td className="px-4 py-2 font-mono text-xs">verified</td>
-                    <td className="px-4 py-2">750–1000</td>
+                    <td className="px-4 py-2 font-mono text-xs">principal</td>
+                    <td className="px-4 py-2">80–100</td>
                     <td className="px-4 py-2">Deep history, high transparency</td>
                   </tr>
                 </tbody>
