@@ -116,6 +116,8 @@ export interface X402VerifyResult {
   error?: string;
   payer?: string;
   rawPayload?: unknown;
+  /** Which facilitator URL was used for successful verification (for settle to use the same). */
+  facilitatorUrl?: string;
 }
 
 export interface X402SettleResult {

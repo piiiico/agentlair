@@ -904,7 +904,7 @@ app.get('/agents/:name', async (c) => {
     return make402Response(SERVICE_PRICES.agent_lookup, { payment_error: verification.error });
   }
 
-  const settlement = await settleX402Payment(xPayment, SERVICE_PRICES.agent_lookup);
+  const settlement = await settleX402Payment(xPayment, SERVICE_PRICES.agent_lookup, verification.facilitatorUrl);
   if (!settlement.settled) {
     return make402Response(SERVICE_PRICES.agent_lookup, { payment_error: settlement.error });
   }
@@ -1156,7 +1156,7 @@ app.use('/v1/*', async (c: Context<HonoEnv>, next: Next): Promise<void | Respons
       }
 
       // Settle the payment before serving the request
-      const settlement = await settleX402Payment(xPayment, service);
+      const settlement = await settleX402Payment(xPayment, service, verification.facilitatorUrl);
       if (!settlement.settled) {
         return make402Response(service, {
           rate_limit: {

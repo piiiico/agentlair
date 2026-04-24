@@ -478,28 +478,48 @@ export async function verifyX402Payment(
     },
   };
 
-  try {
-    const res = await fetch(`${X402_CONFIG.facilitator}/verify`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(verifyBody),
-    });
+  // Try primary facilitator, then fallback on network errors.
+  // HTTP 4xx/5xx = legitimate rejection → do NOT retry (security: don't shop for a permissive facilitator).
+  // Fetch/network error = infrastructure issue → retry with fallback.
+  const facilitators = [X402_CONFIG.facilitator, X402_CONFIG.facilitatorFallback];
+  let lastError = '';
 
-    if (!res.ok) {
-      const text = await res.text().catch(() => res.statusText);
-      return { valid: false, error: `Facilitator verify failed (${res.status}): ${text}` };
+  for (const facilitatorUrl of facilitators) {
+    try {
+      const res = await fetch(`${facilitatorUrl}/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(verifyBody),
+      });
+
+      // HTTP error = legitimate rejection, return immediately (don't retry)
+      if (!res.ok) {
+        const text = await res.text().catch(() => res.statusText);
+        return { valid: false, error: `Facilitator verify failed (${res.status}): ${text}` };
+      }
+
+      const result = (await res.json()) as FacilitatorVerifyResponse;
+      if (!result.isValid) {
+        return { valid: false, error: result.invalidReason || 'Payment verification failed' };
+      }
+
+      // Log if fallback was used
+      if (facilitatorUrl !== X402_CONFIG.facilitator) {
+        console.log(`x402: verification succeeded via fallback facilitator ${facilitatorUrl}`);
+      }
+
+      return { valid: true, payer: result.payer, rawPayload: paymentPayload, facilitatorUrl };
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      lastError = message;
+      // Network/fetch error → try next facilitator
+      if (facilitatorUrl === X402_CONFIG.facilitator) {
+        console.warn(`x402: primary facilitator unreachable (${message}), trying fallback...`);
+      }
     }
-
-    const result = (await res.json()) as FacilitatorVerifyResponse;
-    if (!result.isValid) {
-      return { valid: false, error: result.invalidReason || 'Payment verification failed' };
-    }
-
-    return { valid: true, payer: result.payer, rawPayload: paymentPayload };
-  } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : String(e);
-    return { valid: false, error: `Facilitator unreachable: ${message}` };
   }
+
+  return { valid: false, error: `All facilitators unreachable: ${lastError}` };
 }
 
 /**
@@ -510,6 +530,7 @@ export async function verifyX402Payment(
 export async function settleX402Payment(
   paymentHeader: string,
   service: ServicePaymentConfig = SERVICE_PRICES.email_send,
+  facilitatorUrl: string = X402_CONFIG.facilitator,
 ): Promise<X402SettleResult> {
   let paymentPayload: PaymentPayload;
   try {
@@ -540,7 +561,7 @@ export async function settleX402Payment(
   };
 
   try {
-    const res = await fetch(`${X402_CONFIG.facilitator}/settle`, {
+    const res = await fetch(`${facilitatorUrl}/settle`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(settleBody),
