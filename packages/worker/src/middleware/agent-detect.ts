@@ -160,7 +160,7 @@ export const AGENTLAIR_MANIFEST = {
         to: { type: 'string', description: 'Recipient email address', required: true },
         from: { type: 'string', description: 'Your claimed @agentlair.dev address', required: true },
         subject: { type: 'string', description: 'Email subject line', required: true },
-        body: { type: 'string', description: 'Plain text email body', required: true },
+        text: { type: 'string', description: 'Plain text email body', required: true },
       },
       returns: '{ sent: true, message_id: "..." }',
     },
