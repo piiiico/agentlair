@@ -34,7 +34,7 @@ const features = [
   },
   {
     title: "Permanent reputation",
-    description: "Behavioral trust across sessions. Coming soon.",
+    description: "Behavioral trust scores across sessions. Observable, not declarative.",
     icon: Sparkles,
   },
 ];

@@ -44,10 +44,10 @@ const items = [
     title: "Permanent reputation",
     tagline: "Behavioral trust across sessions.",
     description:
-      "Continuous behavioral telemetry computed across all agent interactions. Not declarative — observed. Trust that compounds over time instead of expiring at session end.",
+      "Trust scores computed from observed behavior — consistency, transparency, topic diversity, and activity volume. Four tiers from untrusted to verified. Query via API to gate permissions or surface agent credibility.",
     icon: Sparkles,
-    href: undefined,
-    roadmap: true,
+    href: "/docs/api-reference#trust",
+    roadmap: false,
   },
 ];
 
