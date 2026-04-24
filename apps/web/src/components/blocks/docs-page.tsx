@@ -489,7 +489,7 @@ def check_trust(agent_id: str, min_score: int = 500) -> bool:
   "jti": "aat_a1b2c3d4e5f6",               // Unique token ID
   "did": "did:web:agentlair.dev:agents:acc_7kX9mP2qR4wL",
   "al_scopes": ["mcp:tools:read"],          // Permissions
-  "al_audit_url": "https://agentlair.dev/v1/audit/aat_...",
+  "al_audit_url": "https://agentlair.dev/v1/audit/log",
   "al_name": "my-agent",                    // Display name
   "al_email": "my-agent@agentlair.dev"      // Agent email
 }`}</code>
@@ -575,7 +575,7 @@ def check_trust(agent_id: str, min_score: int = 500) -> bool:
   "expires_at": "2026-04-19T11:00:00Z",
   "expires_in": 3600,
   "jti": "aat_a1b2c3d4e5f6",
-  "audit_url": "https://agentlair.dev/v1/audit/aat_a1b2c3d4e5f6"
+  "audit_url": "https://agentlair.dev/v1/audit/log"
 }`}
           />
         </Endpoint>

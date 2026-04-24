@@ -77,7 +77,7 @@ const SAMPLE_PAYLOAD = {
   jti: "aat_pg_" + Math.random().toString(36).slice(2, 10),
   did: "did:web:agentlair.dev:agents:acc_demo_7x9k2m",
   al_scopes: ["mcp:tools:read", "mcp:tools:execute"],
-  al_audit_url: "https://agentlair.dev/v1/audit/aat_pg_demo",
+  al_audit_url: "https://agentlair.dev/v1/audit/log",
   al_name: "research-agent-7",
   al_email: "research-agent-7@agentlair.dev",
   al_trust: {
@@ -110,7 +110,7 @@ const CLAIM_DESCRIPTIONS: Record<string, string> = {
   jti: "JWT ID — unique token identifier for revocation",
   did: "Decentralized Identifier — W3C DID for cross-platform identity",
   al_scopes: "Authorized scopes — what this agent can do",
-  al_audit_url: "Audit trail URL — full log of this token's usage",
+  al_audit_url: "Audit trail URL — query your account's full audit log",
   al_name: "Agent name — human-readable identifier",
   al_email: "Agent email — the agent's @agentlair.dev address",
   al_trust: "Behavioral trust attestation — computed from on-chain activity",
