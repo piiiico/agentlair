@@ -188,10 +188,9 @@ export function GettingStarted() {
               <strong className="text-foreground">Use an external address for testing.</strong>{" "}
               Sending to another{" "}
               <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-xs">@agentlair.dev</code>{" "}
-              address won't appear in inbox — inbound routing blocks{" "}
-              <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-xs">@agentlair.dev</code>{" "}
-              senders as spoofing prevention. Use Gmail, Outlook, or any external
-              address to receive the test email.
+              address works — it delivers to their inbox. For this test, use Gmail,
+              Outlook, or any external address so you can verify receipt directly in
+              your regular email client.
             </Tip>
           </StepCard>
 
