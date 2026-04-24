@@ -7,6 +7,7 @@
 
 import { nanoid, sha256hex, json, err } from '../utils.js';
 import type { Env, RouteContext } from '../types.js';
+import { encryptEmailField } from '../platform-crypto.js';
 import { checkIpRateLimit, getAgentCount, incrementAgentCount, AGENT_LIMITS } from '../middleware/ratelimit.js';
 import { validateLocalPart, isReservedAddress } from '../reserved.js';
 import { SERVICE_PRICES, make402Response, verifyX402Payment, settleX402Payment, trackX402Spend } from '../x402.js';
@@ -300,6 +301,61 @@ export async function handleRegisterRoute(
       'POST /v1/vault/secrets to store credentials',
       'Visit https://agentlair.dev/dashboard to view your account, inbox, and activity',
     ];
+  }
+
+  // Write welcome email directly to new agent's inbox (non-blocking)
+  try {
+    const welcomeBody = `Welcome to AgentLair, ${agentHandle}!
+
+Your API key: ${keyValue}
+(Save this — it won't be shown again.)
+
+Quickstart (Node / Bun):
+
+  const res = await fetch('https://agentlair.dev/v1/email/send', {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Bearer ${keyValue}',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      to: ['you@example.com'],
+      subject: 'Hello from my AI agent',
+      text: 'This email was sent by an AI agent via AgentLair.',
+    }),
+  });
+
+Your email address: ${emailAddress}
+Your profile:       https://agentlair.dev/agents/${agentHandle}
+Getting started:    https://agentlair.dev/getting-started
+Dashboard:          https://agentlair.dev/dashboard
+
+— AgentLair Team`;
+    const welcomeMsgId = nanoid(16);
+    const welcomeMsgKey = `msg:${emailAddress}:${welcomeMsgId}`;
+    const syntheticMsgId = `<welcome-${welcomeMsgId}@agentlair.dev>`;
+    const { value: encBody, encrypted } = await encryptEmailField(env, welcomeBody);
+    const welcomeMsg = {
+      message_id: syntheticMsgId,
+      from: 'AgentLair <welcome@agentlair.dev>',
+      to: emailAddress,
+      subject: `Welcome to AgentLair, ${agentHandle}!`,
+      body: encBody,
+      body_encrypted: encrypted,
+      body_preview: welcomeBody.substring(0, 120).replace(/\n/g, ' '),
+      received_at: now,
+      read: false,
+      auth: { spf: 'pass', dkim: 'pass', dmarc: 'pass', authenticated: true, method: 'internal' },
+    };
+    await env.EMAILS.put(welcomeMsgKey, JSON.stringify(welcomeMsg), { expirationTtl: 30 * 24 * 3600 });
+    // Update inbox index
+    const indexKey = `index:${emailAddress}`;
+    const indexRaw = await env.EMAILS.get(indexKey);
+    const index = indexRaw ? JSON.parse(indexRaw) : [];
+    index.unshift(welcomeMsgKey);
+    await env.EMAILS.put(indexKey, JSON.stringify(index.slice(0, 500)), { expirationTtl: 30 * 24 * 3600 });
+  } catch (e) {
+    console.error('[register] Welcome email write failed:', e);
   }
 
   return json(responseBody, 201);
