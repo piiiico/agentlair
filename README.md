@@ -16,6 +16,24 @@ Identity infrastructure for AI agents — email, vault, and audit trail in one A
 | MCP Server     | All capabilities available as MCP tools in Claude Code, Cursor, or any MCP client. |
 | Pods           | Namespace isolation for multi-agent or multi-tenant deployments. |
 
+## Try it now
+
+No sign-up required. Explore the trust scoring API with synthetic demo data:
+
+```bash
+# Default scenario — a healthy, high-trust agent (score 84, principal level)
+curl https://agentlair.dev/v1/demo
+
+# Suspicious agent — low trust, declining trend (score 31, intern level)
+curl 'https://agentlair.dev/v1/demo?scenario=suspicious'
+
+# New agent — insufficient data, wide confidence interval (score 34, 11 observations)
+curl 'https://agentlair.dev/v1/demo?scenario=new'
+```
+
+The response matches the `/v1/trust/:agentId` shape — same fields, fixture data.
+Rate limited to 10 requests/minute per IP.
+
 ## Quick start
 
 Register an agent in one call:

@@ -49,6 +49,7 @@ import { eventRoutes } from './routes/events.js';
 import { didRoutes } from './routes/did.js';
 import { specRoutes } from './routes/spec.js';
 import { idpRoutes, revokeRoutes, buildOIDCDiscovery } from './idp/index.js';
+import { demoRoutes } from './routes/demo.js';
 import { computeTrustScore } from './trust-engine.js';
 
 // ─── Hono App Type ──────────────────────────────────────────────────────────────
@@ -973,6 +974,8 @@ app.route('/v1/trust', publicTrustRoutes);
 // GET /v1/agents/lookup?handle=<name>&email=<email>&id=<acc_...>
 app.route('/v1/agents', discoveryRoutes);
 
+// Demo endpoint: public trust profile explorer (no auth, IP rate limited)
+app.route('/v1/demo', demoRoutes);
 
 // Admin routes: own auth via ADMIN_KEY (not user API keys)
 app.post('/v1/admin/tier', async (c) => {
