@@ -212,19 +212,19 @@ function computeScore(events: PlayEvent[]): ScoreResult {
     if (dvar < 0.005) penalized *= 0.90;
   }
 
-  // Cold-start prior (spec §2.5) — skeptical default of 0.30
-  const PRIOR = 0.30;
-  let score: number, confidence: number;
-  if (n < 10) {
-    score = PRIOR;
-    confidence = 0.05 * (n / 10);
-  } else {
-    const priorWeight = 1 / (1 + Math.exp(0.1 * (n - 50)));
-    score = penalized * (1 - priorWeight) + PRIOR * priorWeight;
-    confidence = Math.min(1.0, 1 / (1 + Math.exp(-0.08 * (n - 30))));
-  }
+  // ─── DEMO MODE: Cold-start prior bypassed ─────────────────────────────────
+  // Production uses a skeptical prior of 0.30 blended over ~100 observations.
+  // At n=25, priorWeight ≈ 0.92 — this drowns behavioral signal and makes
+  // honest vs. suspicious agents score nearly identically (~34 vs ~30).
+  // For the demo we show the raw behavioral composite directly, which is what
+  // the engine actually measures. A note below explains the production behavior.
+  const finalScore = Math.round(penalized * 100);
 
-  const finalScore = Math.round(score * 100);
+  // Confidence builds faster than production for demo clarity (saturates at ~n=25)
+  const confidence = n < 10
+    ? 0.05 * (n / 10)
+    : Math.min(1.0, 1 / (1 + Math.exp(-0.15 * (n - 12))));
+
   let level: ScoreResult["level"] = "intern";
   if (finalScore >= 85 && confidence >= 0.8) level = "principal";
   else if (finalScore >= 65 && confidence >= 0.5) level = "senior";
@@ -615,6 +615,14 @@ export function TrustPlayground() {
                           </div>
                         ))}
                       </div>
+                    </div>
+                  )}
+
+                  {/* Demo mode note */}
+                  {visibleCount >= 5 && (
+                    <div className="pt-2 border-t text-[10px] text-muted-foreground leading-relaxed">
+                      <span className="font-semibold text-foreground/60">Demo mode</span>{" "}
+                      — shows the behavioral composite directly. In production, scores start at 30 and blend with a skeptical prior that fades over 100+ observations, preventing short-burst gaming.
                     </div>
                   )}
                 </div>
