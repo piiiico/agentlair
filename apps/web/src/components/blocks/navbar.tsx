@@ -1,28 +1,49 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
-import { Github } from "lucide-react";
+import { ChevronDown, Github } from "lucide-react";
 
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { GITHUB_URL } from "@/consts";
 import { cn } from "@/lib/utils";
 
+const DOCS_ITEMS = [
+  { label: "Overview", href: "/docs" },
+  { label: "Getting Started", href: "/getting-started" },
+  { label: "Concepts", href: "/docs/concepts" },
+  { label: "API Reference", href: "/docs/api-reference" },
+  { label: "Audit Logger", href: "/docs/audit-logger" },
+  { label: "Vault Docs", href: "/docs/vault" },
+];
+
 const ITEMS = [
+  { label: "Playground", href: "/playground" },
   { label: "Pods", href: "/pods" },
   { label: "Vault", href: "/vault" },
-  { label: "Calendar", href: "/calendar" },
+  { label: "Explore", href: "/explore" },
   { label: "Blog", href: "/blog" },
-  { label: "Pricing", href: "/#pricing" },
-  { label: "Docs", href: "/docs" },
-  { label: "Get Started", href: "/getting-started" },
+  { label: "Pricing", href: "/pricing" },
+  { label: "Start Free", href: "/register" },
 ];
 
 export const Navbar = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isDocsOpen, setIsDocsOpen] = useState(false);
   const [pathname, setPathname] = useState("");
+  const docsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setPathname(window.location.pathname);
+  }, []);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (docsRef.current && !docsRef.current.contains(e.target as Node)) {
+        setIsDocsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
   return (
@@ -53,6 +74,36 @@ export const Navbar = () => {
               {link.label}
             </a>
           ))}
+          {/* Docs dropdown */}
+          <div ref={docsRef} className="relative">
+            <button
+              onClick={() => setIsDocsOpen(!isDocsOpen)}
+              className={cn(
+                "relative flex items-center gap-0.5 bg-transparent px-1.5 text-sm font-medium transition-opacity hover:opacity-75",
+                pathname.startsWith("/docs") && "text-muted-foreground",
+              )}
+            >
+              Docs
+              <ChevronDown className={cn("size-3 transition-transform", isDocsOpen && "rotate-180")} />
+            </button>
+            {isDocsOpen && (
+              <div className="bg-background border absolute right-0 top-full mt-2 w-48 rounded-xl p-1 shadow-lg">
+                {DOCS_ITEMS.map((item) => (
+                  <a
+                    key={item.href}
+                    href={item.href}
+                    className={cn(
+                      "block rounded-lg px-3 py-2 text-sm font-medium transition-colors hover:bg-primary/5",
+                      pathname === item.href ? "text-primary" : "text-foreground",
+                    )}
+                    onClick={() => setIsDocsOpen(false)}
+                  >
+                    {item.label}
+                  </a>
+                ))}
+              </div>
+            )}
+          </div>
         </nav>
 
         {/* Auth Buttons */}
@@ -113,6 +164,22 @@ export const Navbar = () => {
               {link.label}
             </a>
           ))}
+          <div className="py-4 space-y-1">
+            <div className="text-muted-foreground text-xs font-semibold uppercase tracking-wide mb-2">Docs</div>
+            {DOCS_ITEMS.map((link) => (
+              <a
+                key={link.href}
+                href={link.href}
+                className={cn(
+                  "text-foreground hover:text-foreground/80 block py-1.5 text-sm font-medium transition-colors",
+                  pathname === link.href && "text-primary",
+                )}
+                onClick={() => setIsMenuOpen(false)}
+              >
+                {link.label}
+              </a>
+            ))}
+          </div>
         </nav>
       </div>
     </section>

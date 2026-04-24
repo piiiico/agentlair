@@ -16,7 +16,8 @@ interface FeatureSection {
   features: {
     name: string;
     free: true | false | null | string;
-    payg: true | false | null | string;
+    starter: true | false | null | string;
+    pro: true | false | null | string;
     enterprise: true | false | null | string;
   }[];
 }
@@ -25,24 +26,32 @@ const pricingPlans = [
   {
     name: "Free",
     button: {
-      text: "Get started",
-      href: "/getting-started",
+      text: "Get Started",
+      href: "/register",
       variant: "outline" as const,
     },
   },
   {
-    name: "Pay-as-you-go",
+    name: "Starter",
     button: {
-      text: "Get started",
-      href: "/getting-started",
+      text: "Join Waitlist",
+      href: "mailto:hei@agentlair.dev?subject=AgentLair Starter Waitlist",
+      variant: "outline" as const,
+    },
+  },
+  {
+    name: "Pro",
+    button: {
+      text: "Join Waitlist",
+      href: "mailto:hei@agentlair.dev?subject=AgentLair Pro Waitlist",
       variant: "outline" as const,
     },
   },
   {
     name: "Enterprise",
     button: {
-      text: "Contact us",
-      href: "mailto:hello@agentlair.dev",
+      text: "Contact Us",
+      href: "mailto:hei@agentlair.dev",
       variant: "outline" as const,
     },
   },
@@ -50,55 +59,35 @@ const pricingPlans = [
 
 const comparisonFeatures: FeatureSection[] = [
   {
-    category: "Usage",
+    category: "Agents & Verifications",
     features: [
       {
-        name: "Agents",
-        free: "1",
-        payg: "1",
-        enterprise: "Custom",
+        name: "Agent registrations",
+        free: "3",
+        starter: "25",
+        pro: "200",
+        enterprise: "Unlimited",
       },
       {
-        name: "Emails per day (free)",
-        free: "10",
-        payg: "10",
-        enterprise: "Custom",
+        name: "Token verifications/month",
+        free: "1,000",
+        starter: "50,000",
+        pro: "500,000",
+        enterprise: "Negotiated",
       },
       {
-        name: "Email sends beyond limit",
+        name: "Overage per verification",
         free: false,
-        payg: "$0.01 / email (x402)",
-        enterprise: "Custom",
+        starter: "$0.0002",
+        pro: "$0.00015",
+        enterprise: "$0.0001",
       },
       {
-        name: "Vault writes beyond limit",
-        free: false,
-        payg: "$0.01 / write (x402)",
-        enterprise: "Custom",
-      },
-      {
-        name: "Calendar events beyond limit",
-        free: false,
-        payg: "$0.01 / event (x402)",
-        enterprise: "Custom",
-      },
-      {
-        name: "Stack creates beyond limit",
-        free: false,
-        payg: "$0.01 / stack (x402)",
-        enterprise: "Custom",
-      },
-      {
-        name: "All reads (GET requests)",
-        free: "Free",
-        payg: "Free",
-        enterprise: "Free",
-      },
-      {
-        name: "Tier upgrade (30 days paid)",
-        free: false,
-        payg: "$5.00 USDC (x402)",
-        enterprise: "Custom",
+        name: "AAT issuance (Ed25519 JWT)",
+        free: "Unlimited",
+        starter: "Unlimited",
+        pro: "Unlimited",
+        enterprise: "Unlimited",
       },
     ],
   },
@@ -106,44 +95,198 @@ const comparisonFeatures: FeatureSection[] = [
     category: "Identity",
     features: [
       {
-        name: "@agentlair.dev email address",
+        name: "JWKS endpoint (.well-known/jwks.json)",
         free: true,
-        payg: true,
+        starter: true,
+        pro: true,
         enterprise: true,
       },
       {
-        name: "Agent profile page",
+        name: "Basic agent profile page",
         free: true,
-        payg: true,
+        starter: true,
+        pro: true,
         enterprise: true,
       },
       {
-        name: "Content negotiation (agent detect)",
+        name: "W3C DID compliance",
         free: true,
-        payg: true,
+        starter: true,
+        pro: true,
         enterprise: true,
       },
       {
         name: "Custom domain",
-        free: null,
-        payg: null,
+        free: false,
+        starter: false,
+        pro: false,
         enterprise: true,
       },
     ],
   },
   {
-    category: "Payments",
+    category: "Audit & Email",
     features: [
       {
-        name: "x402 micro-payments (USDC on Base)",
-        free: null,
-        payg: true,
+        name: "Hash-chained audit trail",
+        free: false,
+        starter: "100K events/month",
+        pro: "1M events/month",
+        enterprise: "Negotiated",
+      },
+      {
+        name: "Agent email (@agentlair.dev)",
+        free: false,
+        starter: "5 addresses",
+        pro: "50 addresses",
+        enterprise: "Custom",
+      },
+      {
+        name: "Pods (sub-identities)",
+        free: false,
+        starter: "10",
+        pro: "100",
+        enterprise: "Unlimited",
+      },
+      {
+        name: "Encrypted credential vault",
+        free: false,
+        starter: "50 secrets",
+        pro: "500 secrets",
+        enterprise: "Negotiated",
+      },
+    ],
+  },
+  {
+    category: "Behavioral Events",
+    features: [
+      {
+        name: "Events/day",
+        free: "500",
+        starter: "5,000",
+        pro: "50,000",
+        enterprise: "Negotiated",
+      },
+      {
+        name: "Event retention",
+        free: "7 days",
+        starter: "30 days",
+        pro: "90 days",
+        enterprise: "Up to 365 days",
+      },
+      {
+        name: "Daily aggregation",
+        free: false,
+        starter: true,
+        pro: true,
         enterprise: true,
       },
       {
-        name: "REST API access",
-        free: true,
-        payg: true,
+        name: "Event export (JSONL)",
+        free: false,
+        starter: true,
+        pro: true,
+        enterprise: true,
+      },
+      {
+        name: "ZK-ready Merkle roots",
+        free: false,
+        starter: false,
+        pro: true,
+        enterprise: true,
+      },
+      {
+        name: "Overage per event (x402)",
+        free: "$0.001",
+        starter: "$0.0005",
+        pro: "$0.0003",
+        enterprise: "$0.0001",
+      },
+      {
+        name: "Max achievable trust level",
+        free: "Junior",
+        starter: "Senior",
+        pro: "Principal",
+        enterprise: "Principal",
+      },
+    ],
+  },
+  {
+    category: "Trust & Intelligence",
+    features: [
+      {
+        name: "Cross-org behavioral trust scoring",
+        free: false,
+        starter: false,
+        pro: true,
+        enterprise: true,
+      },
+      {
+        name: "ATF compliance engine",
+        free: false,
+        starter: false,
+        pro: true,
+        enterprise: true,
+      },
+      {
+        name: "Trust API queries/month",
+        free: false,
+        starter: false,
+        pro: "10,000",
+        enterprise: "Negotiated",
+      },
+      {
+        name: "W3C VC issuance (agent_attestation)",
+        free: false,
+        starter: false,
+        pro: true,
+        enterprise: true,
+      },
+      {
+        name: "ZK-proof behavioral attestations",
+        free: false,
+        starter: false,
+        pro: false,
+        enterprise: true,
+      },
+    ],
+  },
+  {
+    category: "Payments & Governance",
+    features: [
+      {
+        name: "x402 payment integration",
+        free: false,
+        starter: false,
+        pro: true,
+        enterprise: true,
+      },
+      {
+        name: "Webhook notifications",
+        free: false,
+        starter: true,
+        pro: true,
+        enterprise: true,
+      },
+      {
+        name: "SSO/SAML",
+        free: false,
+        starter: false,
+        pro: false,
+        enterprise: true,
+      },
+      {
+        name: "EU data residency",
+        free: false,
+        starter: false,
+        pro: false,
+        enterprise: true,
+      },
+      {
+        name: "99.9% uptime SLA",
+        free: false,
+        starter: false,
+        pro: false,
         enterprise: true,
       },
     ],
@@ -152,21 +295,31 @@ const comparisonFeatures: FeatureSection[] = [
     category: "Support",
     features: [
       {
-        name: "Community support",
+        name: "Community support (GitHub Issues)",
         free: true,
-        payg: true,
+        starter: true,
+        pro: true,
+        enterprise: true,
+      },
+      {
+        name: "Email support",
+        free: false,
+        starter: true,
+        pro: true,
         enterprise: true,
       },
       {
         name: "Priority support",
-        free: null,
-        payg: null,
+        free: false,
+        starter: false,
+        pro: true,
         enterprise: true,
       },
       {
-        name: "Uptime SLA",
-        free: null,
-        payg: null,
+        name: "Dedicated support",
+        free: false,
+        starter: false,
+        pro: false,
         enterprise: true,
       },
     ],
@@ -178,7 +331,7 @@ const renderFeatureValue = (value: true | false | null | string) => {
     return <Check className="size-5" />;
   }
   if (value === false) {
-    return <X className="size-5" />;
+    return <X className="size-5 text-muted-foreground/40" />;
   }
   if (value === null) {
     return null;
@@ -193,7 +346,7 @@ const renderFeatureValue = (value: true | false | null | string) => {
 };
 
 export const PricingTable = () => {
-  const [selectedPlan, setSelectedPlan] = useState(1); // Default to Pay-as-you-go
+  const [selectedPlan, setSelectedPlan] = useState(0); // Default to Free
 
   return (
     <section className="pb-28 lg:py-32">
@@ -263,7 +416,7 @@ const PlanHeaders = ({
       </div>
 
       {/* Desktop View */}
-      <div className="grid grid-cols-4 gap-4 max-md:hidden">
+      <div className="grid grid-cols-5 gap-4 max-md:hidden">
         <div className="col-span-1 max-md:hidden"></div>
 
         {pricingPlans.map((plan, index) => (
@@ -289,7 +442,7 @@ const FeatureSections = ({ selectedPlan }: { selectedPlan: number }) => (
         {section.features.map((feature, featureIndex) => (
           <div
             key={featureIndex}
-            className="text-foreground grid grid-cols-2 font-medium max-md:border-b md:grid-cols-4"
+            className="text-foreground grid grid-cols-2 font-medium max-md:border-b md:grid-cols-5"
           >
             <span className="inline-flex items-center py-4">
               {feature.name}
@@ -298,15 +451,15 @@ const FeatureSections = ({ selectedPlan }: { selectedPlan: number }) => (
             <div className="md:hidden">
               <div className="flex items-center gap-1 py-4 md:border-b">
                 {renderFeatureValue(
-                  [feature.free, feature.payg, feature.enterprise][
+                  [feature.free, feature.starter, feature.pro, feature.enterprise][
                     selectedPlan
                   ],
                 )}
               </div>
             </div>
             {/* Desktop View - All Plans */}
-            <div className="hidden md:col-span-3 md:grid md:grid-cols-3 md:gap-4">
-              {[feature.free, feature.payg, feature.enterprise].map(
+            <div className="hidden md:col-span-4 md:grid md:grid-cols-4 md:gap-4">
+              {[feature.free, feature.starter, feature.pro, feature.enterprise].map(
                 (value, i) => (
                   <div
                     key={i}

@@ -1,0 +1,23 @@
+{
+  "name": "@agentlair/trust-gate-mcp",
+  "version": "0.1.0",
+  "description": "Reference MCP server demonstrating AgentLair trust-gated tool access",
+  "type": "module",
+  "main": "./server.ts",
+  "scripts": {
+    "start": "bun run server.ts",
+    "dev": "bun --watch run server.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "bun": ">=1.0.0"
+  }
+}

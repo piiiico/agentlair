@@ -77,6 +77,11 @@ export function buildDIDDocument(accountId: string, signingKey: SigningKeyRecord
         type: 'JsonWebKeySet2020',
         serviceEndpoint: jwksUrl,
       },
+      {
+        id: `${did}#trust`,
+        type: 'AgentLairTrustProfile',
+        serviceEndpoint: `${ISSUER_BASE}/v1/trust/${accountId}`,
+      },
     ],
   };
 

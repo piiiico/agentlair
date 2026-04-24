@@ -61,6 +61,27 @@ export interface Account {
   [key: string]: unknown;
 }
 
+// ─── Account Tier ──────────────────────────────────────────────────────────────
+//
+// Four-tier account system introduced in the revenue activation strategy.
+// Replaces the legacy binary 'free' | 'paid' system.
+//
+// TIER_EVENT_WINDOW_DAYS (Gate C), TIER_WEIGHT_MULTIPLIER (Gate A),
+// TIER_ATF_CAP (Gate B), and TIER_TELEMETRY_CEILING (Gate D) are in trust-engine.ts.
+
+export type AccountTier = 'free' | 'starter' | 'pro' | 'enterprise';
+
+/**
+ * Resolves the canonical AccountTier from an Account record.
+ * Handles the legacy 'paid' → 'starter' migration transparently.
+ */
+export function resolveAccountTier(account: Account): AccountTier {
+  const raw = (account.tier ?? account.plan) as string | undefined;
+  if (raw === 'starter' || raw === 'pro' || raw === 'enterprise') return raw;
+  if (raw === 'paid') return 'starter';  // Legacy migration: 'paid' → 'starter'
+  return 'free';
+}
+
 // ─── Email Send Options ─────────────────────────────────────────────────────
 
 export interface EmailSendOptions {

@@ -1,0 +1,61 @@
+name: 'AgentLair Trust Score'
+description: 'Post behavioral trust score badges on PRs and provide shields.io-compatible badge URLs for READMEs'
+author: 'AgentLair'
+branding:
+  icon: 'shield'
+  color: 'blue'
+
+inputs:
+  agent-id:
+    description: 'AgentLair agent ID (format: acc_xxxx). Find yours at agentlair.dev/explore'
+    required: true
+  github-token:
+    description: 'GitHub token for posting PR comments'
+    required: false
+    default: ${{ github.token }}
+  comment-on-pr:
+    description: 'Post a comment on the PR with the trust score breakdown (true/false)'
+    required: false
+    default: 'true'
+
+outputs:
+  score:
+    description: 'Numeric trust score (0-100)'
+    value: ${{ steps.fetch-score.outputs.score }}
+  atf-level:
+    description: 'ATF trust level (intern/junior/senior/principal)'
+    value: ${{ steps.fetch-score.outputs.atf-level }}
+  badge-url:
+    description: 'URL to the SVG badge for embedding in READMEs'
+    value: ${{ steps.fetch-score.outputs.badge-url }}
+  score-json:
+    description: 'Full trust score JSON response'
+    value: ${{ steps.fetch-score.outputs.score-json }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Fetch Trust Score
+      id: fetch-score
+      shell: bash
+      run: ${{ github.action_path }}/scripts/fetch-score.sh
+      env:
+        AGENT_ID: ${{ inputs.agent-id }}
+
+    - name: Post PR Comment
+      if: inputs.comment-on-pr == 'true' && github.event_name == 'pull_request'
+      id: post-comment
+      shell: bash
+      run: ${{ github.action_path }}/scripts/post-comment.sh
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        AGENT_ID: ${{ inputs.agent-id }}
+        SCORE: ${{ steps.fetch-score.outputs.score }}
+        ATF_LEVEL: ${{ steps.fetch-score.outputs.atf-level }}
+        CONFIDENCE: ${{ steps.fetch-score.outputs.confidence }}
+        OBSERVATION_COUNT: ${{ steps.fetch-score.outputs.observation-count }}
+        DIM_CONSISTENCY: ${{ steps.fetch-score.outputs.dim-consistency }}
+        DIM_RESTRAINT: ${{ steps.fetch-score.outputs.dim-restraint }}
+        DIM_TRANSPARENCY: ${{ steps.fetch-score.outputs.dim-transparency }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        REPO: ${{ github.repository }}

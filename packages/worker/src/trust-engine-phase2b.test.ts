@@ -11,6 +11,7 @@
  */
 
 import { describe, test, expect } from 'bun:test';
+import { createHash } from 'crypto';
 import type { AuditEvent, EventMixMetrics, TrustTier } from './trust-engine';
 import {
   computeTelemetryReporting,
@@ -25,6 +26,39 @@ import {
   LEVEL_REQUIREMENTS,
 } from './trust-engine';
 
+/** Sync SHA-256 for test helpers (Bun/Node only) */
+function sha256hexSync(text: string): string {
+  return createHash('sha256').update(text).digest('hex');
+}
+
+/**
+ * Canonical entry representation for hash chain computation.
+ * Must match the key order used by audit middleware and verifyChainIntegrity.
+ */
+function canonicalHash(evt: AuditEvent): string {
+  const canonical = {
+    id: evt.id,
+    timestamp: evt.timestamp,
+    account_id: evt.account_id,
+    actor_type: evt.actor_type ?? 'account',
+    actor_id: evt.actor_id,
+    actor_ip_hash: evt.actor_ip_hash ?? null,
+    category: evt.category,
+    action: evt.action,
+    method: evt.method ?? 'POST',
+    path: evt.path ?? '/v1/auth/login',
+    resource_type: evt.resource_type ?? null,
+    resource_id: evt.resource_id ?? null,
+    status: evt.status ?? 200,
+    result: evt.result,
+    error_code: evt.error_code ?? null,
+    details: evt.details !== null && evt.details !== undefined ? JSON.parse(evt.details as string) : null,
+    prev_hash: evt.prev_hash,
+    signature: evt.signature,
+  };
+  return sha256hexSync(JSON.stringify(canonical));
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 let eventCounter = 0;
@@ -34,14 +68,21 @@ function makeEvent(overrides: Partial<AuditEvent> = {}): AuditEvent {
     id: `evt-p2b-${++eventCounter}`,
     timestamp: new Date().toISOString(),
     account_id: 'acc_test',
+    actor_type: 'account',
     actor_id: 'agent_test',
+    actor_ip_hash: null,
     category: 'auth',
     action: 'auth.login',
+    method: 'POST',
+    path: '/v1/auth/login',
+    resource_type: null,
+    resource_id: null,
+    status: 200,
     result: 'success',
+    error_code: null,
+    details: null,
     prev_hash: '',
     signature: '',
-    resource_type: null,
-    error_code: null,
     _source: 'internal',
     ...overrides,
   };
@@ -55,18 +96,27 @@ function makeInternalEvents(count: number, days: number): AuditEvent[] {
     const id = `internal-${++eventCounter}`;
     const offsetMs = (i / Math.max(count - 1, 1)) * windowMs;
     const ts = new Date(now - windowMs + offsetMs).toISOString();
+    // Compute proper SHA-256 prev_hash (same as audit middleware)
+    const prev_hash = i === 0 ? '0'.repeat(64) : canonicalHash(events[i - 1]);
     events.push({
       id,
       timestamp: ts,
       account_id: 'acc_test',
+      actor_type: 'account',
       actor_id: 'agent_test',
+      actor_ip_hash: null,
       category: 'auth',
       action: 'auth.login',
-      result: 'success',
-      prev_hash: i === 0 ? '' : events[i - 1].id,
-      signature: 'sig_test',
+      method: 'POST',
+      path: '/v1/auth/login',
       resource_type: null,
+      resource_id: null,
+      status: 200,
+      result: 'success',
       error_code: null,
+      details: null,
+      prev_hash,
+      signature: 'sig_test',
       _source: 'internal',
     });
   }
@@ -433,48 +483,48 @@ describe('detectSelectiveReporting', () => {
 // ─── computeTransparency with telemetry signal ──────────────────────────────────
 
 describe('computeTransparency (Phase 2b telemetry integration)', () => {
-  test('telemetrySignal passed → used instead of 0.5 default', () => {
+  test('telemetrySignal passed → used instead of 0.5 default', async () => {
     const events = makeInternalEvents(20, 90);
-    const { signals: defaultSignals } = computeTransparency(events);
-    const { signals: customSignals } = computeTransparency(events, 0.8);
+    const { signals: defaultSignals } = await computeTransparency(events);
+    const { signals: customSignals } = await computeTransparency(events, 0.8);
 
     expect(defaultSignals.telemetry_reporting).toBe(0.5);
     expect(customSignals.telemetry_reporting).toBe(0.8);
   });
 
-  test('higher telemetry signal → higher transparency score', () => {
+  test('higher telemetry signal → higher transparency score', async () => {
     const events = makeInternalEvents(20, 90);
-    const { score: lowTelemetry } = computeTransparency(events, 0.3);
-    const { score: highTelemetry } = computeTransparency(events, 0.9);
+    const { score: lowTelemetry } = await computeTransparency(events, 0.3);
+    const { score: highTelemetry } = await computeTransparency(events, 0.9);
 
     expect(highTelemetry).toBeGreaterThan(lowTelemetry);
   });
 
-  test('external events improve audit_coverage via category diversity', () => {
+  test('external events improve audit_coverage via category diversity', async () => {
     const internal = makeInternalEvents(15, 90);
     const external = makeExternalEvents(15, 90, { category: 'tool', signed: true });
     const combined = [...internal, ...external];
 
-    const { signals: internalOnly } = computeTransparency(internal);
-    const { signals: withExternal } = computeTransparency(combined);
+    const { signals: internalOnly } = await computeTransparency(internal);
+    const { signals: withExternal } = await computeTransparency(combined);
 
     // Combined has more events + more category diversity
     expect(withExternal.audit_coverage).toBeGreaterThanOrEqual(internalOnly.audit_coverage);
   });
 
-  test('chain integrity only checks internal events (external have no chains)', () => {
-    // Internal events with proper chain
+  test('chain integrity only checks internal events (external have no chains)', async () => {
+    // Internal events with proper SHA-256 chain
     const internal = makeInternalEvents(5, 90);
     // External events have empty prev_hash — should NOT break chain integrity
     const external = makeExternalEvents(5, 90, { signed: true });
     const combined = [...internal, ...external];
 
-    const { signals } = computeTransparency(combined);
+    const { signals } = await computeTransparency(combined);
     // Chain integrity should be based on internal events only
     expect(signals.chain_integrity).toBe(1.0);
   });
 
-  test('broken internal chain still fails even with valid external events', () => {
+  test('broken internal chain still fails even with valid external events', async () => {
     // Internal events with all broken chain links
     const now = Date.now();
     const brokenInternal = Array.from({ length: 5 }, (_, i) =>
@@ -488,7 +538,7 @@ describe('computeTransparency (Phase 2b telemetry integration)', () => {
     const external = makeExternalEvents(10, 90, { signed: true });
     const combined = [...brokenInternal, ...external];
 
-    const { signals } = computeTransparency(combined);
+    const { signals } = await computeTransparency(combined);
     expect(signals.chain_integrity).toBe(0);
   });
 });

@@ -1,0 +1,333 @@
+---
+layout: ../../layouts/BasicLayout.astro
+title: "API Reference — AgentLair"
+description: "Core AgentLair API endpoints: registration, AAT issuance, token introspection, trust scoring, and JWKS."
+---
+
+# API Reference
+
+Base URL: `https://agentlair.dev`
+
+All authenticated endpoints require:
+```
+Authorization: Bearer al_live_...
+```
+
+---
+
+## Authentication
+
+### POST /v1/register
+
+Register a new agent. No API key required. Returns an API key on success.
+
+**Request:**
+
+```json
+{
+  "name": "my-agent",
+  "address": "my-agent@agentlair.dev",
+  "recovery_email": "you@example.com",
+  "capabilities": ["code-review", "web-search"]
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | Either `name` or `address` | Agent name — derived email address |
+| `address` | string | Either `name` or `address` | Explicit `@agentlair.dev` address |
+| `recovery_email` | string | No | Personal email for dashboard access |
+| `capabilities` | string[] | No | Declared capabilities (max 10) |
+
+**Response (201):**
+
+```json
+{
+  "api_key": "al_live_k7x9m2p4...",
+  "account_id": "acc_7kX9mP2qR4wL",
+  "email": "my-agent@agentlair.dev",
+  "tier": "free"
+}
+```
+
+**Errors:**
+
+| Code | Error | Description |
+|------|-------|-------------|
+| 400 | `invalid_address` | Address format invalid or rejected |
+| 409 | `address_unavailable` | Address already claimed |
+| 429 | `rate_limited` | >5 registrations/IP/hour |
+
+---
+
+## Tokens
+
+### POST /v1/tokens/issue
+
+Issue a signed AAT (Agent Authentication Token). Requires API key.
+
+**Request:**
+
+```json
+{
+  "audience": "https://your-mcp-server.com",
+  "scopes": ["mcp:tools:read", "email:send"],
+  "ttl": 3600,
+  "agent_name": "my-agent",
+  "agent_email": "my-agent@agentlair.dev"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `audience` | string | Yes | Target service URI |
+| `scopes` | string[] | Yes | Permission scopes (non-empty, max 20) |
+| `ttl` | number | No | Token lifetime in seconds. Default: 3600. Min: 60. Max: 86400. |
+| `agent_name` | string | No | Override display name in token claims |
+| `agent_email` | string | No | Agent email address in token claims |
+
+**Response (201):**
+
+```json
+{
+  "token": "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9...",
+  "expires_at": "2026-04-18T11:00:00Z",
+  "jti": "aat_a1b2c3d4e5f6",
+  "audit_url": "https://agentlair.dev/v1/audit/aat_a1b2c3d4e5f6"
+}
+```
+
+**Token payload claims:**
+
+```json
+{
+  "sub": "acc_7kX9mP2qR4wL",
+  "aud": "https://your-mcp-server.com",
+  "iat": 1745000000,
+  "exp": 1745003600,
+  "jti": "aat_a1b2c3d4e5f6",
+  "scopes": ["mcp:tools:read"],
+  "agent_id": "acc_7kX9mP2qR4wL",
+  "agent_name": "my-agent"
+}
+```
+
+**Errors:**
+
+| Code | Error | Description |
+|------|-------|-------------|
+| 401 | `unauthorized` | Missing or invalid API key |
+| 400 | `invalid_scopes` | Empty scopes or invalid scope format |
+| 400 | `ttl_out_of_range` | TTL outside 60–86400 range |
+| 400 | `scope_ceiling_exceeded` | Requested scopes exceed account ceiling |
+| 503 | `signing_unavailable` | Signing key not configured |
+
+---
+
+### POST /v1/tokens/introspect
+
+Verify an AAT and return its claims. **No authentication required** — public endpoint.
+
+This implements [RFC 7662](https://datatracker.ietf.org/doc/html/rfc7662) token introspection.
+
+**Request:**
+
+```json
+{
+  "token": "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9..."
+}
+```
+
+**Response — active token (200):**
+
+```json
+{
+  "active": true,
+  "sub": "acc_7kX9mP2qR4wL",
+  "aud": "https://your-mcp-server.com",
+  "iat": 1745000000,
+  "exp": 1745003600,
+  "jti": "aat_a1b2c3d4e5f6",
+  "scopes": ["mcp:tools:read"],
+  "agent_id": "acc_7kX9mP2qR4wL",
+  "agent_name": "my-agent"
+}
+```
+
+**Response — expired or invalid (200):**
+
+```json
+{
+  "active": false
+}
+```
+
+Per RFC 7662, introspection always returns 200 — check the `active` field.
+
+---
+
+## Trust
+
+### GET /v1/trust/:agentId
+
+Return the behavioral trust profile for an agent. Requires API key.
+
+**Parameters:**
+
+| Parameter | Location | Required | Description |
+|-----------|----------|----------|-------------|
+| `agentId` | path | Yes | Agent account ID — format: `acc_<alphanumeric>` |
+
+**Response (200):**
+
+```json
+{
+  "agentId": "acc_7kX9mP2qR4wL",
+  "score": 725,
+  "tier": "trusted",
+  "breakdown": {
+    "behavioral": 250,
+    "consistency": 250,
+    "reputation": 150,
+    "transparency": 75
+  },
+  "computedAt": "2026-04-18T10:30:00Z",
+  "observationCount": 47
+}
+```
+
+**Score breakdown:**
+
+| Dimension | Max | Signal |
+|-----------|-----|--------|
+| `behavioral` | 250 | Observation volume (25 pts/observation, max 10 obs) |
+| `consistency` | 250 | Recency of latest observation |
+| `reputation` | 250 | Topic diversity (50 pts/topic, max 5 topics) |
+| `transparency` | 250 | Shared observation ratio |
+
+**Tier thresholds:**
+
+| Tier | Range | Semantics |
+|------|-------|-----------|
+| `untrusted` | 0–249 | No behavioral history |
+| `provisional` | 250–499 | Some signal, limited coverage |
+| `trusted` | 500–749 | Established behavioral baseline |
+| `verified` | 750–1000 | Deep history, high transparency |
+
+**Errors:**
+
+| Code | Error | Description |
+|------|-------|-------------|
+| 400 | `invalid_agent_id` | ID format invalid (must match `acc_*`) |
+| 401 | `unauthorized` | Missing or invalid API key |
+| 503 | `audit_unavailable` | Trust scoring database not configured |
+
+---
+
+## JWKS & Discovery
+
+### GET /.well-known/jwks.json
+
+Returns the Ed25519 public key used to verify all AATs. **No auth required.**
+
+**Response:**
+
+```json
+{
+  "keys": [
+    {
+      "kty": "OKP",
+      "crv": "Ed25519",
+      "x": "<base64url-encoded-public-key>",
+      "kid": "<key-id>",
+      "use": "sig",
+      "alg": "EdDSA"
+    }
+  ]
+}
+```
+
+Cache this response. Refresh when you receive a `kid` mismatch — the key rotates infrequently.
+
+---
+
+### GET /agents/:name/.well-known/jwks.json
+
+Per-agent DID Web JWKS endpoint. Returns the agent's own signing key. **No auth required.**
+
+Resolves to the DID Web identifier: `did:web:agentlair.dev:agents:{name}`
+
+---
+
+### GET /.well-known/openid-configuration
+
+OIDC Discovery document. **No auth required.**
+
+Returns standard metadata: `token_endpoint`, `introspection_endpoint`, and `id_token_signing_alg_values_supported: ["EdDSA"]`.
+
+---
+
+## Telemetry
+
+### POST /v1/telemetry/submit
+
+Submit behavioral observations to build the cross-organization trust graph. Requires API key.
+
+**Request (single event):**
+
+```json
+{
+  "event": "axiom.committed",
+  "agent_id": "acc_7kX9mP2qR4wL",
+  "timestamp": "2026-04-18T10:23:45Z",
+  "axiom_hash": "<sha256-hex>",
+  "action_type": "tool_call",
+  "outcome": "success",
+  "context_ref": "session_abc123"
+}
+```
+
+**Request (batch):**
+
+```json
+[
+  { "event": "axiom.committed", "agent_id": "...", ... },
+  { "event": "axiom.committed", "agent_id": "...", ... }
+]
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `event` | string | Yes | Event type identifier |
+| `agent_id` | string | Yes | Agent account ID being observed |
+| `timestamp` | string | Yes | ISO 8601 timestamp |
+| `axiom_hash` | string | No | SHA-256 of the observation content |
+| `action_type` | string | Yes | `tool_call`, `memory_update`, `decision`, or `external_request` |
+| `outcome` | string | Yes | `success`, `failure`, or `anomaly` |
+| `context_ref` | string | No | Correlation ID for grouping events |
+
+Telemetry events are stored as shared observations and feed directly into trust score computation.
+
+---
+
+## Endpoint summary
+
+| Endpoint | Method | Auth | Purpose |
+|----------|--------|------|---------|
+| `/v1/register` | POST | None | Create agent account |
+| `/v1/tokens/issue` | POST | Required | Issue AAT |
+| `/v1/tokens/introspect` | POST | None | Verify AAT (RFC 7662) |
+| `/v1/trust/:agentId` | GET | Required | Query behavioral trust score |
+| `/v1/telemetry/submit` | POST | Required | Submit behavioral observations |
+| `/v1/audit` | GET | Required | Retrieve audit trail |
+| `/.well-known/jwks.json` | GET | None | Platform Ed25519 signing key |
+| `/.well-known/openid-configuration` | GET | None | OIDC discovery |
+| `/agents/:name/.well-known/jwks.json` | GET | None | Per-agent DID Web JWKS |
+
+---
+
+## Related
+
+- [Quickstart](/docs/quickstart) — working code in 5 minutes
+- [Concepts](/docs/concepts) — understand the trust model
+- [Support](mailto:hei@agentlair.dev) — questions or issues

@@ -1,3 +1,5 @@
+import { sha256hex } from './utils.js';
+
 // ─── AgentLair Trust Engine — Phase 2b ──────────────────────────────────────────
 //
 // Implements the behavioral trust scoring algorithm specified at:
@@ -37,13 +39,27 @@ export interface AuditEvent {
   signature: string;
   resource_type?: string | null;
   error_code?: string | null;
+  /** Full-row fields for hash chain verification (only present for internal events) */
+  actor_type?: string | null;
+  actor_ip_hash?: string | null;
+  method?: string | null;
+  path?: string | null;
+  resource_id?: string | null;
+  status?: number | null;
+  details?: string | null;
   /** Phase 2b: event source for weight differentiation */
   _source?: 'internal' | 'external_signed' | 'external_unsigned';
 }
 
 // ─── Phase 2b: Tier & Options ─────────────────────────────────────────────────
 
-export type TrustTier = 'free' | 'starter' | 'pro';
+/**
+ * Four-tier account system. 'AccountTier' in types.ts is the canonical name;
+ * TrustTier is kept for backward compatibility with existing exports.
+ */
+export type TrustTier = 'free' | 'starter' | 'pro' | 'enterprise';
+/** Spec-named alias for TrustTier (trust-engine-tier-gates-spec.md §1.1) */
+export type AccountTier = TrustTier;
 
 export interface TrustComputeOptions {
   /** Account tier — determines event weight multiplier and level caps */
@@ -59,25 +75,43 @@ export const EVENT_WEIGHTS = {
   external_unsigned: 0.7,
 } as const;
 
-/** Tier-based weight multiplier for external events (revenue-activation.md §2) */
+/** Tier-based weight multiplier for external events (Gate A — spec §3.1) */
 export const TIER_WEIGHT_MULTIPLIER: Record<TrustTier, number> = {
   free: 0.5,
   starter: 1.0,
   pro: 1.0,
+  enterprise: 1.0,
 } as const;
 
-/** Max achievable ATF level per tier (revenue-activation.md §2) */
+/** Max achievable ATF level per tier (Gate B — spec §4.1) */
 export const TIER_LEVEL_CAP: Record<TrustTier, ATFLevel> = {
   free: 'junior',
   starter: 'senior',
   pro: 'principal',
+  enterprise: 'principal',
 } as const;
 
-/** Telemetry reporting ceiling per tier (revenue-activation.md §2) */
+/** Telemetry reporting ceiling per tier (Gate D — spec §6.1) */
 export const TIER_TELEMETRY_CEILING: Record<TrustTier, number> = {
   free: 0.60,
   starter: 0.85,
   pro: 1.0,
+  enterprise: 1.0,
+} as const;
+
+/**
+ * Tier-aware query window for behavioral_events (Gate C — spec §5.1).
+ * audit_log always uses a fixed 90-day window — only behavioral_events are windowed.
+ *
+ * NOTE: Pro (90d) and Enterprise (365d) windows exceed the raw event TTL (30d).
+ * Full benefit requires the behavioral_aggregates pipeline (RFC-003 §4.5 Phase 3).
+ * Until then, Pro effectively sees 30d of behavioral_events.
+ */
+export const TIER_EVENT_WINDOW_DAYS: Record<TrustTier, number> = {
+  free: 7,
+  starter: 30,
+  pro: 90,
+  enterprise: 365,
 } as const;
 
 /** Internal/external ratio requirements for level gates (RFC-003 §7.4) */
@@ -123,6 +157,17 @@ export interface TrustProfile {
   computedAt: string;
   /** Phase 1: always 1 (single-org). Phase 3: cross-org count. */
   orgCount: number;
+  /**
+   * Present when the ATF level was capped by the account tier (Gate B).
+   * Upgrade nudge: shows integrators the level their agent would have achieved
+   * without the tier constraint.
+   */
+  tierCap?: {
+    appliedCap: ATFLevel;
+    /** What the agent would have achieved without the tier cap */
+    rawLevel: ATFLevel;
+    tier: TrustTier;
+  };
 }
 
 // ─── Math Utilities ─────────────────────────────────────────────────────────────
@@ -196,20 +241,49 @@ function normalizedEntropy(dist: number[]): number {
 
 // ─── Chain Integrity Verification ────────────────────────────────────────────────
 //
-// Verifies that each event's prev_hash equals the previous event's id, forming
-// a sequential chain. This is the one structural defense against fabricated audit
-// trails — it requires actual knowledge of each preceding event's identity.
+// Verifies the hash chain by reconstructing the SHA-256 hash of each entry and
+// comparing against the next entry's prev_hash field. The audit middleware stores
+// prev_hash = sha256hex(JSON.stringify(previousFullEntry)), so verification must
+// replicate that computation.
+//
+// KNOWN LIMITATION: Cloudflare Workers may spin up multiple isolates concurrently,
+// each maintaining its own chain. This creates natural parallel chains with broken
+// links at isolate boundaries. The scoring accounts for this by measuring the ratio
+// of valid links rather than requiring a perfect chain.
 //
 // Returns [0.0, 1.0] where 1.0 = unbroken chain, 0.0 = every link broken.
 // A single-event trail (no links to verify) is considered integral (1.0).
 
-export function verifyChainIntegrity(sorted: AuditEvent[]): number {
+export async function verifyChainIntegrity(sorted: AuditEvent[]): Promise<number> {
   if (sorted.length <= 1) return 1.0;
-  let broken = 0;
+  let valid = 0;
   for (let i = 1; i < sorted.length; i++) {
-    if (sorted[i].prev_hash !== sorted[i - 1].id) broken++;
+    // Reconstruct the full entry object in the same key order as the audit middleware
+    const prev = sorted[i - 1];
+    const prevEntry = {
+      id: prev.id,
+      timestamp: prev.timestamp,
+      account_id: prev.account_id,
+      actor_type: prev.actor_type ?? 'account',
+      actor_id: prev.actor_id,
+      actor_ip_hash: prev.actor_ip_hash ?? null,
+      category: prev.category,
+      action: prev.action,
+      method: prev.method ?? 'GET',
+      path: prev.path ?? '',
+      resource_type: prev.resource_type ?? null,
+      resource_id: prev.resource_id ?? null,
+      status: prev.status ?? 200,
+      result: prev.result,
+      error_code: prev.error_code ?? null,
+      details: prev.details !== null && prev.details !== undefined ? JSON.parse(prev.details as string) : null,
+      prev_hash: prev.prev_hash,
+      signature: prev.signature,
+    };
+    const expectedHash = await sha256hex(JSON.stringify(prevEntry));
+    if (sorted[i].prev_hash === expectedHash) valid++;
   }
-  return 1 - broken / (sorted.length - 1);
+  return valid / (sorted.length - 1);
 }
 
 // ─── Entropy Penalty (spec §4.1) ──────────────────────────────────────────────────
@@ -285,24 +359,34 @@ export interface EventMixMetrics {
 /**
  * Fetches events from both audit_log and behavioral_events tables.
  * Returns the merged, sorted event list and mix metrics.
+ *
+ * Gate C: audit_log always uses a 90-day window (server-observed, no tier restriction).
+ * behavioral_events use TIER_EVENT_WINDOW_DAYS[tier] — free gets 7d, starter 30d, etc.
+ * Events beyond the window exist in D1 but are excluded from scoring until upgrade.
+ *
+ * @param tier - Account tier for Gate C windowing (defaults to 'free')
  */
 export async function fetchCombinedEvents(
   db: D1Database,
   agentId: string,
-  windowDays = 90,
+  tier: TrustTier = 'free',
 ): Promise<{ events: AuditEvent[]; metrics: EventMixMetrics }> {
-  const cutoff = new Date(Date.now() - windowDays * 86_400_000).toISOString();
+  const INTERNAL_WINDOW_DAYS = 90;  // audit_log: always 90 days
+  const externalWindowDays = TIER_EVENT_WINDOW_DAYS[tier];  // behavioral_events: tier-gated
 
-  // Fetch from both tables in parallel
+  const internalCutoff = new Date(Date.now() - INTERNAL_WINDOW_DAYS * 86_400_000).toISOString();
+  const externalCutoff = new Date(Date.now() - externalWindowDays * 86_400_000).toISOString();
+
+  // Fetch from both tables in parallel with tier-aware cutoffs
   const [internalResult, externalResult] = await Promise.all([
     db.prepare(
-      `SELECT id, timestamp, account_id, actor_id, category, action, result, prev_hash, signature, resource_type, error_code
+      `SELECT id, timestamp, account_id, actor_type, actor_id, actor_ip_hash, category, action, method, path, resource_type, resource_id, status, result, error_code, details, prev_hash, signature
        FROM audit_log
        WHERE actor_id = ?
          AND timestamp >= ?
        ORDER BY timestamp ASC
        LIMIT 5000`,
-    ).bind(agentId, cutoff).all<AuditEvent>(),
+    ).bind(agentId, internalCutoff).all<AuditEvent>(),
     db.prepare(
       `SELECT id, event_id, agent_id, timestamp, category, action, result, resource_type, error_code, signed, session_id
        FROM behavioral_events
@@ -310,7 +394,7 @@ export async function fetchCombinedEvents(
          AND timestamp >= ?
        ORDER BY timestamp ASC
        LIMIT 5000`,
-    ).bind(agentId, cutoff).all<BehavioralEventRow>(),
+    ).bind(agentId, externalCutoff).all<BehavioralEventRow>(),
   ]);
 
   const internalEvents = (internalResult.results ?? []).map(e => ({ ...e, _source: 'internal' as const }));
@@ -426,6 +510,21 @@ export function applyLevelCaps(
   }
 
   return RANK_TO_LEVEL[maxRank];
+}
+
+/**
+ * Applies the ATF level cap for a given tier (Gate B — spec §4.2).
+ * Returns the lower of derivedLevel and TIER_LEVEL_CAP[tier].
+ *
+ * Unlike applyLevelCaps (which also applies internal/external ratio gates),
+ * this function applies only the tier ceiling — useful for testing the cap in isolation.
+ */
+export function capTrustLevel(derivedLevel: ATFLevel, tier: TrustTier): ATFLevel {
+  const ATF_RANK: Record<ATFLevel, number> = { intern: 0, junior: 1, senior: 2, principal: 3 };
+  const RANK_TO_LEVEL: ATFLevel[] = ['intern', 'junior', 'senior', 'principal'];
+  const cap = TIER_LEVEL_CAP[tier];
+  const rank = Math.min(ATF_RANK[derivedLevel], ATF_RANK[cap]);
+  return RANK_TO_LEVEL[rank];
 }
 
 /**
@@ -647,10 +746,12 @@ export function computeRestraint(events: AuditEvent[]): { score: number; signals
 //   auth_hygiene        — auth failure rate + auth event presence
 //   telemetry_reporting — Phase 2b: live signal from behavioral_events reporting
 
-export function computeTransparency(
+export async function computeTransparency(
   events: AuditEvent[],
   telemetrySignal?: number,
-): { score: number; signals: Record<string, number> } {
+  /** Optional raw (uncapped) telemetry value — exposed as telemetry_reporting_raw when present */
+  telemetryRaw?: number,
+): Promise<{ score: number; signals: Record<string, number> }> {
   const e90d = windowEvents(events, 90);
 
   // Chain integrity: only verify internal events (external events have no hash chain)
@@ -658,13 +759,26 @@ export function computeTransparency(
   const sorted = [...internalEvents].sort(
     (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
   );
-  const chainIntegrity = verifyChainIntegrity(sorted);
+  const chainIntegrity = await verifyChainIntegrity(sorted);
 
-  // If chain is broken (for internal events), return 0 immediately
-  if (chainIntegrity === 0 && internalEvents.length > 1) {
+  // KNOWN LIMITATION: Cloudflare Workers run multiple isolates concurrently, each
+  // maintaining its own hash chain. This creates natural chain breaks at isolate
+  // boundaries. A completely broken chain with many events likely indicates parallel
+  // isolates (expected), not fabrication (attack). Only zero-out transparency if
+  // chain is completely broken AND the event count suggests deliberate manipulation
+  // (very high event count with zero valid links is suspicious).
+  if (chainIntegrity === 0 && internalEvents.length > 50) {
+    const cappedTelemetry = telemetrySignal ?? 0.5;
+    const rawTelemetry = telemetryRaw ?? cappedTelemetry;
     return {
       score: 0,
-      signals: { audit_coverage: 0, chain_integrity: 0, auth_hygiene: 0.5, telemetry_reporting: telemetrySignal ?? 0.5 },
+      signals: {
+        audit_coverage: 0,
+        chain_integrity: 0,
+        auth_hygiene: 0.5,
+        telemetry_reporting: cappedTelemetry,
+        ...(rawTelemetry !== cappedTelemetry ? { telemetry_reporting_raw: rawTelemetry } : {}),
+      },
     };
   }
 
@@ -691,6 +805,7 @@ export function computeTransparency(
 
   // Telemetry: Phase 2b live signal (from computeTelemetryReporting)
   const telemetryReporting = telemetrySignal ?? 0.5;
+  const rawTelemetry = telemetryRaw ?? telemetryReporting;
 
   const score = weightedMean([
     [coverage, 0.35],
@@ -701,7 +816,14 @@ export function computeTransparency(
 
   return {
     score,
-    signals: { audit_coverage: coverage, chain_integrity: chainIntegrity, auth_hygiene: authHygiene, telemetry_reporting: telemetryReporting },
+    signals: {
+      audit_coverage: coverage,
+      chain_integrity: chainIntegrity,
+      auth_hygiene: authHygiene,
+      telemetry_reporting: telemetryReporting,
+      // Expose raw (uncapped) telemetry when it differs from capped — upgrade nudge (spec §6.3)
+      ...(rawTelemetry !== telemetryReporting ? { telemetry_reporting_raw: rawTelemetry } : {}),
+    },
   };
 }
 
@@ -808,20 +930,31 @@ async function lookupAccountTier(kv: KVNamespace, agentId: string): Promise<Trus
 export async function computeTrustScore(
   db: D1Database,
   agentId: string,
-  options?: TrustComputeOptions,
+  /**
+   * Account tier or legacy options object.
+   * - Pass a TrustTier string directly (preferred, spec §1.2)
+   * - Or pass TrustComputeOptions for backward compatibility (KV-based lookup)
+   */
+  tierOrOptions?: TrustTier | TrustComputeOptions,
 ): Promise<TrustProfile> {
-  // Resolve tier
-  let tier: TrustTier = options?.tier ?? 'free';
-  if (!options?.tier && options?.kv) {
-    tier = await lookupAccountTier(options.kv, agentId);
+  // Resolve tier — supports both direct string and legacy options object
+  let tier: TrustTier;
+  if (typeof tierOrOptions === 'string') {
+    tier = tierOrOptions;
+  } else {
+    const options = tierOrOptions as TrustComputeOptions | undefined;
+    tier = options?.tier ?? 'free';
+    if (!options?.tier && options?.kv) {
+      tier = await lookupAccountTier(options.kv, agentId);
+    }
   }
 
-  // Phase 2b: Fetch from BOTH audit_log and behavioral_events
+  // Phase 2b: Fetch from BOTH audit_log and behavioral_events with tier-aware windowing
   let evtList: AuditEvent[];
   let metrics: EventMixMetrics;
 
   try {
-    const combined = await fetchCombinedEvents(db, agentId, 90);
+    const combined = await fetchCombinedEvents(db, agentId, tier);  // Gate C
     evtList = combined.events;
     metrics = combined.metrics;
   } catch (e) {
@@ -832,7 +965,7 @@ export async function computeTrustScore(
       const cutoff = new Date(Date.now() - 90 * 86_400_000).toISOString();
       const { results: events } = await db
         .prepare(
-          `SELECT id, timestamp, account_id, actor_id, category, action, result, prev_hash, signature, resource_type, error_code
+          `SELECT id, timestamp, account_id, actor_type, actor_id, actor_ip_hash, category, action, method, path, resource_type, resource_id, status, result, error_code, details, prev_hash, signature
            FROM audit_log
            WHERE actor_id = ?
              AND timestamp >= ?
@@ -856,13 +989,19 @@ export async function computeTrustScore(
     }
   }
 
-  // Compute live telemetry_reporting signal (Phase 2b)
-  const telemetrySignal = computeTelemetryReporting(metrics, tier);
+  // Gate D: compute capped and raw telemetry signals for upgrade nudge (spec §6.3)
+  const telemetrySignal = computeTelemetryReporting(metrics, tier);         // tier-capped
+  const telemetryRawSignal = computeTelemetryReporting(metrics, 'pro');     // uncapped (pro=1.0 ceiling)
 
-  // Compute dimension scores (transparency now gets live telemetry signal)
+  // Compute dimension scores
+  // - computeTransparency receives both capped and raw telemetry (spec §6.3)
   const consistencyResult  = computeConsistency(evtList);
   const restraintResult    = computeRestraint(evtList);
-  const transparencyResult = computeTransparency(evtList, telemetrySignal);
+  const transparencyResult = await computeTransparency(
+    evtList,
+    telemetrySignal,
+    telemetryRawSignal !== telemetrySignal ? telemetryRawSignal : undefined,
+  );
 
   // Weighted raw score [0.0, 1.0]
   const rawScore =
@@ -881,7 +1020,7 @@ export async function computeTrustScore(
     transparency: transparencyResult.score,
   });
 
-  // Phase 2b: effective observations considers source weights and tier multiplier
+  // Gate A: effective observations with tier weight multiplier (spec §3.2)
   const effectiveObs = computeEffectiveObservations(evtList, tier);
 
   // Apply cold-start prior (using effective observation count)
@@ -890,11 +1029,14 @@ export async function computeTrustScore(
   // Scale to 0-100
   const score = Math.round(coldStartScore * 100);
 
-  // Derive base ATF level
-  let atfLevel = deriveATFLevel(score, confidence);
+  // Gate B: derive ATF level, then apply tier cap (spec §4.3)
+  const rawAtfLevel = deriveATFLevel(score, confidence);
+  const atfLevel = applyLevelCaps(rawAtfLevel, metrics, tier);
 
-  // Phase 2b: Apply tier and ratio level caps
-  atfLevel = applyLevelCaps(atfLevel, metrics, tier);
+  // Populate tierCap when cap was actually applied (spec §4.4) — the upgrade nudge
+  const tierCap = rawAtfLevel !== atfLevel
+    ? { appliedCap: atfLevel, rawLevel: rawAtfLevel, tier }
+    : undefined;
 
   const ci       = computeConfidenceInterval(score, evtList.length);
   const dimConf  = dimensionConfidence(evtList.length);
@@ -940,6 +1082,7 @@ export async function computeTrustScore(
     observationCount: evtList.length,
     computedAt: new Date().toISOString(),
     orgCount: 1,
+    tierCap,  // Gate B upgrade nudge (undefined when no cap applied)
   };
 
   // Persist to D1 — best-effort (don't fail the request if storage fails)
@@ -986,7 +1129,8 @@ export async function checkTrustGate(
   db: D1Database,
   agentId: string,
   minLevel: ATFLevel = 'intern',
-  options?: TrustComputeOptions,
+  /** Account tier or legacy options object (same as computeTrustScore) */
+  tierOrOptions?: TrustTier | TrustComputeOptions,
 ): Promise<{
   agentId: string;
   score: number;
@@ -1033,8 +1177,8 @@ export async function checkTrustGate(
     // Cache miss or table not yet created — fall through to full computation
   }
 
-  // Full computation fallback (passes tier options for Phase 2b)
-  const profile = await computeTrustScore(db, agentId, options);
+  // Full computation fallback (passes tier through for Gate C/B/A/D)
+  const profile = await computeTrustScore(db, agentId, tierOrOptions);
   return {
     agentId,
     score:         profile.score,

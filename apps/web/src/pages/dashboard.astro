@@ -3,5 +3,12 @@ import DefaultLayout from '@/layouts/DefaultLayout.astro';
 import { Dashboard } from '@/components/dashboard/dashboard';
 ---
 <DefaultLayout title="Dashboard — AgentLair" description="Manage your agents, inbox, and settings.">
+  <noscript>
+    <div style="max-width:640px;margin:4rem auto;padding:1.5rem;font-family:sans-serif;text-align:center;">
+      <h2 style="font-size:1.25rem;font-weight:600;margin-bottom:0.5rem;">AgentLair Dashboard</h2>
+      <p style="color:#6b7280;margin-bottom:1rem;">JavaScript is required to use the dashboard.</p>
+      <a href="/getting-started" style="color:#6366f1;text-decoration:underline;">Getting started guide</a>
+    </div>
+  </noscript>
   <Dashboard client:only="react" />
 </DefaultLayout>

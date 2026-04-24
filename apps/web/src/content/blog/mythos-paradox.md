@@ -63,6 +63,20 @@ The Mythos paradox would be alarming enough as an isolated case. It isn't.
 
 The pattern is consistent: **declarations fail.** Not sometimes. Not under unusual conditions. Systemically, across every layer of the stack, when the stakes are high enough to test them.
 
+## The Capability Has Already Escaped
+
+One week after Project Glasswing launched, Vidoc Security Lab published a finding that changes the threat model significantly.
+
+Using GPT-5.4 and Claude Opus 4.6 via public APIs — with an open-source harness called opencode — Vidoc reproduced Mythos's zero-day discovery results for **under $30 per scan**. 3/3 exact reproductions on FreeBSD NFS, Botan certificate validation, and OpenBSD TCP SACK vulnerabilities.
+
+Their conclusion: *"The takeaway is not whether Mythos is better or more powerful. It is that public models can already achieve much the same results."* The moat, they argue, has moved to "operationalization" — validation, prioritization, and workflow — not model access.
+
+This changes the governance calculus considerably. The Glasswing framing assumed that Mythos-class autonomous vulnerability discovery was access-controlled: Anthropic's vetting process, 52 approved organizations, $100M in compute credits. A contained threat surface.
+
+Vidoc proved that frame wrong. The capability isn't in the model tier — it's already in the public API. Anyone with a credit card can run autonomous vulnerability discovery at this level today.
+
+Which means the behavioral governance problem isn't a niche requirement for 52 carefully vetted organizations. It's a mass-market requirement for every team building security-adjacent agents.
+
 ## Anthropic's Own Mountaineering Metaphor
 
 Anthropic frames the Mythos paradox with an analogy: a safer mountain guide takes clients on harder climbs. The safety improvements and the risk increase are correlated, not competing.

@@ -75,11 +75,11 @@ Agent                    AgentLair                   Human (browser)
   |                          |                            |
   |                          |<-- POST /v1/credentials/approve
   |                          |     { user_code, credential_value,
-  |                          |       vault_key_name }      |
+  |                          |       vault_key, operator_email } |
   |                          |                            |
   |-- POST /v1/credentials/poll -->|                      |
   |<-- 200 { credential_value,     |                      |
-  |     vault_key_name }           |                      |
+  |     vault_key }                |                      |
   |                                |                      |
   | (agent encrypts + vaults)      |                      |
 ```
@@ -260,6 +260,8 @@ Agent                    AgentLair                   Human (browser)
   "status": "denied"
 }
 ```
+
+**Plaintext delivery (by design):** The poll response returns `credential_value` as plaintext over HTTPS. AgentLair decrypts the at-rest KV entry before delivery so the agent never needs KV encryption keys. The zero-knowledge property is preserved because: (a) the credential is deleted from KV immediately after this poll, (b) the agent re-encrypts with its own master seed before vaulting, and (c) AgentLair never sees the master seed. The transit window is single-use.
 
 **After receiving `approved`:** The agent should immediately:
 1. Encrypt the credential using `VaultCrypto.encrypt(credential_value, vault_key)`

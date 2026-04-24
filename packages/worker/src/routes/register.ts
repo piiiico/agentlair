@@ -286,6 +286,7 @@ export async function handleRegisterRoute(
       'Ask your operator for the 6-digit OTP code',
       'POST /v1/register/verify with {"otp": "XXXXXX"} to unlock full capabilities',
       'GET /v1/account/me to check your current status',
+      'Visit https://agentlair.dev/dashboard to view your account and inbox',
     ];
     if (!otpEmailSent) {
       responseBody.otp_email_sent = false;
@@ -295,6 +296,7 @@ export async function handleRegisterRoute(
       'GET /v1/account/me to verify your account',
       'POST /v1/email/send to send your first email',
       'POST /v1/vault/secrets to store credentials',
+      'Visit https://agentlair.dev/dashboard to view your account, inbox, and activity',
     ];
   }
 

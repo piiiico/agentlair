@@ -85,6 +85,39 @@ describe('public routes', () => {
     }
   });
 
+  test('GET /.well-known/did.json — returns platform DID Document (MCP-I L2)', async () => {
+    const r = await req('/.well-known/did.json');
+    expect(r.status).toBe(200);
+    // W3C DID Core fields
+    expect(r.body['@context']).toContain('https://www.w3.org/ns/did/v1');
+    expect(r.body.id).toBe('did:web:agentlair.dev');
+    // Verification method — must contain Ed25519 OKP key
+    expect(Array.isArray(r.body.verificationMethod)).toBe(true);
+    expect(r.body.verificationMethod.length).toBeGreaterThan(0);
+    const vm = r.body.verificationMethod[0];
+    expect(vm.id).toContain('did:web:agentlair.dev#');
+    expect(vm.type).toBe('JsonWebKey2020');
+    expect(vm.controller).toBe('did:web:agentlair.dev');
+    expect(vm.publicKeyJwk.kty).toBe('OKP');
+    expect(vm.publicKeyJwk.crv).toBe('Ed25519');
+    expect(vm.publicKeyJwk.alg).toBe('EdDSA');
+    expect(typeof vm.publicKeyJwk.x).toBe('string');
+    // Key in DID Document must match the JWKS signing key
+    const jwksR = await req('/.well-known/jwks.json');
+    expect(jwksR.status).toBe(200);
+    const jwksKey = jwksR.body.keys.find((k: { kid: string }) => k.kid === vm.publicKeyJwk.kid);
+    expect(jwksKey).toBeDefined();
+    expect(jwksKey.x).toBe(vm.publicKeyJwk.x);
+    // Authentication and assertionMethod must reference the verification method
+    expect(Array.isArray(r.body.authentication)).toBe(true);
+    expect(r.body.authentication).toContain(vm.id);
+    expect(r.body.assertionMethod).toContain(vm.id);
+    // Service endpoints
+    const jwksSvc = r.body.service.find((s: { type: string }) => s.type === 'JsonWebKeySet2020');
+    expect(jwksSvc).toBeDefined();
+    expect(jwksSvc.serviceEndpoint).toBe('https://agentlair.dev/.well-known/jwks.json');
+  });
+
   test('GET /.well-known/openid-configuration — returns OpenID discovery doc', async () => {
     const r = await req('/.well-known/openid-configuration');
     expect(r.status).toBe(200);

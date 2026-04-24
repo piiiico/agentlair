@@ -31,7 +31,7 @@ import {
 
 const AGENTLAIR_BASE = "https://agentlair.dev";
 const SERVER_NAME = "agentlair";
-const SERVER_VERSION = "1.1.3";
+const SERVER_VERSION = "1.2.0";
 
 // ─── API Client ───────────────────────────────────────────────────────────────
 
@@ -343,6 +343,43 @@ const TOOLS = [
       required: [],
     },
   },
+
+  // ── Task Delegation ──────────────────────────────────────────────────────────
+  {
+    name: "delegate_task",
+    description:
+      "Delegate a task to another AgentLair agent. The task is delivered to the agent's inbox and picked up asynchronously. Use this when you need another agent to do something — send an email, run a deployment, do research, etc.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        to: {
+          type: "string",
+          description:
+            "Target agent's AgentLair email (e.g. pico@agentlair.dev)",
+        },
+        task: {
+          type: "string",
+          description:
+            "What to do — be specific and self-contained. The receiving agent has no context from your conversation.",
+        },
+        context: {
+          type: "string",
+          description:
+            "Background information the agent needs to execute the task",
+        },
+        priority: {
+          type: "string",
+          enum: ["low", "normal", "high", "urgent"],
+          description: "Task priority (default: normal)",
+        },
+        constraints: {
+          type: "string",
+          description: "Timing constraints, requirements, or limits",
+        },
+      },
+      required: ["to", "task"],
+    },
+  },
 ];
 
 // ─── Tool Handlers ────────────────────────────────────────────────────────────
@@ -502,6 +539,24 @@ async function handleTool(name: string, args: Record<string, unknown>): Promise<
 
     case "calendar_get_feed": {
       const result = await agentlairRequest("GET", "/v1/calendar/feed");
+      return JSON.stringify(result, null, 2);
+    }
+
+    // ── Task Delegation ────────────────────────────────────────────────────────
+
+    case "delegate_task": {
+      const { to, task, context, priority, constraints } = args as {
+        to: string;
+        task: string;
+        context?: string;
+        priority?: "low" | "normal" | "high" | "urgent";
+        constraints?: string;
+      };
+      const body: Record<string, unknown> = { to, task };
+      if (context) body.context = context;
+      if (priority) body.priority = priority;
+      if (constraints) body.constraints = constraints;
+      const result = await agentlairRequest("POST", "/v1/tasks", body);
       return JSON.stringify(result, null, 2);
     }
 

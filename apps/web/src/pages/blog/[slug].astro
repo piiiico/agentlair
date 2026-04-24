@@ -1,6 +1,7 @@
 ---
 import { getCollection, render } from 'astro:content';
 import BaseHead from '@/components/BaseHead.astro';
+import BlogCTA from '@/components/BlogCTA.astro';
 import { Footer } from '@/components/blocks/footer';
 import { Navbar } from '@/components/blocks/navbar';
 
@@ -50,6 +51,7 @@ const formattedDate = post.data.pubDate.toLocaleDateString('en-US', {
         <article class="prose prose-lg dark:prose-invert">
           <Content />
         </article>
+        <BlogCTA />
       </section>
     </main>
     <Footer />

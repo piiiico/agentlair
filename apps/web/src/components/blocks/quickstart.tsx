@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Check, Copy, ArrowRight, BookOpen, Code2, FileText, Github, ShieldCheck, Zap, Terminal } from "lucide-react";
+import { Check, Copy, ArrowRight, BookOpen, Code2, FileText, Github, LayoutDashboard, ShieldCheck, Zap, Terminal } from "lucide-react";
 
 import { Background } from "@/components/background";
 import { PageHeader } from "@/components/shared/page-header";
@@ -156,6 +156,13 @@ function StepConnector({ label }: { label: string }) {
 // ─── Next-step links ──────────────────────────────────────────────────────────
 
 const nextSteps = [
+  {
+    href: "/dashboard",
+    icon: LayoutDashboard,
+    title: "Dashboard",
+    description:
+      "View your account, inbox, sent messages, and agent activity. Sign in with your API key.",
+  },
   {
     href: "/docs/concepts",
     icon: ShieldCheck,

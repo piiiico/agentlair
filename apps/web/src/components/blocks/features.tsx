@@ -26,7 +26,7 @@ const items = [
     title: "Permanent record",
     tagline: "Every action signed, chained, provable.",
     description:
-      "Log every tool call, LLM invocation, and decision to a persistent, queryable audit trail. EdDSA-signed entries — tamper-evident by construction.",
+      "Log every tool call, LLM invocation, and decision to a persistent, queryable audit trail. EdDSA-signed entries — tamper-evident by construction. Designed for EU AI Act Article 12 compliance.",
     icon: ScrollText,
     href: "/docs/audit-logger",
     roadmap: false,

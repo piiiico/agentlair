@@ -48,6 +48,8 @@ tags:
     description: Domain stack provisioning
   - name: billing
     description: Usage and billing information
+  - name: budget
+    description: Per-agent spending caps and approval flow
   - name: e2e
     description: End-to-end encryption key management
   - name: calendar
@@ -74,6 +76,44 @@ components:
       example:
         error: unauthorized
         message: "Authentication required. Pass API key as: Authorization: Bearer al_live_..."
+
+    ApprovalRequest:
+      type: object
+      properties:
+        id:
+          type: string
+          example: apr_abc123
+        account_id:
+          type: string
+        amount_usdc:
+          type: integer
+          description: Amount in atomic USDC units (1e-6 USDC)
+        category:
+          type: string
+        description:
+          type: string
+        reference_id:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [pending, approved, rejected, expired]
+        created_at:
+          type: string
+          format: date-time
+        resolved_at:
+          type: string
+          format: date-time
+          nullable: true
+        resolved_by:
+          type: string
+          nullable: true
+        expires_at:
+          type: string
+          format: date-time
+        metadata:
+          type: object
+          nullable: true
 
     Account:
       type: object
@@ -798,6 +838,534 @@ paths:
                       email_price:
                         type: string
                         example: "0.01 USDC"
+
+  # ── Budget ────────────────────────────────────────────────────────────────
+
+  /v1/budget:
+    get:
+      tags: [budget]
+      summary: Get spending caps and budget status
+      description: |
+        Returns per-period (daily/weekly/monthly) spending caps, current spend, and remaining budget.
+        Also returns budget settings: `on_limit` behavior and `single_tx_limit`.
+
+        All amounts are in atomic USDC units (1,000,000 = 1.00 USDC).
+      responses:
+        "200":
+          description: Current budget state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agent_id:
+                    type: string
+                  currency:
+                    type: string
+                    example: USDC
+                  atomic_unit:
+                    type: string
+                    example: "1e-6 USDC (one millionth of one USDC)"
+                  caps:
+                    type: object
+                    description: Per-period spending caps. Null if no cap set for that period.
+                    properties:
+                      daily:
+                        nullable: true
+                        type: object
+                        properties:
+                          limit_usdc:
+                            type: integer
+                          spent_usdc:
+                            type: integer
+                          remaining_usdc:
+                            type: integer
+                          resets_at:
+                            type: string
+                            format: date-time
+                      weekly:
+                        nullable: true
+                        type: object
+                      monthly:
+                        nullable: true
+                        type: object
+                  has_caps:
+                    type: boolean
+                  status:
+                    type: string
+                    enum: [active, limit_reached]
+                  settings:
+                    type: object
+                    properties:
+                      on_limit:
+                        type: string
+                        enum: [reject, approve]
+                        description: What to do when budget is exceeded (reject = 402, approve = 202 + approval flow)
+                      single_tx_limit_cents:
+                        type: integer
+                        nullable: true
+                        description: Max allowed per-transaction amount (atomic USDC units). Null = no limit.
+    put:
+      tags: [budget]
+      summary: Set spending caps
+      description: |
+        Configure per-period spending caps and behavior when limits are reached.
+
+        **Flat format (recommended):** Send daily/weekly/monthly at top level without a `caps` wrapper.
+
+        **on_limit:** Controls what happens when a charge exceeds the cap:
+        - `reject` (default): Returns HTTP 402 — agent must stop or pay via x402.
+        - `approve`: Returns HTTP 202 — creates an approval request for the principal to review.
+
+        **single_tx_limit_cents:** Maximum per-transaction amount in atomic USDC units. Charges above this require approval even if within budget.
+
+        All amounts in atomic USDC units (1,000,000 = 1.00 USDC).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                daily:
+                  type: integer
+                  nullable: true
+                  description: Daily cap in atomic USDC units. Null to remove cap. Example 10000000 = 10 USDC/day.
+                weekly:
+                  type: integer
+                  nullable: true
+                  description: Weekly cap. Must be >= daily cap if both set.
+                monthly:
+                  type: integer
+                  nullable: true
+                  description: Monthly cap. Must be >= weekly cap if both set.
+                caps:
+                  type: object
+                  description: Alternative nested format. Can use flat format (daily/weekly/monthly) instead.
+                  properties:
+                    daily:
+                      type: integer
+                      nullable: true
+                    weekly:
+                      type: integer
+                      nullable: true
+                    monthly:
+                      type: integer
+                      nullable: true
+                on_limit:
+                  type: string
+                  enum: [reject, approve]
+                  description: "What to do when budget exceeded. Default: reject"
+                single_tx_limit_cents:
+                  type: integer
+                  nullable: true
+                  description: Per-transaction limit in atomic USDC units. Null to remove.
+            examples:
+              flat_with_approval:
+                summary: Set daily cap with approval flow
+                value:
+                  daily: 10000000
+                  on_limit: approve
+              nested_format:
+                summary: Set caps using nested format
+                value:
+                  caps:
+                    daily: 10000000
+                    monthly: 50000000
+                  on_limit: approve
+      responses:
+        "200":
+          description: Budget caps updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  agent_id:
+                    type: string
+                  caps:
+                    type: object
+                  settings:
+                    type: object
+                    properties:
+                      on_limit:
+                        type: string
+                      single_tx_limit_cents:
+                        type: integer
+                        nullable: true
+
+  /v1/budget/history:
+    get:
+      tags: [budget]
+      summary: Get spend history
+      description: Returns recent spend ledger entries (newest first). Cursor-paginated.
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            maximum: 200
+        - name: before
+          in: query
+          description: ISO timestamp cursor for pagination
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: Spend history
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agent_id:
+                    type: string
+                  entries:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        timestamp:
+                          type: string
+                          format: date-time
+                        amount_usdc:
+                          type: integer
+                        category:
+                          type: string
+                        description:
+                          type: string
+                        reference_id:
+                          type: string
+                          nullable: true
+                  summary:
+                    type: object
+                    properties:
+                      count:
+                        type: integer
+                      total_usdc:
+                        type: integer
+                      by_category:
+                        type: object
+                  pagination:
+                    type: object
+                    properties:
+                      limit:
+                        type: integer
+                      has_more:
+                        type: boolean
+                      next_before:
+                        type: string
+                        nullable: true
+
+  # ── Charge & Approvals ─────────────────────────────────────────────────────
+
+  /v1/charge:
+    post:
+      tags: [budget]
+      summary: Declare spending intent
+      description: |
+        Agent-side endpoint to declare a spending intent before taking an action that costs money.
+
+        **Outcomes:**
+        - **200 completed:** Charge is within budget → spend recorded immediately.
+        - **202 approval_required:** Over budget + `on_limit=approve` → approval request created, principal notified.
+        - **402 budget_exceeded:** Over budget + `on_limit=reject` (default) → agent must stop.
+
+        Amount is in atomic USDC units (1,000,000 = 1.00 USDC). Maximum 1,000,000,000 (1000 USDC).
+
+        **Single-tx limit:** If `single_tx_limit_cents` is set and amount exceeds it, the approval flow
+        triggers even if within budget.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amount]
+              properties:
+                amount:
+                  type: integer
+                  description: Amount in atomic USDC units (1e-6 USDC). Example 1000000 = 1.00 USDC.
+                  example: 10000
+                category:
+                  type: string
+                  description: Spending category label. Default "platform".
+                  example: platform
+                description:
+                  type: string
+                  description: Human-readable description of the charge.
+                  example: API call to external service
+                reference_id:
+                  type: string
+                  description: Optional external reference ID for correlating charges.
+                metadata:
+                  type: object
+                  description: Optional arbitrary key-value metadata attached to the charge.
+            examples:
+              simple_charge:
+                summary: Basic charge declaration
+                value:
+                  amount: 10000
+                  category: platform
+                  description: "Inference cost for task completion"
+      responses:
+        "200":
+          description: Charge completed (within budget)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [completed]
+                  charge_id:
+                    type: string
+                    example: chg_abc123
+                  amount_usdc:
+                    type: integer
+                  category:
+                    type: string
+                  description:
+                    type: string
+                  message:
+                    type: string
+        "202":
+          description: Approval required (over budget + on_limit=approve)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [approval_required]
+                  approval_id:
+                    type: string
+                    example: apr_abc123
+                  reason:
+                    type: string
+                    enum: [budget_exceeded, single_tx_limit_exceeded]
+                  amount_usdc:
+                    type: integer
+                  exceeded:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        period:
+                          type: string
+                        spent_usdc:
+                          type: integer
+                        limit_usdc:
+                          type: integer
+                        remaining_usdc:
+                          type: integer
+                        resets_at:
+                          type: string
+                          format: date-time
+                  expires_at:
+                    type: string
+                    format: date-time
+                  check_url:
+                    type: string
+                    example: /v1/approvals/apr_abc123
+                  message:
+                    type: string
+        "402":
+          description: Budget exceeded (on_limit=reject)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    enum: [budget_exceeded, single_tx_limit_exceeded]
+                  message:
+                    type: string
+                  budget_url:
+                    type: string
+                  amount_usdc:
+                    type: integer
+                  exceeded:
+                    type: array
+                    items:
+                      type: object
+
+  /v1/approvals:
+    get:
+      tags: [budget]
+      summary: List approval requests
+      description: |
+        Returns approval requests for this account. Default: pending only.
+
+        Use `?status=all` to see all statuses (pending/approved/rejected/expired).
+
+        Stale pending requests (past expires_at) are automatically marked expired on each read.
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, approved, rejected, expired, all]
+            default: pending
+          description: Filter by status. "all" returns every status.
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            maximum: 200
+      responses:
+        "200":
+          description: List of approval requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agent_id:
+                    type: string
+                  status_filter:
+                    type: string
+                  approvals:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ApprovalRequest'
+                  count:
+                    type: integer
+
+  /v1/approvals/{id}:
+    get:
+      tags: [budget]
+      summary: Get single approval request
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            example: apr_abc123
+      responses:
+        "200":
+          description: Approval request detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalRequest'
+        "404":
+          description: Not found
+
+  /v1/approvals/{id}/approve:
+    post:
+      tags: [budget]
+      summary: Approve a pending request
+      description: |
+        Approves the pending approval request and records the spend.
+
+        Returns 409 if already resolved, 410 if expired.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            example: apr_abc123
+      responses:
+        "200":
+          description: Approval approved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  approval_id:
+                    type: string
+                  status:
+                    type: string
+                    enum: [approved]
+                  amount_usdc:
+                    type: integer
+                  category:
+                    type: string
+                  description:
+                    type: string
+                  resolved_at:
+                    type: string
+                    format: date-time
+                  message:
+                    type: string
+        "404":
+          description: Approval request not found
+        "409":
+          description: Already resolved
+        "410":
+          description: Approval request expired
+
+  /v1/approvals/{id}/reject:
+    post:
+      tags: [budget]
+      summary: Reject a pending request
+      description: |
+        Rejects the pending approval request. No spend is recorded.
+
+        Returns 409 if already resolved, 410 if expired.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            example: apr_abc123
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  description: Optional rejection reason (stored in metadata).
+      responses:
+        "200":
+          description: Approval rejected
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  approval_id:
+                    type: string
+                  status:
+                    type: string
+                    enum: [rejected]
+                  amount_usdc:
+                    type: integer
+                  reason:
+                    type: string
+                    nullable: true
+                  resolved_at:
+                    type: string
+                    format: date-time
+                  message:
+                    type: string
+        "404":
+          description: Approval request not found
+        "409":
+          description: Already resolved
+        "410":
+          description: Approval request expired
 
   # ── Email ─────────────────────────────────────────────────────────────────
 

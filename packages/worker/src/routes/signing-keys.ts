@@ -280,7 +280,15 @@ signingKeyRoutes.delete('/signing-keys', async (c) => {
     throw kvErr;
   }
   // Remove account index (no active key)
-  await c.env.KEYS.delete('signing-key-by-account:' + account.id);
+  try {
+    await c.env.KEYS.delete('signing-key-by-account:' + account.id);
+  } catch (kvErr: unknown) {
+    const msg = kvErr instanceof Error ? kvErr.message : '';
+    if (msg.includes('free usage limit') || msg.includes('KV') || msg.includes('quota')) {
+      return err('Signing key revocation temporarily unavailable — KV write quota exceeded. Try again later.', 503, 'kv_quota_exceeded');
+    }
+    throw kvErr;
+  }
 
   return json({ keyid, revoked: true, status: 'revoked' });
 });

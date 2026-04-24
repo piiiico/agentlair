@@ -13,6 +13,7 @@ import { sendMagicLinkEmail } from '../middleware/auth.js';
 import { checkIpRateLimit } from '../middleware/ratelimit.js';
 import { saveKeysList, ensureKeysList } from '../platform-crypto.js';
 import { validateLocalPart, isReservedAddress } from '../reserved.js';
+import { getPublicKey, verifyJWT } from '../jwt.js';
 import {
   SERVICE_PRICES, make402Response, verifyX402Payment, settleX402Payment,
   trackX402Spend, getX402Spend,
@@ -358,6 +359,71 @@ export async function handleAuthRoutes(
         warning: 'Save your API key — it will not be shown again.',
         limits: { emails_per_day: 10, requests_per_day: 100, stacks: 1, addresses: 10 },
       }, 201);
+    }
+
+    // POST /v1/auth/verify — public x402-gated AAT token verification
+    // Payment IS the authentication — no AgentLair API key required.
+    // Complements GET /v1/auth/verify (magic link). POST validates AAT tokens.
+    // This is one of the 4 x402 discovery services for agentic.market listing.
+    if (path === '/v1/auth/verify' && method === 'POST') {
+      const paymentHeader = request.headers.get('X-PAYMENT');
+      if (!paymentHeader) {
+        return make402Response(SERVICE_PRICES.token_verify, {
+          info: 'Submit AAT token in body: {"token":"eyJ..."}. Pay 0.001 USDC via x402 to verify.',
+        });
+      }
+
+      const payment = await verifyX402Payment(paymentHeader, SERVICE_PRICES.token_verify);
+      if (!payment.valid) {
+        return new Response(JSON.stringify({
+          active: false,
+          error: 'payment_invalid',
+          message: payment.error,
+        }), { status: 402, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      let body: Record<string, unknown> = {};
+      try { body = await request.json(); } catch {}
+      const tokenStr = typeof body.token === 'string' ? body.token : null;
+      if (!tokenStr) {
+        return err('token is required in body: {"token":"eyJ..."}', 400, 'missing_token');
+      }
+
+      const signingKey = env.AUDIT_SIGNING_KEY;
+      if (!signingKey) {
+        return err('Token validation not configured', 503, 'validation_unavailable');
+      }
+
+      const publicKeyBytes = getPublicKey(signingKey);
+      const claims = verifyJWT(tokenStr, publicKeyBytes);
+
+      const spendAccount = claims?.sub || 'anonymous';
+      await settleX402Payment(paymentHeader, SERVICE_PRICES.token_verify).catch(() => {});
+      await trackX402Spend(env, spendAccount, SERVICE_PRICES.token_verify.amount, {
+        payer: payment.payer,
+        service: 'token_verify',
+      }).catch(() => {});
+
+      if (!claims) return json({ active: false });
+
+      const now = Math.floor(Date.now() / 1000);
+      if (claims.exp <= now) return json({ active: false, reason: 'expired' });
+
+      return json({
+        active: true,
+        sub: claims.sub,
+        iss: claims.iss,
+        aud: claims.aud,
+        exp: claims.exp,
+        iat: claims.iat,
+        jti: claims.jti,
+        scope: claims.al_scopes.join(' '),
+        al_scopes: claims.al_scopes,
+        al_audit_url: claims.al_audit_url,
+        ...(claims.did ? { did: claims.did } : {}),
+        ...(claims.al_name ? { al_name: claims.al_name } : {}),
+        ...(claims.al_email ? { al_email: claims.al_email } : {}),
+      });
     }
 
     return null; // no public auth route matched

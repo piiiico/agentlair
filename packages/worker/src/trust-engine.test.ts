@@ -21,9 +21,46 @@ import {
   applyColdStartPrior,
   deriveATFLevel,
   computeConfidenceInterval,
+  verifyChainIntegrity,
+  applyEntropyPenalty,
 } from './trust-engine';
+import { createHash } from 'crypto';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/** Sync SHA-256 for test helpers (Bun/Node only — production uses WebCrypto) */
+function sha256hexSync(text: string): string {
+  return createHash('sha256').update(text).digest('hex');
+}
+
+/**
+ * Canonical entry representation for hash chain computation.
+ * Must match the key order used by audit middleware and verifyChainIntegrity.
+ * Excludes _source (added post-fetch, not in DB or hash chain).
+ */
+function canonicalHash(evt: AuditEvent): string {
+  const canonical = {
+    id: evt.id,
+    timestamp: evt.timestamp,
+    account_id: evt.account_id,
+    actor_type: evt.actor_type ?? 'account',
+    actor_id: evt.actor_id,
+    actor_ip_hash: evt.actor_ip_hash ?? null,
+    category: evt.category,
+    action: evt.action,
+    method: evt.method ?? 'POST',
+    path: evt.path ?? '/v1/auth/login',
+    resource_type: evt.resource_type ?? null,
+    resource_id: evt.resource_id ?? null,
+    status: evt.status ?? 200,
+    result: evt.result,
+    error_code: evt.error_code ?? null,
+    details: evt.details !== null && evt.details !== undefined ? JSON.parse(evt.details as string) : null,
+    prev_hash: evt.prev_hash,
+    signature: evt.signature,
+  };
+  return sha256hexSync(JSON.stringify(canonical));
+}
 
 let eventCounter = 0;
 
@@ -33,15 +70,68 @@ function makeEvent(overrides: Partial<AuditEvent> = {}): AuditEvent {
     timestamp: new Date().toISOString(),
     account_id: 'acc_test',
     actor_id: 'agent_test',
+    actor_type: 'account',
+    actor_ip_hash: null,
     category: 'auth',
     action: 'auth.login',
+    method: 'POST',
+    path: '/v1/auth/login',
+    resource_type: null,
+    resource_id: null,
+    status: 200,
     result: 'success',
+    error_code: null,
+    details: null,
     prev_hash: 'a'.repeat(64),
     signature: 'sig_test',
-    resource_type: null,
-    error_code: null,
     ...overrides,
   };
+}
+
+/**
+ * N events spread evenly over the past `days` days, with proper SHA-256
+ * hash chain (prev_hash = sha256(JSON.stringify(previousEntry))).
+ * Use this in tests that need non-zero chain_integrity.
+ */
+function makeChainedEventsOverDays(
+  count: number,
+  days: number,
+  overrides: Partial<Omit<AuditEvent, 'id' | 'prev_hash'>> = {},
+): AuditEvent[] {
+  if (count === 0) return [];
+  const now = Date.now();
+  const windowMs = days * 86_400_000;
+  const events: AuditEvent[] = [];
+  for (let i = 0; i < count; i++) {
+    const offsetMs = (i / Math.max(count - 1, 1)) * windowMs;
+    const ts = new Date(now - windowMs + offsetMs).toISOString();
+    const id = `chain-evt-${++eventCounter}`;
+    // Compute prev_hash as SHA-256 of previous entry's canonical JSON (same as audit middleware)
+    const prev_hash = i === 0 ? '0'.repeat(64) : canonicalHash(events[i - 1]);
+    const event: AuditEvent = {
+      id,
+      timestamp: ts,
+      account_id: 'acc_test',
+      actor_type: 'account',
+      actor_id: 'agent_test',
+      actor_ip_hash: null,
+      category: 'auth',
+      action: 'auth.login',
+      method: 'POST',
+      path: '/v1/auth/login',
+      resource_type: null,
+      resource_id: null,
+      status: 200,
+      result: 'success',
+      error_code: null,
+      details: null,
+      prev_hash,
+      signature: 'sig_test',
+      ...overrides,
+    };
+    events.push(event);
+  }
+  return events;
 }
 
 /** N events spread evenly over the past `days` days (all within window). */
@@ -348,60 +438,80 @@ describe('computeRestraint', () => {
 // ─── computeTransparency ─────────────────────────────────────────────────────
 
 describe('computeTransparency', () => {
-  test('empty events → coverage 0.3, chain_integrity 1, score > 0', () => {
-    const { score, signals } = computeTransparency([]);
+  test('empty events → coverage 0.3, chain_integrity 1, score > 0', async () => {
+    const { score, signals } = await computeTransparency([]);
     expect(signals.audit_coverage).toBe(0.3);
     expect(signals.chain_integrity).toBe(1.0);
     expect(score).toBeGreaterThan(0);
   });
 
-  test('score is in [0, 1] range', () => {
-    const events = makeEventsOverDays(20, 90);
-    const { score } = computeTransparency(events);
+  test('score is in [0, 1] range', async () => {
+    const events = makeChainedEventsOverDays(20, 90);
+    const { score } = await computeTransparency(events);
     expect(score).toBeGreaterThanOrEqual(0);
     expect(score).toBeLessThanOrEqual(1);
   });
 
-  test('all 4 signals are present in output', () => {
-    const events = makeEventsOverDays(10, 90);
-    const { signals } = computeTransparency(events);
+  test('all 4 signals are present in output', async () => {
+    const events = makeChainedEventsOverDays(10, 90);
+    const { signals } = await computeTransparency(events);
     expect(signals).toHaveProperty('audit_coverage');
     expect(signals).toHaveProperty('chain_integrity');
     expect(signals).toHaveProperty('auth_hygiene');
     expect(signals).toHaveProperty('telemetry_reporting');
   });
 
-  test('all events have prev_hash → chain_integrity = 1', () => {
-    const events = makeEventsOverDays(10, 90, { prev_hash: 'a'.repeat(64) });
-    const { signals } = computeTransparency(events);
+  test('properly chained events → chain_integrity = 1', async () => {
+    // Each event's prev_hash === sha256(JSON.stringify(previousEntry)) → unbroken chain
+    const events = makeChainedEventsOverDays(10, 90);
+    const { signals } = await computeTransparency(events);
     expect(signals.chain_integrity).toBe(1);
   });
 
-  test('all events missing prev_hash → catastrophic failure → score = 0', () => {
+  test('all events with wrong prev_hash → chain_integrity = 0', async () => {
+    // No event's prev_hash matches sha256 of previous entry → every link is broken
     const events = makeEventsOverDays(10, 90, { prev_hash: '' });
-    const { score, signals } = computeTransparency(events);
+    const { signals } = await computeTransparency(events);
     expect(signals.chain_integrity).toBe(0);
-    expect(score).toBe(0);
+    // With ≤50 internal events, early-exit doesn't trigger — score uses chain_integrity=0 in weighted mean
+    expect(signals.audit_coverage).toBeGreaterThan(0);
   });
 
-  test('partial broken chain → proportionally reduced chain_integrity', () => {
+  test('partial broken chain → proportionally reduced chain_integrity', async () => {
+    // Build 10 events sorted oldest-first. First 6 form a proper SHA-256 chain;
+    // last 4 have wrong prev_hash values — creating 4 broken links of 9 total.
     const now = Date.now();
-    const good = Array.from({ length: 6 }, (_, i) =>
-      makeEvent({ timestamp: new Date(now - i * 86_400_000).toISOString(), prev_hash: 'a'.repeat(64) }),
-    );
-    const broken = Array.from({ length: 4 }, (_, i) =>
-      makeEvent({ timestamp: new Date(now - (i + 10) * 86_400_000).toISOString(), prev_hash: '' }),
-    );
-    const { signals } = computeTransparency([...good, ...broken]);
-    // 4 broken of 10 total → chain_integrity = 1 - 4/10 = 0.6
-    expect(signals.chain_integrity).toBeCloseTo(0.6, 5);
-    expect(signals.score).not.toBe(0); // not catastrophic (integrity > 0)
+    const evts: AuditEvent[] = [];
+    for (let i = 0; i < 10; i++) {
+      const id = `partial-chain-${++eventCounter}`;
+      const ts = new Date(now - (9 - i) * 86_400_000).toISOString();
+      let prev_hash: string;
+      if (i === 0) {
+        prev_hash = '0'.repeat(64); // genesis
+      } else if (i < 6) {
+        prev_hash = canonicalHash(evts[i - 1]); // proper SHA-256 link
+      } else {
+        prev_hash = 'wrong-hash-value'; // broken link
+      }
+      evts.push({ id, timestamp: ts, account_id: 'acc_test', actor_type: 'account',
+                  actor_id: 'agent_test', actor_ip_hash: null,
+                  category: 'auth', action: 'auth.login', method: 'POST', path: '/v1/auth/login',
+                  resource_type: null, resource_id: null, status: 200, result: 'success',
+                  error_code: null, details: null,
+                  prev_hash, signature: 'sig_test' });
+    }
+    const { signals } = await computeTransparency(evts);
+    // Links 0→1, 1→2, 2→3, 3→4, 4→5 are good (5). Links 5→6, 6→7, 7→8, 8→9 are broken (4).
+    // chain_integrity = 5/9 ≈ 0.5556
+    expect(signals.chain_integrity).toBeCloseTo(5 / 9, 5);
+    expect(signals.chain_integrity).toBeGreaterThan(0); // not catastrophic
   });
 
-  test('coverage scales with event count', () => {
-    const { signals: s0 } = computeTransparency([]);
-    const { signals: s3 } = computeTransparency(makeEventsOverDays(3, 90));
-    const { signals: s100 } = computeTransparency(makeEventsOverDays(100, 90));
+  test('coverage scales with event count', async () => {
+    // Use chained events so chain_integrity > 0 and the coverage signal is reachable
+    const { signals: s0 } = await computeTransparency([]);
+    const { signals: s3 } = await computeTransparency(makeChainedEventsOverDays(3, 90));
+    const { signals: s100 } = await computeTransparency(makeChainedEventsOverDays(100, 90));
 
     expect(s0.audit_coverage).toBe(0.3);   // 0 events → 0.3
     expect(s3.audit_coverage).toBe(0.5);   // < 5 events → 0.5
@@ -409,31 +519,32 @@ describe('computeTransparency', () => {
     expect(s100.audit_coverage).toBeLessThanOrEqual(1.0);
   });
 
-  test('auth events with no failures → auth_hygiene = 1.0', () => {
-    const events = makeEventsOverDays(15, 90, { category: 'auth', result: 'success' });
-    const { signals } = computeTransparency(events);
+  test('auth events with no failures → auth_hygiene = 1.0', async () => {
+    // Chained events ensure chain_integrity > 0 so we reach auth_hygiene computation
+    const events = makeChainedEventsOverDays(15, 90, { category: 'auth', result: 'success' });
+    const { signals } = await computeTransparency(events);
     // failurePenalty=1, hasAuth=1 → authHygiene = 1.0
     expect(signals.auth_hygiene).toBe(1.0);
   });
 
-  test('all auth events are failures → low auth_hygiene', () => {
-    const events = makeEventsOverDays(15, 90, { category: 'auth', result: 'failure' });
-    const { signals } = computeTransparency(events);
+  test('all auth events are failures → low auth_hygiene', async () => {
+    const events = makeChainedEventsOverDays(15, 90, { category: 'auth', result: 'failure' });
+    const { signals } = await computeTransparency(events);
     // failurePenalty = clamp(1 - 1.0*3, 0,1) = 0, hasAuth=1
     // authHygiene = weightedMean([[0, 0.6], [1, 0.4]]) = 0.4
     expect(signals.auth_hygiene).toBeCloseTo(0.4, 5);
   });
 
-  test('no auth events → auth_hygiene = 0.8 (failurePenalty=1, hasAuth=0.5)', () => {
-    const events = makeEventsOverDays(15, 90, { category: 'email', result: 'success' });
-    const { signals } = computeTransparency(events);
+  test('no auth events → auth_hygiene = 0.8 (failurePenalty=1, hasAuth=0.5)', async () => {
+    const events = makeChainedEventsOverDays(15, 90, { category: 'email', result: 'success' });
+    const { signals } = await computeTransparency(events);
     // authEvents=0 → failurePenalty=1, hasAuth=0.5
     // authHygiene = weightedMean([[1, 0.6], [0.5, 0.4]]) = 0.6 + 0.2 = 0.8
     expect(signals.auth_hygiene).toBeCloseTo(0.8, 5);
   });
 
-  test('telemetry_reporting is neutral 0.5 in Phase 1', () => {
-    const { signals } = computeTransparency(makeEventsOverDays(10, 90));
+  test('telemetry_reporting is neutral 0.5 in Phase 1', async () => {
+    const { signals } = await computeTransparency(makeChainedEventsOverDays(10, 90));
     expect(signals.telemetry_reporting).toBe(0.5);
   });
 });
@@ -575,6 +686,98 @@ describe('deriveATFLevel', () => {
     expect(levels.has('senior')).toBe(true);
     expect(levels.has('junior')).toBe(true);
     expect(levels.has('intern')).toBe(true);
+  });
+});
+
+// ─── verifyChainIntegrity ─────────────────────────────────────────────────────
+
+describe('verifyChainIntegrity', () => {
+  test('empty array → 1.0 (no links to check)', async () => {
+    expect(await verifyChainIntegrity([])).toBe(1.0);
+  });
+
+  test('single event → 1.0 (no predecessor link to verify)', async () => {
+    const evt = makeEvent({ id: 'solo', prev_hash: '' });
+    expect(await verifyChainIntegrity([evt])).toBe(1.0);
+  });
+
+  test('properly chained events (SHA-256) → 1.0', async () => {
+    const a = makeEvent({ id: 'a', prev_hash: '0'.repeat(64) });
+    const b = makeEvent({ id: 'b', prev_hash: canonicalHash(a) });
+    const c = makeEvent({ id: 'c', prev_hash: canonicalHash(b) });
+    expect(await verifyChainIntegrity([a, b, c])).toBe(1.0);
+  });
+
+  test('all links broken → 0.0', async () => {
+    const a = makeEvent({ id: 'a', prev_hash: '0'.repeat(64) });
+    const b = makeEvent({ id: 'b', prev_hash: 'WRONG' });
+    const c = makeEvent({ id: 'c', prev_hash: 'WRONG' });
+    // 0 valid of 2 links → 0.0
+    expect(await verifyChainIntegrity([a, b, c])).toBe(0.0);
+  });
+
+  test('one valid link and one broken → 0.5', async () => {
+    const a = makeEvent({ id: 'a', prev_hash: '0'.repeat(64) });
+    const b = makeEvent({ id: 'b', prev_hash: canonicalHash(a) }); // OK
+    const c = makeEvent({ id: 'c', prev_hash: 'WRONG' });  // broken
+    // 1 valid of 2 links → 0.5
+    expect(await verifyChainIntegrity([a, b, c])).toBe(0.5);
+  });
+
+  test('truthy-but-wrong prev_hash fails (fixes C1)', async () => {
+    // The prev_hash must be the exact SHA-256 of the previous entry's JSON.
+    const a = makeEvent({ id: 'evt-id-1', prev_hash: '0'.repeat(64) });
+    const b = makeEvent({ id: 'evt-id-2', prev_hash: 'a'.repeat(64) }); // truthy but wrong hash
+    // 0 valid of 1 link → 0.0
+    expect(await verifyChainIntegrity([a, b])).toBe(0.0);
+  });
+});
+
+// ─── applyEntropyPenalty ──────────────────────────────────────────────────────
+
+describe('applyEntropyPenalty', () => {
+  test('diverse scores → no penalty (multiplier = 1.0)', () => {
+    const result = applyEntropyPenalty(0.70, { consistency: 0.80, restraint: 0.55, transparency: 0.65 });
+    expect(result).toBeCloseTo(0.70, 10);
+  });
+
+  test('all dimensions > 0.95 → multiplied by 0.85 (C2 "perfect robot")', () => {
+    const rawScore = 0.97;
+    const result = applyEntropyPenalty(rawScore, { consistency: 0.96, restraint: 0.97, transparency: 0.98 });
+    expect(result).toBeCloseTo(rawScore * 0.85, 10);
+  });
+
+  test('perfect score (1.0) with all dimensions > 0.95 → capped near 85%', () => {
+    const result = applyEntropyPenalty(1.0, { consistency: 1.0, restraint: 1.0, transparency: 1.0 });
+    expect(result).toBeCloseTo(0.85, 10);
+  });
+
+  test('suspiciously uniform (all equal, not all perfect) → multiplied by 0.90', () => {
+    // All at 0.5 → mean=0.5, variance=0 < 0.005 → penalty
+    const rawScore = 0.5;
+    const result = applyEntropyPenalty(rawScore, { consistency: 0.5, restraint: 0.5, transparency: 0.5 });
+    expect(result).toBeCloseTo(rawScore * 0.90, 10);
+  });
+
+  test('moderate variance → no penalty', () => {
+    // {0.8, 0.5, 0.65} → mean=0.65, variance=((0.15²+0.15²+0²)/3)=0.015 > 0.005
+    const result = applyEntropyPenalty(0.65, { consistency: 0.80, restraint: 0.50, transparency: 0.65 });
+    expect(result).toBeCloseTo(0.65, 10);
+  });
+
+  test('allPerfect check takes priority over variance check', () => {
+    // All at 0.96: allPerfect = true (checked first), variance = 0 (also low)
+    const rawScore = 0.96;
+    const result = applyEntropyPenalty(rawScore, { consistency: 0.96, restraint: 0.96, transparency: 0.96 });
+    expect(result).toBeCloseTo(rawScore * 0.85, 10); // allPerfect penalty, not variance
+  });
+
+  test('penalty is proportional — smaller raw score → smaller absolute penalty', () => {
+    const high = applyEntropyPenalty(0.98, { consistency: 0.97, restraint: 0.96, transparency: 0.98 });
+    const low  = applyEntropyPenalty(0.60, { consistency: 0.60, restraint: 0.60, transparency: 0.60 });
+    // high uses allPerfect penalty, low uses variance penalty
+    expect(high).toBeLessThan(0.98);
+    expect(low).toBeLessThan(0.60);
   });
 });
 

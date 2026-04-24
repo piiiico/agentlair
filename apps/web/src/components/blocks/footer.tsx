@@ -12,7 +12,7 @@ export function Footer() {
   ];
 
   const social = [
-    { name: "GitHub", href: "https://github.com/hawkaa/agentlair" },
+    { name: "GitHub", href: "https://github.com/piiiico/agentlair" },
   ];
 
   const legal = [{ name: "Privacy Policy", href: "/privacy" }];

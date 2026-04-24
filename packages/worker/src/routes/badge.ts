@@ -315,6 +315,8 @@ async function handleScoreJsonRequest(c: any): Promise<Response> {
 
 // ─── Mount Routes ────────────────────────────────────────────────────────────
 // Handles both /badge/:agentId and /badge/:agentId.svg
+// Also handles /badge/:agentId/score.svg for GitHub Actions / shields.io compat
 
 badgeRoutes.get('/:agentId/score.json', handleScoreJsonRequest);
+badgeRoutes.get('/:agentId/score.svg', handleBadgeRequest);
 badgeRoutes.get('/:agentId', handleBadgeRequest);

@@ -493,3 +493,58 @@ describe('auditEntryToCAF', () => {
     expect(attestation.sig.kid).toMatch(/^[0-9a-f]{8}$/);
   });
 });
+
+// ─── auditEntryToCAF() — session category ────────────────────────────────────
+
+describe('auditEntryToCAF — session category', () => {
+  test('session.start produces commitment_type agent.session with temporal cost_signal and magnitude 1', async () => {
+    const { privateKeyB64 } = generateTestKeypair();
+    const entry = makeAuditEntry({ category: 'session', action: 'session.start', details: null });
+    const attestation = await auditEntryToCAF(entry, privateKeyB64);
+
+    expect(attestation.commitment_type).toBe('agent.session');
+    expect(attestation.cost_signal.type).toBe('temporal');
+    expect(attestation.cost_signal.magnitude).toBe(1);
+  });
+
+  test('session.end with duration_ms in details produces magnitude equal to duration_ms', async () => {
+    const { privateKeyB64 } = generateTestKeypair();
+    const entry = makeAuditEntry({
+      category: 'session',
+      action: 'session.end',
+      details: { duration_ms: 3600000 },
+    });
+    const attestation = await auditEntryToCAF(entry, privateKeyB64);
+
+    expect(attestation.commitment_type).toBe('agent.session');
+    expect(attestation.cost_signal.type).toBe('temporal');
+    expect(attestation.cost_signal.magnitude).toBe(3600000);
+  });
+
+  test('body.sub_action matches entry.action', async () => {
+    const { privateKeyB64 } = generateTestKeypair();
+    const entry = makeAuditEntry({ category: 'session', action: 'session.end', details: { duration_ms: 1000 } });
+    const attestation = await auditEntryToCAF(entry, privateKeyB64);
+    const body = attestation.body as Record<string, unknown>;
+
+    expect(body.sub_action).toBe('session.end');
+  });
+
+  test('body.duration_ms is null when details has no duration_ms', async () => {
+    const { privateKeyB64 } = generateTestKeypair();
+    const entry = makeAuditEntry({ category: 'session', action: 'session.start', details: null });
+    const attestation = await auditEntryToCAF(entry, privateKeyB64);
+    const body = attestation.body as Record<string, unknown>;
+
+    expect(body.duration_ms).toBeNull();
+  });
+
+  test('non-session category still produces agent.action (regression guard)', async () => {
+    const { privateKeyB64 } = generateTestKeypair();
+    const entry = makeAuditEntry({ category: 'email', action: 'email.send' });
+    const attestation = await auditEntryToCAF(entry, privateKeyB64);
+
+    expect(attestation.commitment_type).toBe('agent.action');
+    expect(attestation.cost_signal.type).toBe('credential');
+  });
+});

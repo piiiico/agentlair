@@ -82,6 +82,7 @@ packages/
   sdk/             — @agentlair/sdk client library
   mcp-server/      — @agentlair/mcp MCP server
   vault-crypto/    — @agentlair/vault-crypto end-to-end encryption
+  verify/          — @agentlair/verify AAT token verification
   email-worker/    — Email processing worker
 
 apps/

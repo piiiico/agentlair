@@ -121,8 +121,8 @@ const BLOCKED_DOMAINS = new Set([
 export async function handleDomainRoutes(
   request: Request,
   env: Env,
-  ctx: ExecutionContext,
-  { url, path, method, account }: RouteContext,
+  _ctx: ExecutionContext,
+  { path, method, account }: RouteContext,
 ): Promise<Response | null> {
   if (!account) return null;
   if (!path.startsWith('/v1/email/domains')) return null;

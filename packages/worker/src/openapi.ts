@@ -69,6 +69,10 @@ export const API_DISCOVERY = {
       poll: 'POST /v1/credentials/poll (body: {device_code}) — agent polls for credential delivery (one-time)',
       note: 'RFC 8628-inspired device flow. Agent requests → operator approves via user code → agent polls to receive credential. TTL: 5 minutes. One-time delivery.',
     },
+    trust: {
+      score: 'GET /v1/trust/score?agent_id={agentId} — behavioral trust score for an agent (query-param style)',
+      profile: 'GET /v1/trust/{agentId} — behavioral trust score for an agent (path-param style)',
+    },
   },
   note: 'Beta: email live (inbound + outbound), shared observations live. E2E key rotation live. Vault (encrypted seed storage) live. Credential device flow live. DNS/hosting Q2 2026.',
 };
@@ -160,6 +164,10 @@ export const OPENAPI_SPEC = {
     {
       "name": "credentials",
       "description": "RFC 8628-inspired device flow for agents to request credentials from operators"
+    },
+    {
+      "name": "trust",
+      "description": "Behavioral trust scores for agents"
     }
   ],
   "components": {
@@ -4774,7 +4782,7 @@ export const OPENAPI_SPEC = {
           "credentials"
         ],
         "summary": "Approve or deny a credential request (operator)",
-        "description": "The operator approves or denies a pending credential request. If `approved` is `true`, `credential_value` must be provided — this is the actual secret that will be one-time-delivered to the agent on next poll. If `approved` is `false`, the agent will receive a `denied` status on next poll.",
+        "description": "The operator approves or denies a pending credential request. Requires `vault_key` (the vault slot to store the credential) and `operator_email` (must match the account's registered email for binding). If `approved` is `true`, `credential_value` must also be provided — this is the actual secret that will be one-time-delivered to the agent on next poll. If `approved` is `false`, the agent will receive a `denied` status on next poll.",
         "security": [
           {
             "bearerAuth": []
@@ -4786,7 +4794,7 @@ export const OPENAPI_SPEC = {
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["user_code", "approved"],
+                "required": ["user_code", "approved", "vault_key", "operator_email"],
                 "properties": {
                   "user_code": {
                     "type": "string",
@@ -4796,6 +4804,18 @@ export const OPENAPI_SPEC = {
                   "approved": {
                     "type": "boolean",
                     "description": "Whether to approve (true) or deny (false) the request"
+                  },
+                  "vault_key": {
+                    "type": "string",
+                    "maxLength": 100,
+                    "description": "The vault key name where the credential will be stored. Pre-populated from the agent's request — the operator may change it.",
+                    "example": "openai-api-key"
+                  },
+                  "operator_email": {
+                    "type": "string",
+                    "format": "email",
+                    "description": "The operator's email address. Must match the account's registered `operator_email` for binding/security validation.",
+                    "example": "operator@example.com"
                   },
                   "credential_value": {
                     "type": "string",
@@ -4811,6 +4831,8 @@ export const OPENAPI_SPEC = {
                   "value": {
                     "user_code": "ABCD-1234",
                     "approved": true,
+                    "vault_key": "openai-api-key",
+                    "operator_email": "operator@example.com",
                     "credential_value": "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
                   }
                 },
@@ -4818,7 +4840,9 @@ export const OPENAPI_SPEC = {
                   "summary": "Deny request",
                   "value": {
                     "user_code": "ABCD-1234",
-                    "approved": false
+                    "approved": false,
+                    "vault_key": "openai-api-key",
+                    "operator_email": "operator@example.com"
                   }
                 }
               }
@@ -5091,6 +5115,163 @@ export const OPENAPI_SPEC = {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/trust/score": {
+      "get": {
+        "tags": ["trust"],
+        "summary": "Get behavioral trust score for an agent (query-param style)",
+        "description": "Returns the behavioral trust score, tier, and component breakdown for the specified agent. Accepts agent_id as a query parameter. No auth required — anonymous callers pay 0.01 USDC via x402; authenticated callers use their API key.",
+        "security": [{ "bearerAuth": [] }, {}],
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "query",
+            "required": true,
+            "description": "Agent account ID (format: acc_<alphanumeric>)",
+            "schema": {
+              "type": "string",
+              "pattern": "^acc_[A-Za-z0-9_-]{1,64}$",
+              "example": "acc_qgdxSULsXsmtHklZ"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Trust score",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "agentId": { "type": "string", "example": "acc_qgdxSULsXsmtHklZ" },
+                    "score": { "type": "integer", "minimum": 0, "maximum": 1000, "description": "Composite trust score (0-1000)", "example": 750 },
+                    "tier": { "type": "string", "enum": ["untrusted", "provisional", "trusted", "verified"], "example": "trusted" },
+                    "breakdown": {
+                      "type": "object",
+                      "properties": {
+                        "consistency": { "type": "number", "description": "Behavioral consistency score component" },
+                        "longevity": { "type": "number", "description": "Account longevity score component" },
+                        "transparency": { "type": "number", "description": "Transparency score component" },
+                        "volume": { "type": "number", "description": "Activity volume score component" }
+                      }
+                    }
+                  },
+                  "required": ["agentId", "score", "tier", "breakdown"]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid agent ID",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" },
+                "example": { "error": "invalid_agent_id" }
+              }
+            }
+          },
+          "402": {
+            "description": "Payment required (anonymous access — pay 0.01 USDC via x402)"
+          },
+          "503": {
+            "description": "Trust scoring database not available",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/trust/{agentId}": {
+      "get": {
+        "tags": ["trust"],
+        "summary": "Get behavioral trust score for an agent",
+        "description": "Returns the behavioral trust score, tier, and component breakdown for the specified agent.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "agentId",
+            "in": "path",
+            "required": true,
+            "description": "Agent account ID",
+            "schema": {
+              "type": "string",
+              "pattern": "^acc_[A-Za-z0-9_-]{1,64}$",
+              "example": "acc_k7x9m2p4abcd1234"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Trust score",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "agentId": { "type": "string", "example": "acc_k7x9m2p4abcd1234" },
+                    "score": { "type": "integer", "minimum": 0, "maximum": 1000, "description": "Composite trust score (0-1000)", "example": 750 },
+                    "tier": { "type": "string", "enum": ["untrusted", "provisional", "trusted", "verified"], "example": "trusted" },
+                    "breakdown": {
+                      "type": "object",
+                      "properties": {
+                        "consistency": { "type": "number", "description": "Behavioral consistency score component" },
+                        "longevity": { "type": "number", "description": "Account longevity score component" },
+                        "transparency": { "type": "number", "description": "Transparency score component" },
+                        "volume": { "type": "number", "description": "Activity volume score component" }
+                      }
+                    }
+                  },
+                  "required": ["agentId", "score", "tier", "breakdown"]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid agent ID",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" },
+                "example": { "error": "invalid_agent_id" }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" },
+                "example": { "error": "unauthorized" }
+              }
+            }
+          },
+          "404": {
+            "description": "Agent not found",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" },
+                "example": { "error": "not_found" }
+              }
+            }
+          },
+          "502": {
+            "description": "Upstream database error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": { "type": "string", "example": "turso_error" },
+                    "detail": { "type": "string" }
+                  }
                 }
               }
             }

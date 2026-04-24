@@ -240,6 +240,9 @@ class EmailNamespace {
    * const { messages } = await lair.email.inbox('my-agent', { limit: 5 });
    */
   async inbox(address: string, options: Omit<GetInboxOptions, 'address'> = {}): Promise<GetInboxResult> {
+    if (address === undefined || address === null) {
+      throw new Error('inbox() requires an email address. Example: lair.email.inbox("myagent@agentlair.dev")');
+    }
     const query: Record<string, string> = { address: expandAddress(address) };
     if (options.limit !== undefined) query.limit = String(options.limit);
     return this._req('GET', '/v1/email/inbox', { query });

@@ -1,0 +1,77 @@
+{
+  "name": "@agentlair/agent-framework",
+  "version": "0.1.0",
+  "description": "AgentLair trust middleware for Microsoft Agent Framework — behavioral trust scoring, tool-call gating, and A2A trust verification for MCP+A2A dual-native agents.",
+  "keywords": [
+    "agentlair",
+    "microsoft-agent-framework",
+    "ai-agent",
+    "trust",
+    "behavioral-trust",
+    "mcp",
+    "a2a",
+    "agent-to-agent",
+    "identity",
+    "eddsa",
+    "governance",
+    "agent-security"
+  ],
+  "homepage": "https://agentlair.dev",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/piiiico/agentlair"
+  },
+  "license": "MIT",
+  "author": "AgentLair",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./filters": {
+      "import": "./dist/filters.js",
+      "types": "./dist/filters.d.ts"
+    },
+    "./telemetry": {
+      "import": "./dist/telemetry.js",
+      "types": "./dist/telemetry.d.ts"
+    },
+    "./a2a": {
+      "import": "./dist/a2a.js",
+      "types": "./dist/a2a.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "peerDependencies": {
+    "zod": ">=3.22.0"
+  },
+  "peerDependenciesMeta": {
+    "zod": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.9.3",
+    "vitest": "^3.0.0",
+    "zod": "^3.24.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

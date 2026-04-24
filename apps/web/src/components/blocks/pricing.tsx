@@ -10,52 +10,84 @@ const plans = [
   {
     name: "Free",
     price: "$0",
-    period: "",
-    description: "Get started with one agent",
+    period: "/month",
+    description: "Identity verification for individual agents",
     features: [
-      "1 agent",
-      "@agentlair.dev email address",
-      "Agent profile page",
-      "Content negotiation",
-      "10 emails/day",
-      "100 API requests/day",
+      "3 agents",
+      "1,000 verifications/month",
+      "500 behavioral events/day",
+      "7-day event history",
+      "AAT issuance (Ed25519 JWT)",
+      "JWKS endpoint (.well-known/jwks.json)",
+      "Basic agent profile page",
+      "Community support (GitHub Issues)",
     ],
-    cta: "Get started",
-    href: "/getting-started",
+    cta: "Get Started",
+    href: "/register",
     highlighted: false,
   },
   {
-    name: "Pay-as-you-go",
-    price: "$0.01",
-    period: "/write",
-    description: "Beyond the free limit, pay per write operation via x402",
+    name: "Starter",
+    price: "$29",
+    period: "/month",
+    description: "Audit trail, email, and vault for production agents",
     features: [
-      "Everything in Free",
-      "x402 protocol — USDC on Base",
-      "No monthly fee, no fiat",
-      "$0.01 USDC per write (email, vault, calendar, stack)",
-      "Reads always free",
-      "Machine-native — no human in the loop",
-      "Or upgrade: $5.00 USDC for 30 days",
+      "25 agents",
+      "50,000 verifications/month",
+      "Ed25519-signed hash-chained audit trail",
+      "1-year audit log retention",
+      "Agent email (@agentlair.dev)",
+      "Encrypted credential vault",
+      "10 pods (sub-identities)",
+      "Webhook notifications",
+      "5,000 behavioral events/day",
+      "30-day event history + aggregation",
+      "Trust level: senior achievable",
+      "Email support",
     ],
-    cta: "Get started",
-    href: "/getting-started",
+    cta: "Join Waitlist",
+    href: "mailto:hei@agentlair.dev?subject=AgentLair Starter Waitlist",
     highlighted: true,
+  },
+  {
+    name: "Pro",
+    price: "$149",
+    period: "/month",
+    description: "Cross-org behavioral trust scoring — the moat",
+    features: [
+      "200 agents",
+      "500,000 verifications/month",
+      "50,000 behavioral events/day",
+      "90-day event history + ZK-ready Merkle roots",
+      "Trust level: principal achievable",
+      "Cross-org behavioral trust scoring",
+      "ATF compliance engine",
+      "Trust API (10K queries/month)",
+      "x402 payment integration",
+      "W3C VC issuance",
+      "Priority support",
+    ],
+    cta: "Join Waitlist",
+    href: "mailto:hei@agentlair.dev?subject=AgentLair Pro Waitlist",
+    highlighted: false,
   },
   {
     name: "Enterprise",
     price: "Custom",
     period: "",
-    description: "For organizations at scale",
+    description: "Govern your agent fleet at scale",
     features: [
-      "Everything in Pay-as-you-go",
-      "Dedicated infrastructure",
-      "SLA guarantee",
-      "Custom domain support",
-      "Priority support",
+      "Unlimited agents",
+      "Custom event volume + retention",
+      "ZK-proof behavioral attestations",
+      "Custom trust policies",
+      "SSO/SAML",
+      "EU data residency",
+      "99.9% uptime SLA",
+      "Dedicated support",
     ],
-    cta: "Contact us",
-    href: "mailto:hello@agentlair.dev",
+    cta: "Contact Us",
+    href: "mailto:hei@agentlair.dev",
     highlighted: false,
   },
 ];
@@ -63,17 +95,18 @@ const plans = [
 export const Pricing = ({ className }: { className?: string }) => {
   return (
     <section id="pricing" className={cn("py-28 lg:py-32", className)}>
-      <div className="container max-w-5xl">
+      <div className="container max-w-6xl">
         <div className="space-y-4 text-center">
           <h2 className="text-2xl tracking-tight md:text-4xl lg:text-5xl">
             Simple, transparent pricing
           </h2>
           <p className="text-muted-foreground mx-auto max-w-xl leading-snug text-balance">
-            Start free with one agent. Scale to hundreds as your needs grow.
+            Start free. Identity verification from day one.
+            Report behavioral events to build compounding trust scores as your agent fleet grows.
           </p>
         </div>
 
-        <div className="mt-8 grid items-start gap-5 text-start md:mt-12 md:grid-cols-3 lg:mt-20">
+        <div className="mt-8 grid items-start gap-5 text-start md:mt-12 md:grid-cols-2 lg:mt-20 lg:grid-cols-4">
           {plans.map((plan) => (
             <Card
               key={plan.name}

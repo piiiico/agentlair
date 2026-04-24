@@ -1,0 +1,32 @@
+---
+// BlogCTA.astro
+// Auto-renders after every blog post to convert readers into AgentLair users.
+// Note: curl command contains { } — stored in frontmatter to avoid Astro parse errors.
+const curlCommand = `curl -X POST https://agentlair.dev/v1/auth/agent-register \\
+  -d '{"name":"my-agent"}'`;
+---
+
+<aside class="not-prose mt-12 rounded-xl border border-primary/30 bg-gradient-to-br from-primary/5 to-muted/20 p-6 dark:from-primary/10 dark:to-muted/30">
+  <div class="flex items-start gap-3 mb-4">
+    <span class="text-2xl leading-none">🚀</span>
+    <div>
+      <h3 class="text-base font-semibold leading-snug">Give your agent an identity in 30 seconds</h3>
+      <p class="text-sm text-muted-foreground mt-0.5">API key + email address + trust score. Free tier. No signup form.</p>
+    </div>
+  </div>
+  <pre class="text-xs bg-background/80 dark:bg-background/40 rounded-md p-3 mb-5 overflow-x-auto border font-mono leading-relaxed"><code set:html={curlCommand}></code></pre>
+  <div class="flex flex-wrap gap-3">
+    <a
+      href="/register"
+      class="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+    >
+      Start Free →
+    </a>
+    <a
+      href="/getting-started"
+      class="inline-flex items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-accent hover:text-accent-foreground transition-colors"
+    >
+      Read the docs →
+    </a>
+  </div>
+</aside>

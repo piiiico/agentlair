@@ -1,0 +1,207 @@
+---
+layout: ../../layouts/BasicLayout.astro
+title: "Quickstart — AgentLair"
+description: "Register an agent, issue your first AAT, verify it, and check your trust score. Under 5 minutes."
+---
+
+# Quickstart
+
+Register an agent, issue an AAT, verify it, and check your trust score. Under 5 minutes.
+
+---
+
+## Step 1: Register
+
+Go to [agentlair.dev/register](https://agentlair.dev/register) and create a free account. You'll get:
+
+- **API key** — `al_live_k7x9m2p4...` — authenticate to the AgentLair API
+- **Account ID** — `acc_7kX9mP2qR4wL` — your agent's portable identity
+
+Or register programmatically:
+
+```bash
+curl -X POST https://agentlair.dev/v1/register \
+  -H "Content-Type: application/json" \
+  -d '{"name": "my-agent"}'
+```
+
+Response:
+
+```json
+{
+  "api_key": "al_live_k7x9m2p4...",
+  "account_id": "acc_7kX9mP2qR4wL",
+  "email": "my-agent@agentlair.dev",
+  "tier": "free"
+}
+```
+
+Save your API key — it's shown once.
+
+---
+
+## Step 2: Issue an AAT
+
+An **Agent Authentication Token (AAT)** is a short-lived JWT your agent presents to services. Issue one with your API key:
+
+```bash
+curl -X POST https://agentlair.dev/v1/tokens/issue \
+  -H "Authorization: Bearer al_live_k7x9m2p4..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "audience": "https://your-mcp-server.com",
+    "scopes": ["mcp:tools:read"]
+  }'
+```
+
+Response:
+
+```json
+{
+  "token": "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9...",
+  "expires_at": "2026-04-18T11:00:00Z",
+  "jti": "aat_a1b2c3d4e5f6",
+  "audit_url": "https://agentlair.dev/v1/audit/aat_a1b2c3d4e5f6"
+}
+```
+
+**TypeScript:**
+
+```typescript
+const res = await fetch('https://agentlair.dev/v1/tokens/issue', {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${process.env.AGENTLAIR_API_KEY}`,
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify({
+    audience: 'https://your-mcp-server.com',
+    scopes: ['mcp:tools:read'],
+  }),
+});
+const { token } = await res.json();
+// Pass token as: Authorization: Bearer <token>
+```
+
+**Python:**
+
+```python
+import httpx, os
+
+res = httpx.post(
+    "https://agentlair.dev/v1/tokens/issue",
+    headers={"Authorization": f"Bearer {os.environ['AGENTLAIR_API_KEY']}"},
+    json={
+        "audience": "https://your-mcp-server.com",
+        "scopes": ["mcp:tools:read"],
+    },
+)
+token = res.json()["token"]
+```
+
+---
+
+## Step 3: Verify an AAT (on your server)
+
+When an agent calls your service passing an AAT, verify it against AgentLair's JWKS:
+
+**TypeScript:**
+
+```typescript
+import * as jose from 'jose';
+
+async function verifyAAT(token: string): Promise<boolean> {
+  const JWKS = jose.createRemoteJWKSet(
+    new URL('https://agentlair.dev/.well-known/jwks.json')
+  );
+
+  try {
+    const { payload } = await jose.jwtVerify(token, JWKS, {
+      algorithms: ['EdDSA'],
+    });
+
+    // payload.sub is the agent's account ID (acc_...)
+    // payload.scopes contains declared permissions
+    // payload.exp enforces TTL
+    return true;
+  } catch {
+    return false; // expired, invalid signature, or tampered
+  }
+}
+```
+
+**Python:**
+
+```python
+import httpx
+from joserfc import jwt
+from joserfc.jwk import KeySet
+
+def verify_aat(token: str) -> dict | None:
+    jwks_data = httpx.get("https://agentlair.dev/.well-known/jwks.json").json()
+    key_set = KeySet.import_key_set(jwks_data)
+
+    try:
+        result = jwt.decode(token, key_set)
+        return result.claims  # sub, scopes, exp, agent_name, ...
+    except Exception:
+        return None  # invalid or expired
+```
+
+The JWKS endpoint is public — no API key required. Cache the key set and refresh on 404.
+
+---
+
+## Step 4: Check a trust score
+
+Before accepting an agent's request, check its behavioral trust score:
+
+```bash
+curl https://agentlair.dev/v1/trust/acc_7kX9mP2qR4wL \
+  -H "Authorization: Bearer al_live_k7x9m2p4..."
+```
+
+Response:
+
+```json
+{
+  "agentId": "acc_7kX9mP2qR4wL",
+  "score": 725,
+  "tier": "trusted",
+  "breakdown": {
+    "behavioral": 250,
+    "consistency": 250,
+    "reputation": 150,
+    "transparency": 75
+  },
+  "computedAt": "2026-04-18T10:30:00Z",
+  "observationCount": 47
+}
+```
+
+**TypeScript — gate on trust tier:**
+
+```typescript
+async function checkTrust(agentId: string, minScore = 500): Promise<boolean> {
+  const res = await fetch(`https://agentlair.dev/v1/trust/${agentId}`, {
+    headers: { 'Authorization': `Bearer ${process.env.AGENTLAIR_API_KEY}` },
+  });
+  const { score } = await res.json();
+  return score >= minScore;
+}
+```
+
+| Tier | Score | Meaning |
+|------|-------|---------|
+| `untrusted` | 0–249 | No behavioral history |
+| `provisional` | 250–499 | Some signal, limited cross-org coverage |
+| `trusted` | 500–749 | Established behavioral baseline |
+| `verified` | 750–1000 | Deep history, high transparency |
+
+---
+
+## What's next
+
+- [Concepts](/docs/concepts) — understand AATs, trust scoring, and JWKS in depth
+- [API Reference](/docs/api-reference) — full endpoint reference with all parameters
+- [Audit Logger](/docs/audit-logger) — log agent actions to build behavioral history

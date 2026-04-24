@@ -93,6 +93,16 @@ export interface AATClaims {
   al_email?: string; // Agent's email address
   al_scopes: string[]; // Requested scopes
   al_audit_url: string; // Audit trail link
+
+  // Trust attestation — RFC-001 IdP: embedded trust score snapshot
+  // Present when agent has sufficient behavioral history (>= 10 observations)
+  al_trust?: {
+    score: number; // [0, 100]
+    level: 'intern' | 'junior' | 'senior' | 'principal';
+    confidence: number; // [0.0, 1.0]
+    computed_at: string; // ISO 8601
+    trend: 'improving' | 'stable' | 'declining';
+  };
 }
 
 // ─── JWT creation ─────────────────────────────────────────────────────────────

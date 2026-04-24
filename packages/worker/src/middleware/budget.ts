@@ -60,31 +60,6 @@ async function getEffectiveSpend(db: D1Database, agentId: string, period: string
 }
 
 
-/** Ensure spend_ledger table exists. Called lazily before first write. */
-async function ensureSpendLedgerTable(db: D1Database): Promise<void> {
-  await db.prepare(`
-    CREATE TABLE IF NOT EXISTS spend_ledger (
-      id TEXT PRIMARY KEY,
-      account_id TEXT NOT NULL,
-      amount_usdc INTEGER NOT NULL,
-      category TEXT NOT NULL,
-      description TEXT NOT NULL,
-      reference_id TEXT,
-      timestamp TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    )
-  `).run();
-  await db.prepare(
-    `CREATE INDEX IF NOT EXISTS idx_spend_ledger_account_ts ON spend_ledger(account_id, timestamp)`
-  ).run();
-  // Migration: add key_id column if not present (SQLite doesn't support IF NOT EXISTS on ALTER)
-  try {
-    await db.prepare(`ALTER TABLE spend_ledger ADD COLUMN key_id TEXT`).run();
-  } catch {
-    // Column already exists — ignore
-  }
-}
-
 /** Increment spent_amount for a period after a successful paid operation. Fire-and-forget safe.
  *  Also appends an entry to spend_ledger for auditable history. */
 export async function recordBudgetSpend(
@@ -96,6 +71,7 @@ export async function recordBudgetSpend(
     description?: string;
     referenceId?: string;
     keyId?: string;
+    auditEntryId?: string;
   },
 ): Promise<void> {
   if (!env.AUDIT) return;
@@ -104,10 +80,11 @@ export async function recordBudgetSpend(
   const description = opts?.description ?? 'Agent operation';
   const referenceId = opts?.referenceId ?? null;
   const keyId = opts?.keyId ?? null;
+  const auditEntryId = opts?.auditEntryId ?? null;
   const timestamp = new Date().toISOString();
 
   try {
-    // 1. Increment running counters (existing logic — fast cap enforcement)
+    // 1. Increment running counters (fast cap enforcement)
     await Promise.all(periods.map(async (period) => {
       const row = await env.AUDIT!.prepare(
         `SELECT limit_amount FROM budgets WHERE agent_id = ? AND period = ?`
@@ -119,12 +96,11 @@ export async function recordBudgetSpend(
     }));
 
     // 2. Append to spend_ledger (source of truth for history — always written)
-    await ensureSpendLedgerTable(env.AUDIT);
     const id = `sp_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`;
     await env.AUDIT.prepare(`
-      INSERT INTO spend_ledger (id, account_id, amount_usdc, category, description, reference_id, key_id, timestamp)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(id, agentId, amountUsdc, category, description, referenceId, keyId, timestamp).run();
+      INSERT INTO spend_ledger (id, account_id, key_id, timestamp, amount_usdc, currency, category, description, reference_id, audit_entry_id)
+      VALUES (?, ?, ?, ?, ?, 'USDC', ?, ?, ?, ?)
+    `).bind(id, agentId, keyId, timestamp, amountUsdc, category, description, referenceId, auditEntryId).run();
   } catch {
     // Non-critical — don't fail the payment
   }

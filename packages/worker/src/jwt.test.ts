@@ -223,6 +223,24 @@ describe('createJWT', () => {
     expect(payload.al_audit_url).toBe('https://agentlair.dev/v1/audit/aat_testtoken123');
   });
 
+  test('payload contains did:web claim when provided', async () => {
+    const { privateKeyB64 } = generateTestKeypair();
+    const claims = makeClaims({
+      did: 'did:web:agentlair.dev:agents:acc_test123',
+    });
+
+    const token = createJWT(claims, privateKeyB64, 'kid');
+    const payloadJson = new TextDecoder().decode(b64urlDecode(token.split('.')[1]));
+    const payload = JSON.parse(payloadJson);
+
+    expect(payload.did).toBe('did:web:agentlair.dev:agents:acc_test123');
+    // did claim is absent when not provided
+    const claimsWithoutDid = makeClaims();
+    const tokenWithoutDid = createJWT(claimsWithoutDid, privateKeyB64, 'kid');
+    const payloadWithoutDid = JSON.parse(new TextDecoder().decode(b64urlDecode(tokenWithoutDid.split('.')[1])));
+    expect(payloadWithoutDid.did).toBeUndefined();
+  });
+
   test('signature is Ed25519 (64 bytes encoded)', async () => {
     const { privateKeyB64 } = generateTestKeypair();
     const claims = makeClaims();

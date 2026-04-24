@@ -338,8 +338,9 @@ budgetRoutes.put('/', async (c) => {
 });
 
 // ── GET /v1/budget/history — spend history from append-only ledger ──────────────
-//   ?limit=50 (default 50, max 200)
-//   ?before=<ISO timestamp> — paginate backwards
+//   ?period=daily|weekly|monthly  — filter to current period (default: all time)
+//   ?limit=50                     — max entries returned (default 50, max 200)
+//   ?before=<ISO timestamp>       — paginate backwards (cursor)
 budgetRoutes.get('/history', async (c) => {
   const account = c.get('account');
   if (!account) return err('Authentication required.', 401, 'unauthorized');
@@ -351,45 +352,56 @@ budgetRoutes.get('/history', async (c) => {
   const limitParam = parseInt(c.req.query('limit') ?? '50', 10);
   const limit = Math.min(Math.max(1, isNaN(limitParam) ? 50 : limitParam), 200);
   const before = c.req.query('before'); // ISO timestamp for cursor pagination
+  const period = c.req.query('period'); // 'daily' | 'weekly' | 'monthly'
+
+  // Compute period start (inclusive lower bound for timestamp filter)
+  let periodStart: string | null = null;
+  if (period === 'daily' || period === 'weekly' || period === 'monthly') {
+    const now = new Date();
+    if (period === 'daily') {
+      periodStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).toISOString();
+    } else if (period === 'weekly') {
+      const dayOfWeek = now.getUTCDay() || 7; // 1=Mon, 7=Sun
+      const monday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - dayOfWeek + 1));
+      periodStart = monday.toISOString();
+    } else if (period === 'monthly') {
+      periodStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
+    }
+  }
 
   interface LedgerRow {
     id: string;
+    key_id: string | null;
     amount_usdc: number;
+    currency: string;
     category: string;
     description: string;
     reference_id: string | null;
+    audit_entry_id: string | null;
     timestamp: string;
   }
 
   try {
-    // Ensure table exists (idempotent — no-op if already created by middleware)
-    await c.env.AUDIT.prepare(`
-      CREATE TABLE IF NOT EXISTS spend_ledger (
-        id TEXT PRIMARY KEY,
-        account_id TEXT NOT NULL,
-        amount_usdc INTEGER NOT NULL,
-        category TEXT NOT NULL,
-        description TEXT NOT NULL,
-        reference_id TEXT,
-        timestamp TEXT NOT NULL,
-        created_at TEXT NOT NULL DEFAULT (datetime('now'))
-      )
-    `).run();
-    await c.env.AUDIT.prepare(
-      `CREATE INDEX IF NOT EXISTS idx_spend_ledger_account_ts ON spend_ledger(account_id, timestamp)`
-    ).run();
+    // Build WHERE clauses dynamically
+    const conditions: string[] = ['account_id = ?'];
+    const args: (string | number)[] = [agentId];
 
-    // Fetch ledger entries (newest first, cursor-paginated)
-    const query = before
-      ? `SELECT id, amount_usdc, category, description, reference_id, timestamp
-         FROM spend_ledger WHERE account_id = ? AND timestamp < ?
-         ORDER BY timestamp DESC LIMIT ?`
-      : `SELECT id, amount_usdc, category, description, reference_id, timestamp
-         FROM spend_ledger WHERE account_id = ?
-         ORDER BY timestamp DESC LIMIT ?`;
-    const args = before ? [agentId, before, limit] : [agentId, limit];
+    if (periodStart) {
+      conditions.push('timestamp >= ?');
+      args.push(periodStart);
+    }
+    if (before) {
+      conditions.push('timestamp < ?');
+      args.push(before);
+    }
 
-    const rows = await c.env.AUDIT.prepare(query).bind(...args).all<LedgerRow>();
+    const where = conditions.join(' AND ');
+    args.push(limit);
+
+    const rows = await c.env.AUDIT.prepare(
+      `SELECT id, key_id, amount_usdc, currency, category, description, reference_id, audit_entry_id, timestamp
+       FROM spend_ledger WHERE ${where} ORDER BY timestamp DESC LIMIT ?`
+    ).bind(...args).all<LedgerRow>();
     const entries = rows.results ?? [];
 
     // Summary: total + by-category breakdown
@@ -403,13 +415,16 @@ budgetRoutes.get('/history', async (c) => {
       agent_id: agentId,
       currency: 'USDC',
       atomic_unit: '1e-6 USDC (one millionth of one USDC)',
+      ...(period ? { period, period_start: periodStart } : {}),
       entries: entries.map(r => ({
         id: r.id,
         timestamp: r.timestamp,
         amount_usdc: r.amount_usdc,
         category: r.category,
         description: r.description,
-        reference_id: r.reference_id ?? undefined,
+        ...(r.key_id ? { key_id: r.key_id } : {}),
+        ...(r.reference_id ? { reference_id: r.reference_id } : {}),
+        ...(r.audit_entry_id ? { audit_entry_id: r.audit_entry_id } : {}),
       })),
       summary: {
         count: entries.length,

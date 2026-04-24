@@ -11,7 +11,7 @@
 import { Hono } from 'hono';
 import { json, err, nanoid } from '../utils.js';
 import type { HonoEnv } from '../types.js';
-import { EMAIL_LIMITS } from '../middleware/ratelimit.js';
+import { EMAIL_LIMITS, getTokenVerifyCount, getTokenIssueCount, TOKEN_VERIFY_LIMITS, AGENT_LIMITS, getAgentCount } from '../middleware/ratelimit.js';
 import { X402_CONFIG, SERVICE_PRICES, verifyX402Payment, settleX402Payment, make402Response, getX402Spend, trackX402Spend, autoUpgradeIfThreshold } from '../x402.js';
 import { recordBudgetSpend } from '../middleware/budget.js';
 import { tursoExecute } from '../email-provider.js';
@@ -159,27 +159,62 @@ stackRoutes.get('/usage', async (c) => {
   const stacks = account.stacks ?? [];
   const now = new Date();
   const today = now.toISOString().slice(0, 10);
+  const month = now.toISOString().slice(0, 7); // YYYY-MM
   const counterKey = 'rl:' + account.id + ':' + today;
   const emailDailyKey = `email_daily:${account.id}:${today}`;
 
-  const [usedToday, emailDailyRaw] = await Promise.all([
+  // Read all counters in parallel
+  const [usedToday, emailDailyRaw, verifyCount, issueCount, operatorEmail] = await Promise.all([
     c.env.KEYS.get(counterKey),
     c.env.EMAILS ? c.env.EMAILS.get(emailDailyKey) : Promise.resolve(null),
+    getTokenVerifyCount(c.env, account.id),
+    getTokenIssueCount(c.env, account.id),
+    // operator email stored on account for agent count lookup
+    Promise.resolve((account as Record<string, unknown>).operator_email as string | undefined),
   ]);
+
+  // Agent count: look up per operator email if available
+  const operatorEmailStr = typeof operatorEmail === 'string' ? operatorEmail : null;
+  const agentCount = operatorEmailStr ? await getAgentCount(c.env, operatorEmailStr) : null;
+  const agentLimit = AGENT_LIMITS[account.tier as keyof typeof AGENT_LIMITS] ?? AGENT_LIMITS.free;
 
   const emailLimits = EMAIL_LIMITS[account.tier as keyof typeof EMAIL_LIMITS] || EMAIL_LIMITS.free;
   const emailDailyUsed = parseInt(emailDailyRaw || '0');
+  const verifyLimit = TOKEN_VERIFY_LIMITS[account.tier as keyof typeof TOKEN_VERIFY_LIMITS] ?? TOKEN_VERIFY_LIMITS.free;
   const resetAt = new Date(now);
   resetAt.setUTCDate(resetAt.getUTCDate() + 1);
   resetAt.setUTCHours(0, 0, 0, 0);
+  // Month reset: first of next month
+  const monthReset = new Date(now.getUTCFullYear(), now.getUTCMonth() + 1, 1);
 
   return json({
     account_id: account.id,
     tier: account.tier,
-    tier_upgraded_at: account.tier_upgraded_at || null,
-    tier_expires_at: account.tier_expires_at || null,
-    period: today,
-    requests: { used: parseInt(usedToday || '0'), limit: account.tier === 'paid' ? 10000 : 100 },
+    tier_upgraded_at: (account as Record<string, unknown>).tier_upgraded_at || null,
+    tier_expires_at: (account as Record<string, unknown>).tier_expires_at || null,
+    period: {
+      day: today,
+      month,
+    },
+    // Token operations (core billing metrics)
+    tokens: {
+      issued_this_month: issueCount,
+      issue_limit: 'unlimited', // AAT issuance is unlimited on all tiers
+      verifications_this_month: verifyCount,
+      verification_limit: verifyLimit,
+      verification_remaining: Math.max(0, verifyLimit - verifyCount),
+      verification_reset_at: monthReset.toISOString(),
+    },
+    // Agent registrations
+    ...(agentCount !== null && {
+      agents: {
+        registered: agentCount,
+        limit: agentLimit,
+        remaining: Math.max(0, agentLimit - agentCount),
+        note: 'Agents registered under your operator email.',
+      },
+    }),
+    requests: { used: parseInt(usedToday || '0'), limit: account.tier === 'paid' ? 10000 : 100, reset_at: resetAt.toISOString() },
     stacks: { used: stacks.length, limit: account.tier === 'free' ? 1 : 999 },
     emails: {
       daily_used: emailDailyUsed,
@@ -198,21 +233,51 @@ stackRoutes.get('/billing', async (c) => {
   const account = c.get('account');
   if (!account) return err('Authentication required.', 401, 'unauthorized');
 
-  const spend = await getX402Spend(c.env, account.id);
+  const [spend, verifyCount, issueCount] = await Promise.all([
+    getX402Spend(c.env, account.id),
+    getTokenVerifyCount(c.env, account.id),
+    getTokenIssueCount(c.env, account.id),
+  ]);
+
+  const verifyLimit = TOKEN_VERIFY_LIMITS[account.tier as keyof typeof TOKEN_VERIFY_LIMITS] ?? TOKEN_VERIFY_LIMITS.free;
+  const now = new Date();
+  const monthReset = new Date(now.getUTCFullYear(), now.getUTCMonth() + 1, 1);
+
+  // Tier-specific plan info
+  const planNames: Record<string, string> = { free: 'Free', paid: 'Pro', starter: 'Starter' };
+  const planName = planNames[account.tier as string] ?? 'Free';
 
   return json({
     account_id: account.id,
     tier: account.tier,
-    tier_upgraded_at: account.tier_upgraded_at || null,
-    tier_expires_at: account.tier_expires_at || null,
-    plan: account.tier === 'free' ? 'Free Beta' : 'Pro',
+    plan: planName,
+    tier_upgraded_at: (account as Record<string, unknown>).tier_upgraded_at || null,
+    tier_expires_at: (account as Record<string, unknown>).tier_expires_at || null,
     next_invoice: null,
     upgrade_url: 'https://agentlair.dev/pricing',
     upgrade_endpoint: 'POST /v1/account/upgrade',
-    note: 'Free tier includes rate-limited services. When service limits are exceeded, pay 0.01 USDC per write via x402 (USDC on Base). No Stripe needed — agents pay autonomously. Reads are always free. Upgrade to paid tier for 30 days via POST /v1/account/upgrade (5.00 USDC).',
+    // Current period usage summary
+    current_period: {
+      month: now.toISOString().slice(0, 7),
+      resets_at: monthReset.toISOString(),
+      token_verifications: {
+        used: verifyCount,
+        limit: verifyLimit,
+        remaining: Math.max(0, verifyLimit - verifyCount),
+        overage_price: '0.001 USDC/verification via x402',
+      },
+      token_issuances: {
+        used: issueCount,
+        limit: 'unlimited',
+      },
+      agents: {
+        limit: AGENT_LIMITS[account.tier as keyof typeof AGENT_LIMITS] ?? AGENT_LIMITS.free,
+        overage_price: '0.01 USDC/agent via x402',
+      },
+    },
     x402_spend: {
       total_atomic: spend.total,
-      total_human: (spend.total / 1_000_000).toFixed(2) + ' USDC',
+      total_human: (spend.total / 1_000_000).toFixed(3) + ' USDC',
       payments_count: spend.payments,
       last_payment_at: spend.last_at,
     },
@@ -223,6 +288,18 @@ stackRoutes.get('/billing', async (c) => {
       facilitator: X402_CONFIG.facilitator,
       how_it_works: 'When a service limit is hit, API returns HTTP 402 with payment requirements. Send X-PAYMENT header with base64-encoded payment payload to bypass limits.',
       services: {
+        token_verify: {
+          price: '0.001 USDC',
+          price_atomic: SERVICE_PRICES.token_verify.amount,
+          trigger: 'Token verification limit exceeded (1,000/month on free tier)',
+          resource: SERVICE_PRICES.token_verify.resource,
+        },
+        agent_provision: {
+          price: '0.01 USDC',
+          price_atomic: SERVICE_PRICES.agent_provision.amount,
+          trigger: 'Agent registration limit exceeded (3 agents on free tier)',
+          resource: SERVICE_PRICES.agent_provision.resource,
+        },
         tier_upgrade: {
           price: '5.00 USDC',
           price_atomic: SERVICE_PRICES.tier_upgrade.amount,

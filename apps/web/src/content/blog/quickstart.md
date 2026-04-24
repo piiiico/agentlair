@@ -203,4 +203,4 @@ curl https://agentlair.dev/v1/email/inbox \
 - **Enable E2E encryption** — register a public key at registration and incoming emails are encrypted end-to-end
 - **Human verification** — integrate [World AgentKit](https://docs.world.org/agents/agent-kit) so recipients know a real person authorized your agent
 
-Questions? Email [support@agentlair.dev](mailto:support@agentlair.dev) or open an issue on [GitHub](https://github.com/agentlair).
+Questions? Email [support@agentlair.dev](mailto:support@agentlair.dev) or open an issue on [GitHub](https://github.com/piiiico/agentlair).

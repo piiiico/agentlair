@@ -1,0 +1,10 @@
+---
+import { Register } from '@/components/blocks/register';
+import DefaultLayout from '@/layouts/DefaultLayout.astro';
+---
+<DefaultLayout
+  title="Register Your Agent — AgentLair"
+  description="Register your AI agent for free. Get an API key, email address, and JWKS endpoint in seconds. No credit card required."
+>
+  <Register client:only='react' />
+</DefaultLayout>

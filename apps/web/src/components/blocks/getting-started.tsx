@@ -1,10 +1,18 @@
-import { ArrowRight, BookOpen, Calendar, LayoutDashboard, Layers, Lock } from "lucide-react";
+import { ArrowRight, Calendar, FileText, Layers, Lock, ShieldCheck, Terminal, Zap, Code } from "lucide-react";
 
 import { Background } from "@/components/background";
 import { CodeBlock } from "@/components/shared/code-block";
 import { PageHeader } from "@/components/shared/page-header";
 import { StepCard } from "@/components/shared/step-card";
 import { Card, CardContent } from "@/components/ui/card";
+
+function Tip({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="text-muted-foreground rounded-lg border border-primary/20 bg-primary/5 p-4 text-sm">
+      {children}
+    </div>
+  );
+}
 
 function BrowserTip({ children }: { children: React.ReactNode }) {
   return (
@@ -17,28 +25,20 @@ function BrowserTip({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Tip({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="text-muted-foreground rounded-lg border border-primary/20 bg-primary/5 p-4 text-sm">
-      {children}
-    </div>
-  );
-}
-
 const nextSteps = [
   {
-    href: "/dashboard",
-    icon: LayoutDashboard,
-    title: "Dashboard",
+    href: "/docs/concepts",
+    icon: ShieldCheck,
+    title: "Concepts",
     description:
-      "Manage addresses, read inbox, compose emails, and monitor usage.",
+      "What is an AAT? What is L4 behavioral trust? How does JWKS verification work?",
   },
   {
-    href: "/api",
-    icon: BookOpen,
+    href: "/docs/api-reference",
+    icon: FileText,
     title: "API Reference",
     description:
-      "Full API documentation with all endpoints, parameters, and examples.",
+      "All endpoints: registration, email, vault, trust scoring, tokens.",
   },
   {
     href: "/vault",
@@ -59,7 +59,21 @@ const nextSteps = [
     icon: Layers,
     title: "Agent Pods",
     description:
-      "Multi-tenant isolation. Each pod gets its own API key, email, vault, and calendar — fully sandboxed per client.",
+      "Multi-tenant isolation. Each pod gets its own API key, email, vault, and calendar.",
+  },
+  {
+    href: "/docs/audit-logger",
+    icon: Zap,
+    title: "Audit Logger",
+    description:
+      "Log agent actions to build behavioral history and improve your trust score.",
+  },
+  {
+    href: "https://github.com/piiiico/agentlair-python",
+    icon: Code,
+    title: "Python SDK",
+    description:
+      "pip install git+https://github.com/piiiico/agentlair-python.git — async-first, typed, zero extra dependencies.",
   },
 ];
 
@@ -69,36 +83,46 @@ export function GettingStarted() {
       <Background>
         <PageHeader
           title="Getting Started with AgentLair"
-          description="Set up your agent's email in under 2 minutes. Works from browser or terminal."
+          description="Register your agent, send email, store secrets, and check your trust score. Under 5 minutes."
+          badges={["Identity", "Email", "Vault", "Trust"]}
         />
       </Background>
 
-      <section className="pb-28 lg:pb-32">
+      <section className="pb-28 lg:pb-32 pt-4">
         <div className="container max-w-3xl space-y-6">
-          {/* Step 1: Get an API key */}
-          <StepCard number={1} title="Get an API key">
+
+          {/* ── Step 1: Register ─────────────────────────────────────────────── */}
+          <StepCard number={1} title="Register your agent">
             <p>
               One call creates your account. No email, no credit card, no
-              verification — instant access.
+              verification — instant access. You get an API key, a persistent
+              agent identity, and a built-in{" "}
+              <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-xs">
+                @agentlair.dev
+              </code>{" "}
+              email address.
             </p>
 
             <BrowserTip>
-              Go to the{" "}
+              Go to{" "}
               <a
-                href="/#web-signup"
+                href="/register"
                 className="text-primary underline underline-offset-4"
               >
-                homepage signup
+                agentlair.dev/register
               </a>{" "}
               and click <strong className="text-foreground">"Create Free Account"</strong>.
-              Your key appears immediately.
+              Your API key appears immediately.
             </BrowserTip>
 
             <CodeBlock
-              code={`curl -X POST https://agentlair.dev/v1/auth/keys
+              code={`curl -X POST https://agentlair.dev/v1/register \\
+  -H "Content-Type: application/json" \\
+  -d '{"name": "my-agent"}'
 → {
     "api_key": "al_live_k7x9m2p4...",
-    "account_id": "acc_...",
+    "account_id": "acc_7kX9mP2qR4wL",
+    "email_address": "my-agent@agentlair.dev",
     "tier": "free"
   }`}
               language="bash"
@@ -107,58 +131,30 @@ export function GettingStarted() {
 
             <Tip>
               <strong className="text-foreground">Save your API key!</strong>{" "}
-              It's shown only once. If you lose it, set a recovery email (step
-              5) to regain access via the dashboard.
-            </Tip>
-          </StepCard>
-
-          {/* Step 2: Claim an email address */}
-          <StepCard number={2} title="Claim an email address">
-            <p>
-              Pick any available <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-xs">@agentlair.dev</code> address for your agent.
-            </p>
-
-            <BrowserTip>
-              The{" "}
-              <a
-                href="/dashboard"
-                className="text-primary underline underline-offset-4"
-              >
-                dashboard
-              </a>{" "}
-              lets you claim and manage addresses under your account.
-            </BrowserTip>
-
-            <CodeBlock
-              code={`curl -X POST https://agentlair.dev/v1/email/claim \\
-  -H "Authorization: Bearer YOUR_API_KEY" \\
-  -H "Content-Type: application/json" \\
-  -d '{"address": "my-agent@agentlair.dev"}'
-→ {
-    "claimed": true,
-    "address": "my-agent@agentlair.dev"
-  }`}
-              language="bash"
-              title="Terminal"
-            />
-
-            <Tip>
-              You can claim up to 10 addresses on the free tier. Use descriptive names like{" "}
+              It's shown only once. Store it as{" "}
               <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-xs">
-                research-agent@agentlair.dev
+                AGENTLAIR_API_KEY
               </code>{" "}
-              or{" "}
+              in your environment. Your{" "}
               <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-xs">
-                outreach-bot@agentlair.dev
-              </code>
-              .
+                email_address
+              </code>{" "}
+              is auto-assigned and ready to use immediately.
             </Tip>
           </StepCard>
 
-          {/* Step 3: Send your first email */}
-          <StepCard number={3} title="Send your first email">
+          {/* ── Step 2: Send Email ───────────────────────────────────────────── */}
+          <StepCard number={2} title="Send your first email">
             <p>
-              Send a test email to yourself to verify everything works.
+              Use the{" "}
+              <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-xs">
+                email_address
+              </code>{" "}
+              from step 1 to send an email from your agent. The{" "}
+              <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-xs">
+                text
+              </code>{" "}
+              field carries the plain-text body.
             </p>
 
             <BrowserTip>
@@ -178,85 +174,42 @@ export function GettingStarted() {
               code={`curl -X POST https://agentlair.dev/v1/email/send \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Content-Type: application/json" \\
-  -d '{"from": "my-agent@agentlair.dev",
-       "to": ["your-real-email@gmail.com"],
-       "subject": "Hello from AgentLair!",
-       "text": "This is my agent speaking."}'`}
+  -d '{
+    "from": "my-agent@agentlair.dev",
+    "to": ["your-real-email@gmail.com"],
+    "subject": "Hello from AgentLair!",
+    "text": "This is my agent speaking."
+  }'`}
               language="bash"
               title="Terminal"
             />
 
             <Tip>
               <strong className="text-foreground">Use an external address for testing.</strong>{" "}
-              Sending from one <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-xs">@agentlair.dev</code>{" "}
-              address to another will not appear in the inbox — inbound routing rejects{" "}
-              <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-xs">@agentlair.dev</code> senders
-              as a spoofing prevention measure. Use your Gmail, Outlook, or any
-              external address to receive the test email, then reply to it.
+              Sending to another{" "}
+              <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-xs">@agentlair.dev</code>{" "}
+              address won't appear in inbox — inbound routing blocks{" "}
+              <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-xs">@agentlair.dev</code>{" "}
+              senders as spoofing prevention. Use Gmail, Outlook, or any external
+              address to receive the test email.
             </Tip>
           </StepCard>
 
-          {/* Step 4: Check your inbox */}
-          <StepCard number={4} title="Check your inbox">
+          {/* ── Step 3: Store Secret ─────────────────────────────────────────── */}
+          <StepCard number={3} title="Store a secret in Vault">
             <p>
-              Reply to the email you just sent, then check your agent's inbox.
-            </p>
-
-            <BrowserTip>
-              The{" "}
-              <a
-                href="/dashboard"
-                className="text-primary underline underline-offset-4"
-              >
-                dashboard
-              </a>{" "}
-              shows your inbox under each address. Click a message to read it.
-            </BrowserTip>
-
-            <CodeBlock
-              code={`curl https://agentlair.dev/v1/email/inbox?address=my-agent@agentlair.dev \\
-  -H "Authorization: Bearer YOUR_API_KEY"`}
-              language="bash"
-              title="Terminal"
-            />
-          </StepCard>
-
-          {/* Step 5: Set a recovery email (optional) */}
-          <StepCard number={5} title="Set a recovery email" optional>
-            <p>
-              Attach a personal email to your account. This enables magic-link
-              dashboard login and key recovery.
-            </p>
-
-            <BrowserTip>
-              On the{" "}
-              <a
-                href="/dashboard"
-                className="text-primary underline underline-offset-4"
-              >
-                dashboard
-              </a>
-              , click{" "}
-              <strong className="text-foreground">"Update recovery email"</strong>{" "}
-              in the account card.
-            </BrowserTip>
-
-            <CodeBlock
-              code={`curl -X POST https://agentlair.dev/v1/account/recovery-email \\
-  -H "Authorization: Bearer YOUR_API_KEY" \\
-  -H "Content-Type: application/json" \\
-  -d '{"email": "you@example.com"}'`}
-              language="bash"
-              title="Terminal"
-            />
-          </StepCard>
-
-          {/* Step 6: Store secrets in Vault (optional) */}
-          <StepCard number={6} title="Store secrets in Vault" optional>
-            <p>
-              Keep your agent's API keys and credentials safe across container
-              restarts. Client-side encrypted &mdash; AgentLair never sees the
-              plaintext.
+              Keep your agent's credentials safe across container restarts.{" "}
+              <strong className="text-foreground">Zero-knowledge design:</strong>{" "}
+              secrets are encrypted client-side before leaving your machine —
+              AgentLair stores only ciphertext. The vault API accepts{" "}
+              <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-xs">
+                PUT /v1/vault/&#123;key&#125;
+              </code>{" "}
+              with a{" "}
+              <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-xs">
+                &#123;"ciphertext": "..."&#125;
+              </code>{" "}
+              body.
             </p>
 
             <CodeBlock
@@ -276,31 +229,28 @@ const ct = await vc.encrypt('sk-openai-abc123', 'openai-key');
 await fetch('https://agentlair.dev/v1/vault/openai-key', {
   method: 'PUT',
   headers: {
-    'Authorization': \`Bearer \${apiKey}\`,
-    'Content-Type': 'application/json'
+    'Authorization': \`Bearer \${process.env.AGENTLAIR_API_KEY}\`,
+    'Content-Type': 'application/json',
   },
   body: JSON.stringify({ ciphertext: ct }),
 });
 
-// Retrieve and decrypt
+// Retrieve and decrypt later
 const res = await fetch('https://agentlair.dev/v1/vault/openai-key', {
-  headers: { 'Authorization': \`Bearer \${apiKey}\` }
+  headers: { 'Authorization': \`Bearer \${process.env.AGENTLAIR_API_KEY}\` },
 });
-const plain = await vc.decrypt(
-  (await res.json()).ciphertext,
-  'openai-key'
-);`}
+const plain = await vc.decrypt((await res.json()).ciphertext, 'openai-key');`}
               language="typescript"
-              title="vault-crypto"
+              title="vault.ts"
             />
 
             <Tip>
-              <strong className="text-foreground">Tip:</strong> Save the hex
-              seed (
+              <strong className="text-foreground">Save the seed hex.</strong>{" "}
+              Call{" "}
               <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-xs">
                 vc.seedHex()
-              </code>
-              ) in an env var. Or use{" "}
+              </code>{" "}
+              and store it in an env var — you need it to decrypt. Or use{" "}
               <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-xs">
                 encryptSeedBackup()
               </code>{" "}
@@ -309,132 +259,95 @@ const plain = await vc.decrypt(
                 href="/vault"
                 className="text-primary underline underline-offset-4"
               >
-                Learn more about Vault &rarr;
+                Learn more about Vault →
               </a>
             </Tip>
           </StepCard>
 
-          {/* Step 7: Set up Agent Calendar (optional) */}
-          <StepCard number={7} title="Set up your Agent Calendar" optional>
+          {/* ── Step 4: Check Trust Score ────────────────────────────────────── */}
+          <StepCard number={4} title="Check your trust score">
             <p>
-              Every agent address has a built-in calendar. Create events via
-              REST, then share a public iCal URL &mdash; humans subscribe in
-              Google Calendar, Apple Calendar, or any calendar app. The agent
-              owns the schedule; humans just follow it.
+              Every agent starts with a cold-start score of{" "}
+              <strong className="text-foreground">30</strong>. Trust builds
+              through consistent, transparent behavior observed across all
+              services using AgentLair for verification.
             </p>
 
             <CodeBlock
-              code={`# Create an event
-curl -X POST https://agentlair.dev/v1/calendar/events \\
-  -H "Authorization: Bearer YOUR_API_KEY" \\
-  -H "Content-Type: application/json" \\
-  -d '{"address": "my-agent@agentlair.dev",
-       "title": "Weekly sync",
-       "start": "2026-04-01T10:00:00Z",
-       "end": "2026-04-01T11:00:00Z"}'
-→ { "event_id": "evt_abc123", "ical_url": "https://agentlair.dev/v1/calendar/my-agent@agentlair.dev/ical" }`}
-              language="bash"
-              title="Terminal"
-            />
-
-            <CodeBlock
-              code={`# Get the iCal feed URL (subscribe in any calendar app)
-curl https://agentlair.dev/v1/calendar/my-agent@agentlair.dev/ical
-→ text/calendar — paste this URL into Google Calendar`}
-              language="bash"
-              title="Terminal"
-            />
-
-            <Tip>
-              <strong className="text-foreground">
-                Subscribe in Google Calendar:
-              </strong>{" "}
-              Open Google Calendar &rarr; click <strong className="text-foreground">+</strong>{" "}
-              next to "Other calendars" &rarr; "From URL" &rarr; paste the iCal
-              URL above. Your agent's schedule appears in real-time, updated
-              automatically as the agent creates or modifies events.{" "}
-              <a
-                href="/calendar"
-                className="text-primary underline underline-offset-4"
-              >
-                Learn more about Agent Calendar &rarr;
-              </a>
-            </Tip>
-          </StepCard>
-
-          {/* Step 8: Create a pod (optional) */}
-          <StepCard number={8} title="Create an Agent Pod" optional>
-            <p>
-              Pods give each of your clients a fully isolated environment &mdash;
-              their own API key, email address, vault, and calendar &mdash;
-              all under your master account. Ideal for multi-tenant products.
-            </p>
-
-            <BrowserTip>
-              Open the{" "}
-              <a
-                href="/pods"
-                className="text-primary underline underline-offset-4"
-              >
-                Pods dashboard
-              </a>{" "}
-              and click <strong className="text-foreground">"Create Pod"</strong>.
-              Each pod gets a generated API key you hand to your client.
-            </BrowserTip>
-
-            <CodeBlock
-              code={`# Create a pod for a client
-curl -X POST https://agentlair.dev/v1/pods \\
-  -H "Authorization: Bearer YOUR_API_KEY" \\
-  -H "Content-Type: application/json" \\
-  -d '{"name": "acme-corp"}'
+              code={`# Use your account_id from step 1
+curl https://agentlair.dev/v1/trust/acc_7kX9mP2qR4wL \\
+  -H "Authorization: Bearer YOUR_API_KEY"
 → {
-    "pod_id": "pod_abc123",
-    "api_key": "al_live_pod_...",
-    "name": "acme-corp"
+    "agentId": "acc_7kX9mP2qR4wL",
+    "score": 30,
+    "atfLevel": "intern",
+    "trend": "stable",
+    "dimensions": {
+      "consistency":  { "score": 30 },
+      "restraint":    { "score": 30 },
+      "transparency": { "score": 30 }
+    },
+    "observationCount": 1
   }`}
               language="bash"
               title="Terminal"
             />
 
-            <CodeBlock
-              code={`# Use the pod's own API key for all its operations
-curl -X POST https://agentlair.dev/v1/email/claim \\
-  -H "Authorization: Bearer al_live_pod_..." \\
-  -H "Content-Type: application/json" \\
-  -d '{"address": "acme-agent@agentlair.dev"}'
-
-# The pod's email, vault, and calendar are fully isolated —
-# invisible to other pods and to your master account inbox.`}
-              language="bash"
-              title="Terminal"
-            />
+            <div className="rounded-xl border overflow-hidden text-sm">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b bg-muted/50">
+                    <th className="px-4 py-2 text-left font-semibold text-foreground">Level</th>
+                    <th className="px-4 py-2 text-left font-semibold text-foreground">Score</th>
+                    <th className="px-4 py-2 text-left font-semibold text-foreground">Meaning</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border text-muted-foreground">
+                  <tr>
+                    <td className="px-4 py-2 font-mono text-xs">intern</td>
+                    <td className="px-4 py-2">0–249</td>
+                    <td className="px-4 py-2">No behavioral history — you start here</td>
+                  </tr>
+                  <tr>
+                    <td className="px-4 py-2 font-mono text-xs">provisional</td>
+                    <td className="px-4 py-2">250–499</td>
+                    <td className="px-4 py-2">Some signal, limited cross-org coverage</td>
+                  </tr>
+                  <tr>
+                    <td className="px-4 py-2 font-mono text-xs">trusted</td>
+                    <td className="px-4 py-2">500–749</td>
+                    <td className="px-4 py-2">Established behavioral baseline</td>
+                  </tr>
+                  <tr>
+                    <td className="px-4 py-2 font-mono text-xs">verified</td>
+                    <td className="px-4 py-2">750–1000</td>
+                    <td className="px-4 py-2">Deep history, high transparency</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
 
             <Tip>
-              <strong className="text-foreground">One master key, many clients.</strong>{" "}
-              Your master API key manages pod lifecycle (create, list, delete).
-              Each pod's API key is scoped exclusively to that pod &mdash; hand
-              it directly to your client or use it inside a sandboxed agent session.{" "}
-              <a
-                href="/pods"
-                className="text-primary underline underline-offset-4"
-              >
-                Learn more about Agent Pods &rarr;
-              </a>
+              Score builds through consistent behavior, transparent audit trails,
+              and cross-organizational verification. Use the{" "}
+              <a href="/docs/audit-logger" className="text-primary underline underline-offset-4">
+                Audit Logger
+              </a>{" "}
+              to log agent actions and accelerate trust accumulation.
             </Tip>
           </StepCard>
 
-          {/* You're all set! */}
+          {/* ── Completion card ──────────────────────────────────────────────── */}
           <Card className="text-center">
             <CardContent className="space-y-6 px-6 py-8">
               <div className="space-y-2">
+                <div className="text-3xl">✓</div>
                 <h2 className="text-foreground text-2xl font-bold tracking-tight">
-                  You're all set!
+                  Your agent is live
                 </h2>
-                <p className="text-muted-foreground">
-                  Your agent has email, encrypted secret storage, a calendar,
-                  and multi-tenant pod isolation for serving multiple clients.
-                  Here's what to explore next:
+                <p className="text-muted-foreground mx-auto max-w-md">
+                  You registered, sent email, stored a secret, and have a live
+                  trust score. Here's what to explore next:
                 </p>
               </div>
 
@@ -464,8 +377,186 @@ curl -X POST https://agentlair.dev/v1/email/claim \\
             </CardContent>
           </Card>
 
-          {/* Help tip */}
-          <div className="text-muted-foreground text-center text-sm">
+          {/* ── Optional: Additional addresses ───────────────────────────────── */}
+          <div className="pt-4 border-t">
+            <h2 className="text-foreground text-lg font-bold mb-4">Optional setup</h2>
+            <div className="space-y-6">
+
+              <StepCard number={5} title="Claim additional email addresses" optional>
+                <p>
+                  Pick any available{" "}
+                  <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-xs">@agentlair.dev</code>{" "}
+                  address for your agent. You can claim up to 10 on the free tier.
+                </p>
+                <CodeBlock
+                  code={`curl -X POST https://agentlair.dev/v1/email/claim \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"address": "research-agent@agentlair.dev"}'
+→ {
+    "claimed": true,
+    "address": "research-agent@agentlair.dev"
+  }`}
+                  language="bash"
+                  title="Terminal"
+                />
+              </StepCard>
+
+              <StepCard number={6} title="Check your inbox" optional>
+                <p>
+                  After an external address replies to your email, check what arrived.
+                </p>
+                <BrowserTip>
+                  The{" "}
+                  <a
+                    href="/dashboard"
+                    className="text-primary underline underline-offset-4"
+                  >
+                    dashboard
+                  </a>{" "}
+                  shows your inbox under each address. Click a message to read it.
+                </BrowserTip>
+                <CodeBlock
+                  code={`curl https://agentlair.dev/v1/email/inbox?address=my-agent@agentlair.dev \\
+  -H "Authorization: Bearer YOUR_API_KEY"`}
+                  language="bash"
+                  title="Terminal"
+                />
+              </StepCard>
+
+              <StepCard number={7} title="Set a recovery email" optional>
+                <p>
+                  Attach a personal email to your account. Enables magic-link
+                  dashboard login and API key recovery.
+                </p>
+                <CodeBlock
+                  code={`curl -X POST https://agentlair.dev/v1/account/recovery-email \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"email": "you@example.com"}'`}
+                  language="bash"
+                  title="Terminal"
+                />
+              </StepCard>
+
+              <StepCard number={8} title="Set up your Agent Calendar" optional>
+                <p>
+                  Every agent address has a built-in calendar. Create events via
+                  REST, then share a public iCal URL — humans subscribe in
+                  Google Calendar, Apple Calendar, or any calendar app.
+                </p>
+                <CodeBlock
+                  code={`curl -X POST https://agentlair.dev/v1/calendar/events \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "address": "my-agent@agentlair.dev",
+    "title": "Weekly sync",
+    "start": "2026-04-01T10:00:00Z",
+    "end": "2026-04-01T11:00:00Z"
+  }'
+→ { "event_id": "evt_abc123", "ical_url": "https://agentlair.dev/v1/calendar/my-agent@agentlair.dev/ical" }`}
+                  language="bash"
+                  title="Terminal"
+                />
+                <Tip>
+                  <strong className="text-foreground">Subscribe in Google Calendar:</strong>{" "}
+                  Open Google Calendar → click <strong className="text-foreground">+</strong>{" "}
+                  next to "Other calendars" → "From URL" → paste the iCal URL.{" "}
+                  <a href="/calendar" className="text-primary underline underline-offset-4">
+                    Learn more →
+                  </a>
+                </Tip>
+              </StepCard>
+
+              <StepCard number={9} title="Use the Python SDK" optional>
+                <p>
+                  If you're building Python agents, install the official SDK and
+                  skip raw HTTP entirely. Async-first, fully typed, one dependency:{" "}
+                  <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-xs">httpx</code>.
+                </p>
+                <CodeBlock
+                  code="pip install git+https://github.com/piiiico/agentlair-python.git"
+                  language="bash"
+                  title="Install"
+                />
+                <CodeBlock
+                  code={`import asyncio
+import agentlair
+
+async def main():
+    async with agentlair.AgentLair("al_live_...") as lair:
+        score = await lair.trust.score()
+        print(f"Trust: {score['score']}/100 ({score['atfLevel']})")
+
+        await lair.email.send(
+            from_address="my-agent@agentlair.dev",
+            to="you@example.com",
+            subject="Hello from Python",
+            text="Sent via the AgentLair Python SDK.",
+        )
+
+asyncio.run(main())`}
+                  language="python"
+                  title="agent.py"
+                />
+                <Tip>
+                  Full source and docs at{" "}
+                  <a
+                    href="https://github.com/piiiico/agentlair-python"
+                    className="text-primary underline underline-offset-4"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    github.com/piiiico/agentlair-python
+                  </a>.
+                  PyPI publish is in progress — git-install works today.
+                </Tip>
+              </StepCard>
+
+              <StepCard number={10} title="Create an Agent Pod" optional>
+                <p>
+                  Pods give each of your clients a fully isolated environment —
+                  their own API key, email address, vault, and calendar — all
+                  under your master account. Ideal for multi-tenant products.
+                </p>
+                <BrowserTip>
+                  Open the{" "}
+                  <a
+                    href="/pods"
+                    className="text-primary underline underline-offset-4"
+                  >
+                    Pods dashboard
+                  </a>{" "}
+                  and click <strong className="text-foreground">"Create Pod"</strong>.
+                </BrowserTip>
+                <CodeBlock
+                  code={`curl -X POST https://agentlair.dev/v1/pods \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"name": "acme-corp"}'
+→ {
+    "pod_id": "pod_abc123",
+    "api_key": "al_live_pod_...",
+    "name": "acme-corp"
+  }`}
+                  language="bash"
+                  title="Terminal"
+                />
+                <Tip>
+                  <strong className="text-foreground">One master key, many clients.</strong>{" "}
+                  Hand each pod's API key to your client — it's scoped exclusively
+                  to that pod's email, vault, and calendar.{" "}
+                  <a href="/pods" className="text-primary underline underline-offset-4">
+                    Learn more →
+                  </a>
+                </Tip>
+              </StepCard>
+
+            </div>
+          </div>
+
+          <div className="text-muted-foreground text-center text-sm pb-8">
             <strong className="text-foreground">Need help?</strong> Email{" "}
             <a
               href="mailto:hello@agentlair.dev"
@@ -473,8 +564,9 @@ curl -X POST https://agentlair.dev/v1/email/claim \\
             >
               hello@agentlair.dev
             </a>{" "}
-            &mdash; we respond within 24 hours.
+            — we respond within 24 hours.
           </div>
+
         </div>
       </section>
     </>

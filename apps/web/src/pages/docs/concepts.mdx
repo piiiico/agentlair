@@ -1,0 +1,171 @@
+---
+layout: ../../layouts/BasicLayout.astro
+title: "Concepts — AgentLair"
+description: "What is an AAT? What is L4 behavioral trust? How does JWKS verification work? AgentLair vs static identity."
+---
+
+# Concepts
+
+The mental model behind AgentLair's identity and trust stack.
+
+---
+
+## The identity problem for agents
+
+Traditional identity answers: *can this entity authenticate?* OAuth tokens, API keys, JWTs — all answer the authentication question. An agent with a valid credential is authorized to act.
+
+But agent authorization is a weaker signal than it appears. A compromised agent, a prompt-injected agent, and a malicious agent all look identical at the authentication gate. They all hold valid credentials. The credential says nothing about what the agent *will actually do*.
+
+This is the gap L1–L3 cannot close:
+
+| Layer | Question answered | Examples |
+|-------|-------------------|----------|
+| L1 | Can this agent authenticate? | API keys, Ed25519 keypairs |
+| L2 | What is it authorized to access? | OAuth scopes, RBAC |
+| L3 | Is this specific action permitted? | Ephemeral per-action tokens |
+| **L4** | **Is this agent behaving as expected?** | **AgentLair behavioral trust** |
+
+L1–L3 are solved. L4 is not — until now.
+
+---
+
+## AAT — Agent Authentication Token
+
+An AAT is a **short-lived, Ed25519-signed JWT** that proves an agent's identity to a service it's connecting to.
+
+```
+eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.
+eyJzdWIiOiJhY2NfN2tYOW1QMnFSNHdMIiwiYXVkIjoiaHR0cHM6Ly...
+.<EdDSA-signature>
+```
+
+**What it contains:**
+
+```json
+{
+  "sub": "acc_7kX9mP2qR4wL",      // Agent account ID — permanent
+  "aud": "https://mcp.example.com", // Who this token is for
+  "iat": 1745000000,                // Issued at
+  "exp": 1745003600,                // Expires in 1 hour
+  "jti": "aat_a1b2c3d4e5f6",       // Unique token ID
+  "scopes": ["mcp:tools:read"],     // Declared permissions
+  "agent_id": "acc_7kX9mP2qR4wL",  // Same as sub
+  "agent_name": "my-agent"          // Human-readable name
+}
+```
+
+**Why short-lived?** AATs expire in 1 hour by default (configurable to 24h max). Short TTL means a stolen token has minimal blast radius. The agent re-issues a fresh AAT for each session.
+
+**Why Ed25519?** EdDSA signatures are compact (64 bytes), fast to verify, and quantum-resistant on the migration path. The platform signs all AATs with a single Ed25519 key — verifiable by anyone with the public key from JWKS.
+
+**AAT vs API key:**
+
+| | API key | AAT |
+|-|---------|-----|
+| Purpose | Authenticate to AgentLair | Authenticate to other services |
+| Lifetime | Persistent | 1 hour (default) |
+| Revocable | Yes (manual) | Expires automatically |
+| Audience | AgentLair only | Any service you specify |
+| Verifiable by | AgentLair | Anyone with the JWKS |
+
+---
+
+## JWKS verification
+
+**JWKS (JSON Web Key Set)** is the standard for publishing public keys. AgentLair serves its Ed25519 public key at:
+
+```
+GET https://agentlair.dev/.well-known/jwks.json
+```
+
+Any service that receives an AAT can verify it **without calling AgentLair** — just fetch the JWKS once and verify locally:
+
+```
+Verify: base64url(header) + "." + base64url(payload)
+Against: Ed25519 signature in token footer
+Using: public key from JWKS
+```
+
+This is **offline verification** — no round-trip to AgentLair at request time. Services cache the JWKS and verify locally. The cryptographic guarantee is equivalent to a direct API call.
+
+**DID Web:** Each agent's account also resolves to a [DID Web](https://w3c-ccg.github.io/did-method-web/) identifier:
+```
+did:web:agentlair.dev:agents:{name}
+```
+The DID Document is served at `/agents/{name}/.well-known/jwks.json` and contains the agent's own public key.
+
+**Key rotation:** AgentLair rotates the platform key infrequently. When a `kid` in a token doesn't match any key in your cached JWKS, re-fetch. Use the `kid` header claim to select the correct key when multiple keys are present.
+
+---
+
+## L4 behavioral trust
+
+L4 behavioral trust is what makes AgentLair different from every other identity layer.
+
+### The cold-start problem
+
+Every L1–L3 system shares a structural flaw: behavioral context doesn't travel across organizational boundaries. Microsoft's Agent Governance Toolkit computes excellent trust scores — but only within a single organization's deployment. An agent with two years of perfect behavior across 500 organizations arrives at a new deployment with score 0, indistinguishable from a fresh attacker.
+
+AgentLair solves this with **cross-organizational behavioral observations**. When an agent interacts with any AgentLair-integrated service, that interaction (as a shared observation) contributes to the agent's global trust score — visible to every subsequent service it connects to.
+
+### Trust score (0–1000)
+
+The trust score decomposes into four dimensions:
+
+| Dimension | Signal | Max |
+|-----------|--------|-----|
+| **Behavioral** | Observation volume | 250 |
+| **Consistency** | Recency of latest observation | 250 |
+| **Reputation** | Topic diversity | 250 |
+| **Transparency** | Shared observation ratio | 250 |
+
+Scores are **computed on query, not stored**. Each query reflects current data. Trust decays naturally — an agent that stops operating sees its consistency score drop.
+
+### Tiers
+
+| Tier | Range | What it means |
+|------|-------|---------------|
+| `untrusted` | 0–249 | New agent — no track record |
+| `provisional` | 250–499 | Some history, limited cross-org coverage |
+| `trusted` | 500–749 | Established, consistent behavior |
+| `verified` | 750–1000 | Deep history, high transparency across orgs |
+
+### Privacy model
+
+Organizations submit behavioral observations as either `shared` (cross-org visible) or `private` (org-local only). Trust queries from other organizations only use shared observations. No organization sees another's raw telemetry — they see derived trust scores only.
+
+---
+
+## AgentLair vs static identity
+
+| Property | OAuth / API keys | AgentLair L4 |
+|----------|-----------------|--------------|
+| Identity | Static credential | Cryptographic + behavioral |
+| Trust signal | Binary (valid/invalid) | Continuous score (0–1000) |
+| Cross-org | No | Yes |
+| Behavioral context | None | Compounding telemetry |
+| Compromise detection | At revocation only | Anomaly detection in real-time |
+| Cold-start trust | None (score = 0) | Developer identity + vouching |
+| Standards | OAuth 2.0, PKCE | JWT, JWK, OIDC, DID Web |
+
+Static identity answers "is this agent authorized?" — once, at authentication time. AgentLair L4 answers "is this agent behaving as expected?" — continuously, across every organization it interacts with.
+
+---
+
+## Real-world adoption
+
+Three open-source projects have integrated AgentLair's L4 primitives:
+
+**[Springdrift](https://github.com/seamus-brady/springdrift) (Gleam)** — Functional agent runtime with axiom-based behavioral tracking. Telemetry from Springdrift's axiom engine flows directly to `/v1/telemetry/submit`.
+
+**[DashClaw](https://github.com/ucsandman/DashClaw) (Python)** — Multi-agent orchestrator with JWKS-based actor verification. Validates AgentLair AATs before granting access to shared resources.
+
+**[task-orchestrator](https://github.com/jpicklyk/task-orchestrator) (TypeScript)** — Production task queue that integrated AgentLair's JWKS `ActorVerifier` as a reference identity provider. First external adoption of the verification protocol.
+
+---
+
+## Further reading
+
+- [Quickstart](/docs/quickstart) — working code in 5 minutes
+- [API Reference](/docs/api-reference) — all endpoints
+- [AgentLair L4 Spec](https://agentlair.dev/spec) — full protocol specification

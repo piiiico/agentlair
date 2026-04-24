@@ -262,6 +262,28 @@ export const AGENTLAIR_MANIFEST = {
       },
       returns: '{ ok: true, status: "rejected" }',
     },
+    {
+      name: 'credential_request',
+      description: 'Request a credential (API key, secret, token) from your operator. Returns a user_code to show your operator and a device_code for polling. Operator visits verification_url and enters the credential. Use credential_poll to retrieve it.',
+      method: 'POST',
+      path: '/credentials/request',
+      body: {
+        description: { type: 'string', description: 'Human-readable description shown on the approval page (e.g. "OpenAI API key for GPT-4 access"). Max 200 chars.', required: true },
+        vault_key: { type: 'string', description: 'Suggested vault key name. Operator can override on the approval page.', required: false },
+        metadata: { type: 'object', description: 'Optional metadata stored with the vault entry (unencrypted)', required: false },
+      },
+      returns: '{ request_id, device_code, user_code, verification_url, verification_url_complete, expires_in, interval, message }',
+    },
+    {
+      name: 'credential_poll',
+      description: 'Poll for an approved credential after calling credential_request. Returns credential_value as plaintext — encrypt it with VaultCrypto and store via vault_store immediately. The plaintext is delivered once and deleted from AgentLair on delivery.',
+      method: 'POST',
+      path: '/credentials/poll',
+      body: {
+        device_code: { type: 'string', description: 'The device_code returned by credential_request', required: true },
+      },
+      returns: '{ status: "authorization_pending" | "approved" | "slow_down" | "expired" | "denied", credential_value?: string, vault_key?: string, request_id?: string, interval?: number }',
+    },
   ],
   hints: {
     preferred_format: 'application/agent+json',

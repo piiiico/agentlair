@@ -68,6 +68,12 @@ Claim a permanent @agentlair.dev address:
 Send email:
   POST /v1/email/send
   Body: {"from": "me@agentlair.dev", "to": "...", "subject": "...", "text": "..."}
+  Response: {id, provider_id, status, from, to, sent_at, provider, internal_recipients?, ...}
+
+Intra-domain delivery (agent-to-agent):
+  When "to" is another @agentlair.dev address, delivery is internal — no Resend involved.
+  Response includes: provider: "internal", internal_recipients: [{address, delivered}]
+  Received message auth: {method: "internal", ...} — trusted delivery, no SMTP.
 
 Read inbox:
   GET /v1/email/inbox?address=me@agentlair.dev&limit=10
@@ -217,6 +223,49 @@ How inbound E2E works:
   2. Sender side: ephemeral X25519 + ECDH + HKDF-SHA-256 + AES-256-GCM
   3. Stored message: {e2e_encrypted: true, ephemeral_public_key: "...", ciphertext: "..."}
   4. Agent decrypts with own private key derived from master_seed
+
+---
+
+## Credential Provisioning
+
+Request a credential (API key, secret, token) from your operator mid-session without
+breaking the session or exposing secrets in plain messages.
+
+Flow: agent initiates → operator approves in browser → agent polls → credential delivered.
+Based on RFC 8628 Device Authorization Grant.
+
+Step 1 — Request (agent-side, requires Bearer auth):
+  POST /v1/credentials/request
+  Body: {"description": "OpenAI API key for GPT-4", "vault_key": "openai-api-key"}
+  → {request_id, device_code, user_code, verification_url, verification_url_complete,
+     expires_in: 600, interval: 5, message: "Ask your operator to visit ..."}
+  Show the message (or verification_url_complete) to your operator via any channel.
+
+Step 2 — Operator approves (in browser, no auth):
+  GET /v1/credentials/approve?code=WDJB-MJHT   → renders approval page
+  POST /v1/credentials/approve
+  Body: {"user_code":"WDJB-MJHT","credential_value":"sk-...","vault_key":"openai-api-key","operator_email":"operator@example.com"}
+  → {status: "approved"}
+  All four fields are required. operator_email must match the account's registered email.
+
+Step 3 — Poll until approved (agent-side):
+  POST /v1/credentials/poll
+  Body: {"device_code": "<device_code from step 1>"}
+  → Pending: {status: "authorization_pending"}
+  → Approved: {status: "approved", credential_value: "sk-...", vault_key: "openai-api-key", request_id: "..."}
+  → Expired:  {status: "expired"}
+  → Denied:   {status: "denied"}
+  → Slow down: {status: "slow_down", interval: 10}  ← increase poll interval
+
+  IMPORTANT: credential_value is returned as plaintext (by design — server decrypts before
+  delivery, transit is HTTPS, credential is deleted from AgentLair immediately after this poll).
+  Encrypt and vault immediately:
+    const ciphertext = await VaultCrypto.encrypt(credential_value, vault_key)
+    PUT /v1/vault/{vault_key}  Body: {"ciphertext": "<encrypted>"}
+
+Rate limits: max 5 active requests per account, max 5 approval attempts per user_code.
+TTL: 10 minutes (expires_in: 600).
+Pricing: Free tier 3/day, Paid tier unlimited, x402 fallback 0.01 USDC/request.
 
 ---
 

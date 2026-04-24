@@ -15,7 +15,7 @@ import DefaultLayout from '@/layouts/DefaultLayout.astro';
     <Features />
   </Background>
   <Background variant="bottom">
-    <Pricing client:only='react'/>
-    <FAQ client:only='react'/>
+    <Pricing client:load/>
+    <FAQ client:load/>
   </Background>
 </DefaultLayout>

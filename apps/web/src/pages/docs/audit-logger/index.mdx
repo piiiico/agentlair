@@ -220,6 +220,28 @@ Source code and issues: [github.com/piiiico/agent-logger](https://github.com/pii
 
 ---
 
+## EU AI Act Article 12 Compliance
+
+The EU AI Act (enforceable August 2, 2026) mandates automatic, tamper-evident logging for high-risk AI systems under Article 12. AgentLair's audit trail satisfies these requirements structurally:
+
+| Article 12 Requirement | AgentLair Implementation |
+|---|---|
+| Automatic recording | Middleware-level — no opt-in required |
+| Tamper-evidence | Ed25519-signed entries + SHA-256 hash chain |
+| Independent of AI system | Logging outside agent's control boundary |
+| Queryable for monitoring | Filter by time, category, actor, outcome |
+| 6-month minimum retention | Starter tier: 1 year. Enterprise: up to 7 years |
+
+When connected to AgentLair (`AGENTLAIR_API_KEY` set), your agent's audit trail is:
+- **Signed** with keys the agent cannot access
+- **Chained** so insertions/deletions are detectable
+- **Retained** beyond the regulatory minimum
+- **Exportable** as JSONL/CSV for regulatory submission
+
+Read more: [EU AI Act Article 12: Your Agent's Logs Are Inside-Out](/blog/eu-ai-act-article-12-agent-logging)
+
+---
+
 ## What's next
 
 - **[Vault](/docs/vault)** — Zero-knowledge secret storage for your agents

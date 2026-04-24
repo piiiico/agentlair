@@ -1,0 +1,11 @@
+---
+import { ComplianceAssess } from '@/components/blocks/eu-ai-act-assess';
+import DefaultLayout from '@/layouts/DefaultLayout.astro';
+---
+
+<DefaultLayout
+  title="Article 12 Compliance Self-Assessment — AgentLair"
+  description="Assess your AI system's EU AI Act Article 12 compliance in 3 minutes. Find out if you're high-risk, identify gaps in your behavioral logging, and see how AgentLair addresses each requirement."
+>
+  <ComplianceAssess client:only="react" />
+</DefaultLayout>

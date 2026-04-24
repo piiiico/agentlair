@@ -40,13 +40,16 @@ import { handleRegisterRoute } from './routes/register.js';
 import { handleRegisterVerifyRoute } from './routes/register-verify.js';
 import { handleCredentialRoutes } from './routes/credentials.js';
 import { approvalRoutes, chargeRoutes } from './routes/approvals.js';
-import { trustRoutes } from './routes/trust.js';
+import { trustRoutes, publicTrustRoutes } from './routes/trust.js';
+import { discoveryRoutes } from './routes/discovery.js';
 import { badgeRoutes } from './routes/badge.js';
 import { handleTaskRoutes } from './routes/tasks.js';
 import { telemetryRoutes } from './routes/telemetry.js';
+import { eventRoutes } from './routes/events.js';
 import { didRoutes } from './routes/did.js';
 import { specRoutes } from './routes/spec.js';
 import { idpRoutes, revokeRoutes, buildOIDCDiscovery } from './idp/index.js';
+import { computeTrustScore } from './trust-engine.js';
 
 // ─── Hono App Type ──────────────────────────────────────────────────────────────
 
@@ -56,6 +59,159 @@ export type HonoEnv = {
     account: Account | null;
   };
 };
+
+// ─── Agent Profile HTML Template ────────────────────────────────────────────
+// Rendered server-side when GET /agents/:name receives Accept: text/html.
+// Free to access — no x402 required. Satisfies "Basic agent profile page" feature.
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function renderAgentProfileHTML(agent: {
+  id: string;
+  name: string;
+  email: string;
+  did: string;
+  jwks_url?: string;
+  registered_at?: string;
+  verified: boolean;
+  trustScore?: number;
+  trustLevel?: string;
+}): string {
+  const { id, name, email, did, jwks_url, registered_at, verified, trustScore, trustLevel } = agent;
+  const registeredDate = registered_at
+    ? new Date(registered_at).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+    : 'Unknown';
+  const trustBadgeColor =
+    trustScore !== undefined
+      ? trustScore >= 75 ? '#2196f3' : trustScore >= 50 ? '#4caf50' : trustScore >= 25 ? '#ff9800' : '#f44336'
+      : '#9e9e9e';
+  const trustDisplay =
+    trustScore !== undefined ? `${trustLevel || 'Unknown'} (${Math.round(trustScore)}/100)` : 'No data yet';
+  const trustFillWidth = trustScore !== undefined ? Math.round(trustScore) : 0;
+  const verifiedColor = verified ? '#22c55e' : '#64748b';
+  const verifiedBg = verified ? 'rgba(34,197,94,0.1)' : 'rgba(100,116,139,0.1)';
+  const verifiedBorder = verified ? 'rgba(34,197,94,0.3)' : 'rgba(100,116,139,0.3)';
+  const verifiedText = verified ? '✓ Verified' : '○ Unverified';
+  const avatarLetter = escapeHtml(name.charAt(0).toUpperCase());
+
+  const safeName = escapeHtml(name);
+  const safeEmail = escapeHtml(email);
+  const safeId = escapeHtml(id);
+  const safeDid = escapeHtml(did);
+  const safeJwksUrl = jwks_url ? escapeHtml(encodeURI(jwks_url)) : '';
+  const safeJwksDisplay = jwks_url ? escapeHtml(jwks_url) : '';
+  const safeTrustDisplay = escapeHtml(trustDisplay);
+
+  // Build optional JWKS field block
+  const jwksField = jwks_url
+    ? `<div class="field">
+          <div class="field-label">JWKS Endpoint</div>
+          <div class="field-value"><a href="${safeJwksUrl}" class="field-link">${safeJwksDisplay}</a></div>
+        </div>`
+    : '';
+
+  // Build optional trust bar
+  const trustBar = trustScore !== undefined
+    ? `<div class="trust-bar"><div class="trust-fill" style="width:${trustFillWidth}%;background:${trustBadgeColor}"></div></div>`
+    : '';
+
+  // Build DID document URL: did:web:agentlair.dev:agents:acc_xxx → /agents/acc_xxx/did.json
+  const didDocUrl = `/agents/${safeId}/did.json`;
+
+  const jwksLink = jwks_url
+    ? `<a href="${safeJwksUrl}" class="link">↗ JWKS</a>`
+    : '';
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>${safeName} — AgentLair</title>
+  <meta name="description" content="Agent profile for ${safeName} on AgentLair. Verified AI agent identity with behavioral trust scoring." />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Inter',-apple-system,sans-serif;background:#0a0a0f;color:#e2e8f0;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:2rem 1rem}
+    .container{width:100%;max-width:640px}
+    .brand{display:flex;align-items:center;gap:.5rem;margin-bottom:2.5rem;text-decoration:none;color:#e2e8f0}
+    .brand-logo{width:28px;height:28px;background:linear-gradient(135deg,#22c55e,#16a34a);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:14px;color:#fff;font-weight:700;font-family:'DM Mono',monospace}
+    .brand-name{font-family:'DM Mono',monospace;font-size:1rem;font-weight:500;color:#94a3b8}
+    .profile-card{background:#13131a;border:1px solid #1e1e2e;border-radius:12px;padding:2rem}
+    .profile-header{display:flex;align-items:flex-start;gap:1.25rem;margin-bottom:1.5rem;padding-bottom:1.5rem;border-bottom:1px solid #1e1e2e}
+    .avatar{width:56px;height:56px;background:linear-gradient(135deg,#1e3a5f,#0d2137);border:2px solid #22c55e;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:'DM Mono',monospace;font-size:1.25rem;color:#22c55e;flex-shrink:0;font-weight:500}
+    .profile-info{flex:1;min-width:0}
+    .profile-name{font-size:1.4rem;font-weight:600;color:#f1f5f9;margin-bottom:.25rem}
+    .profile-email{font-family:'DM Mono',monospace;font-size:.875rem;color:#64748b}
+    .verified-badge{display:inline-flex;align-items:center;gap:.3rem;background:${verifiedBg};border:1px solid ${verifiedBorder};color:${verifiedColor};font-size:.75rem;font-family:'DM Mono',monospace;padding:.2rem .6rem;border-radius:999px;margin-top:.5rem}
+    .field-grid{display:grid;gap:1rem}
+    .field{display:flex;flex-direction:column;gap:.25rem}
+    .field-label{font-family:'DM Mono',monospace;font-size:.7rem;color:#475569;text-transform:uppercase;letter-spacing:.1em}
+    .field-value{font-family:'DM Mono',monospace;font-size:.875rem;color:#94a3b8;word-break:break-all}
+    .field-link{color:#64748b;text-decoration:none}.field-link:hover{color:#22c55e}
+    .trust-value{font-family:'DM Mono',monospace;font-size:.875rem;color:${trustBadgeColor}}
+    .trust-bar{height:6px;background:#1e1e2e;border-radius:3px;overflow:hidden;margin-top:.5rem}
+    .trust-fill{height:100%;border-radius:3px;transition:width .3s ease}
+    .links{margin-top:1.5rem;padding-top:1.5rem;border-top:1px solid #1e1e2e;display:flex;gap:1rem;flex-wrap:wrap}
+    .link{font-family:'DM Mono',monospace;font-size:.75rem;color:#475569;text-decoration:none}
+    .link:hover{color:#22c55e}
+    .footer{margin-top:1.5rem;text-align:center;font-size:.75rem;color:#334155;font-family:'DM Mono',monospace}
+    .footer a{color:#475569;text-decoration:none}.footer a:hover{color:#22c55e}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <a href="https://agentlair.dev" class="brand">
+      <div class="brand-logo">A</div>
+      <span class="brand-name">agentlair.dev</span>
+    </a>
+    <div class="profile-card">
+      <div class="profile-header">
+        <div class="avatar">${avatarLetter}</div>
+        <div class="profile-info">
+          <div class="profile-name">${safeName}</div>
+          <div class="profile-email">${safeEmail}</div>
+          <div class="verified-badge">${verifiedText}</div>
+        </div>
+      </div>
+      <div class="field-grid">
+        <div class="field">
+          <div class="field-label">Agent ID</div>
+          <div class="field-value">${safeId}</div>
+        </div>
+        <div class="field">
+          <div class="field-label">Registered</div>
+          <div class="field-value">${registeredDate}</div>
+        </div>
+        <div class="field">
+          <div class="field-label">Decentralized Identity (DID)</div>
+          <div class="field-value">${safeDid}</div>
+        </div>
+        ${jwksField}
+        <div class="field">
+          <div class="field-label">Behavioral Trust Score</div>
+          <div class="trust-value">${safeTrustDisplay}</div>
+          ${trustBar}
+        </div>
+      </div>
+      <div class="links">
+        <a href="/api" class="link">↗ API Docs</a>
+        <a href="/getting-started" class="link">↗ Getting Started</a>
+        ${jwksLink}
+        <a href="${didDocUrl}" class="link">↗ DID Document</a>
+      </div>
+    </div>
+    <div class="footer">
+      Powered by <a href="https://agentlair.dev">AgentLair</a> — Persistent identity for AI agents
+    </div>
+  </div>
+</body>
+</html>`;
+}
 
 // ─── Helper: adapt legacy RouteHandler to Hono handler ──────────────────────────
 // Calls the existing handler with the correct RouteContext.
@@ -127,6 +283,7 @@ const SELF_HANDLING_X402: Array<[string, string]> = [
   ['POST', '/v1/stack'],
   ['POST', '/v1/account/upgrade'],
   ['POST', '/v1/tasks'],
+  ['POST', '/v1/events'],  // RFC-003: behavioral event ingestion handles x402 internally
 ];
 
 function hasOwnX402Handler(method: string, path: string): boolean {
@@ -599,6 +756,179 @@ app.get('/agents/:name/.well-known/jwks.json', async (c) => {
   });
 });
 
+// ─── Agent lookup helper — shared by /agents/:name and /@:name ──────────────
+// Returns agent identity data from KV. No payment required — used for free HTML profile
+// and as the inner logic for the x402-gated JSON endpoint.
+async function lookupAgentByHandle(env: Env, name: string): Promise<{
+  id: string; name: string; email: string; did: string; jwks_url?: string;
+  registered_at?: string; verified: boolean;
+} | null> {
+  const emailAddress = `${name}@agentlair.dev`;
+  const accountId = await env.EMAILS.get('email-owner:' + emailAddress);
+  if (!accountId) return null;
+
+  const keyHash = await env.KEYS.get('account:' + accountId);
+  if (!keyHash) return null;
+  const raw = await env.KEYS.get('key:' + keyHash);
+  if (!raw) return null;
+  const account = JSON.parse(raw) as Record<string, unknown>;
+
+  let jwksUrl: string | undefined;
+  let verified = false;
+  try {
+    const keyIndex = await env.KEYS.get('signing-key-by-account:' + accountId);
+    if (keyIndex) {
+      const { keyid } = JSON.parse(keyIndex) as { keyid: string };
+      const keyRecord = await env.KEYS.get('signing-key:' + keyid);
+      if (keyRecord) {
+        const parsed = JSON.parse(keyRecord) as { status?: string };
+        if (parsed.status === 'active') {
+          jwksUrl = `https://agentlair.dev/agents/${accountId}/.well-known/jwks.json`;
+          verified = true;
+        }
+      }
+    }
+  } catch { /* best-effort */ }
+
+  const did = `did:web:agentlair.dev:agents:${accountId}`;
+  return {
+    id: accountId,
+    name: (account.name as string) || name,
+    email: emailAddress,
+    did,
+    ...(jwksUrl ? { jwks_url: jwksUrl } : {}),
+    registered_at: (account.created_at || account.registered_at) as string | undefined,
+    verified,
+  };
+}
+
+// GET /@<name> — Twitter-style handle URL for agent profiles (browser-friendly, free).
+// Serves the same HTML profile page as /agents/:name with Accept: text/html.
+// NOTE: Hono does not support @ as a literal prefix in parameterized routes (/@:name fails to
+// match). Using /:handle instead, then checking for the @ prefix and calling next() for non-@
+// paths so other routes still work correctly.
+app.get('/:handle', async (c, next) => {
+  const handle = c.req.param('handle');
+  if (!handle.startsWith('@')) return next();
+  const name = handle.slice(1);
+  const HANDLE_RE = /^[a-z0-9][a-z0-9-]{0,61}[a-z0-9]$|^[a-z0-9]$/;
+  if (!name || !HANDLE_RE.test(name)) {
+    return c.redirect('/agents', 302);
+  }
+  const agent = await lookupAgentByHandle(c.env, name);
+  if (!agent) {
+    return new Response(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Not found — AgentLair</title></head><body style="font-family:monospace;background:#0a0a0f;color:#64748b;padding:2rem"><p>Agent <strong style="color:#e2e8f0">@${escapeHtml(name)}</strong> not found.</p><p><a href="/explore" style="color:#22c55e">Browse agents →</a></p></body></html>`, {
+      status: 404,
+      headers: { 'Content-Type': 'text/html; charset=utf-8' },
+    });
+  }
+
+  // Fetch trust score (best-effort — no x402 required for profile page)
+  let trustScore: number | undefined;
+  let trustLevel: string | undefined;
+  try {
+    if (c.env.AUDIT) {
+      const profile = await computeTrustScore(c.env.AUDIT, agent.id, 'free');
+      if (profile.observationCount > 0) {
+        trustScore = profile.score;
+        trustLevel = profile.atfLevel.charAt(0).toUpperCase() + profile.atfLevel.slice(1);
+      }
+    }
+  } catch { /* best-effort */ }
+
+  const html = renderAgentProfileHTML({ ...agent, trustScore, trustLevel });
+  return new Response(html, {
+    status: 200,
+    headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=60' },
+  });
+});
+
+// Agent identity discovery — x402-gated, no API key required.
+// GET /agents/:name — look up agent identity by handle, pay 0.005 USDC.
+// Browser requests (Accept: text/html) get a free HTML profile page instead.
+// Payment IS the authentication for anonymous API (JSON) lookups.
+// Registered AFTER /agents/:name/.well-known/jwks.json (more specific path wins).
+// /agents/:name/did.json (via didRoutes below) also remains free — different path depth.
+app.get('/agents/:name', async (c) => {
+  const name = c.req.param('name');
+  const HANDLE_RE = /^[a-z0-9][a-z0-9-]{0,61}[a-z0-9]$|^[a-z0-9]$/;
+  if (!name || !HANDLE_RE.test(name)) {
+    return err('Invalid agent name. Use lowercase letters, numbers, hyphens only.', 400, 'invalid_name');
+  }
+
+  // Content negotiation: browsers get a free HTML profile page (no x402 required).
+  const acceptHeader = c.req.raw.headers.get('Accept') || '';
+  if (acceptHeader.includes('text/html')) {
+    const agent = await lookupAgentByHandle(c.env, name);
+    if (!agent) {
+      return new Response(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Not found — AgentLair</title></head><body style="font-family:monospace;background:#0a0a0f;color:#64748b;padding:2rem"><p>Agent <strong style="color:#e2e8f0">${escapeHtml(name)}</strong> not found on AgentLair.</p><p><a href="/explore" style="color:#22c55e">Browse agents →</a></p></body></html>`, {
+        status: 404,
+        headers: { 'Content-Type': 'text/html; charset=utf-8' },
+      });
+    }
+
+    // Fetch trust score (best-effort — no x402 required for profile page)
+    let trustScore: number | undefined;
+    let trustLevel: string | undefined;
+    try {
+      if (c.env.AUDIT) {
+        const profile = await computeTrustScore(c.env.AUDIT, agent.id, 'free');
+        if (profile.observationCount > 0) {
+          trustScore = profile.score;
+          trustLevel = profile.atfLevel.charAt(0).toUpperCase() + profile.atfLevel.slice(1);
+        }
+      }
+    } catch { /* best-effort */ }
+
+    const html = renderAgentProfileHTML({ ...agent, trustScore, trustLevel });
+    return new Response(html, {
+      status: 200,
+      headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=60' },
+    });
+  }
+
+  // API path: require x402 payment for JSON response
+  const xPayment = c.req.header('X-PAYMENT');
+  if (!xPayment) {
+    return make402Response(SERVICE_PRICES.agent_lookup);
+  }
+
+  const verification = await verifyX402Payment(xPayment, SERVICE_PRICES.agent_lookup);
+  if (!verification.valid) {
+    return make402Response(SERVICE_PRICES.agent_lookup, { payment_error: verification.error });
+  }
+
+  const settlement = await settleX402Payment(xPayment, SERVICE_PRICES.agent_lookup);
+  if (!settlement.settled) {
+    return make402Response(SERVICE_PRICES.agent_lookup, { payment_error: settlement.error });
+  }
+
+  if (settlement.receipt) c.header('X-Payment-Response', settlement.receipt);
+
+  c.executionCtx.waitUntil(
+    trackX402Spend(c.env, 'anonymous', SERVICE_PRICES.agent_lookup.amount, {
+      payer: verification.payer,
+      service: 'agent_lookup',
+    }).catch(() => {})
+  );
+
+  // Resolve agent by name via email address index
+  const agent = await lookupAgentByHandle(c.env, name);
+  if (!agent) {
+    return err('Agent not found.', 404, 'agent_not_found');
+  }
+
+  return json({
+    id: agent.id,
+    name: agent.name,
+    email: agent.email,
+    did: agent.did,
+    ...(agent.jwks_url ? { jwks_url: agent.jwks_url } : {}),
+    registered_at: agent.registered_at,
+    verified: agent.verified,
+  });
+});
+
 // DID Web document endpoint: did:web:agentlair.dev:agents:acc_xxx → /agents/acc_xxx/did.json
 // Per W3C DID Web spec (https://w3c-ccg.github.io/did-method-web/)
 // Public endpoint — no auth required. Enables MCP-I Level 2 DID resolution.
@@ -627,6 +957,15 @@ app.use('/v1/vault/recover/verify', publicHandler(handleVaultRoutes));
 
 // Calendar: public iCal feed
 app.use('/v1/calendar/feed.ics', publicHandler(handleCalendarRoutes));
+
+// Trust scoring: public routes — optional auth + x402 for anonymous callers (0.01 USDC/query)
+// Mounted before auth middleware so anonymous agents can access GET /v1/trust/:agentId
+// Handlers call authenticateAny internally: authenticated callers pay nothing.
+app.route('/v1/trust', publicTrustRoutes);
+
+// Agent discovery: always public, always requires x402 (0.005 USDC)
+// GET /v1/agents/lookup?handle=<name>&email=<email>&id=<acc_...>
+app.route('/v1/agents', discoveryRoutes);
 
 
 // Admin routes: own auth via ADMIN_KEY (not user API keys)
@@ -704,6 +1043,19 @@ app.use('/v1/*', async (c: Context<HonoEnv>, next: Next): Promise<void | Respons
 
   // Credential approval page — public (validated via operator_email binding)
   if (c.req.path === '/v1/credentials/approve') {
+    await next();
+    return;
+  }
+
+  // Anonymous event submission — events.ts handler requires x402 payment for anonymous callers.
+  // Authenticated callers: auth runs normally and account is set.
+  // Anonymous callers: account stays null, events.ts checks X-PAYMENT header.
+  if (c.req.path === '/v1/events' && c.req.method === 'POST') {
+    const account = await authenticateAny(c.req.raw, c.env);
+    if (account) {
+      c.set('account', account);
+    }
+    // Whether authenticated or not, proceed — events.ts handles both cases
     await next();
     return;
   }
@@ -958,6 +1310,11 @@ app.route('/v1/trust', trustRoutes);
 // GET /v1/telemetry/status — integration health check (event count, last seen)
 // Integration: Springdrift (seamus-brady/springdrift issue #27) — first external partner
 app.route('/v1/telemetry', telemetryRoutes);
+
+// Behavioral event ingestion routes (RFC-003 Phase 2a):
+// POST /v1/events — ingest structured behavioral events from agent runtimes
+// Stored in behavioral_events D1 table; feeds trust engine (Phase 2b).
+app.route('/v1/events', eventRoutes);
 
 // ── 7. Stubbed routes ───────────────────────────────────────────────────────────
 

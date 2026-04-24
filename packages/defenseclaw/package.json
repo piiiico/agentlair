@@ -1,0 +1,57 @@
+{
+  "name": "@agentlair/defenseclaw",
+  "version": "0.2.0",
+  "description": "AgentLair behavioral trust verification for DefenseClaw — bridges cryptographic agent identity into DefenseClaw's governance pipeline",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "bun run build"
+  },
+  "keywords": [
+    "agentlair",
+    "defenseclaw",
+    "openclaw",
+    "ai-security",
+    "agent-trust",
+    "governance",
+    "plugin"
+  ],
+  "author": "AgentLair",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/piiiico/agentlair"
+  },
+  "homepage": "https://agentlair.dev",
+  "peerDependencies": {
+    "@openclaw/plugin-sdk": ">=1.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@openclaw/plugin-sdk": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

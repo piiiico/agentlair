@@ -13,7 +13,11 @@
  */
 
 import { describe, test, expect, beforeEach } from 'bun:test';
-import { eventRoutes, validateEvent, DEFAULT_HOURLY_LIMIT } from './events.js';
+import { eventRoutes, validateEvent } from './events.js';
+import { EVENT_LIMITS } from '../middleware/ratelimit.js';
+
+// Free-tier hourly event limit (used in rate limiting tests below)
+const FREE_HOURLY_LIMIT = EVENT_LIMITS.free.hourly; // 50
 import type { EventCategory, EventResult } from './events.js';
 import type { Account } from '../types.js';
 
@@ -439,9 +443,12 @@ describe('POST /v1/events', () => {
   });
 
   describe('authentication', () => {
-    test('missing account → 401', async () => {
+    test('missing account without X-PAYMENT → 402 (anonymous x402 required)', async () => {
+      // Anonymous callers now get 402 (payment required) instead of 401,
+      // because POST /v1/events supports anonymous access via x402 payment.
       const r = await callEvents({ events: [makeEvent()] }, { kv, d1, noAuth: true });
-      expect(r.status).toBe(401);
+      expect(r.status).toBe(402);
+      expect((r.body as Record<string, unknown>).x402Version).toBe(2);
     });
   });
 
@@ -530,7 +537,7 @@ describe('POST /v1/events', () => {
       const r = await callEvents({ events: [makeEvent()] }, { kv, d1 });
       const body = r.body as { rate_limit: { remaining: number; reset_at: string } };
       expect(typeof body.rate_limit.remaining).toBe('number');
-      expect(body.rate_limit.remaining).toBe(DEFAULT_HOURLY_LIMIT - 1);
+      expect(body.rate_limit.remaining).toBe(FREE_HOURLY_LIMIT - 1);
       expect(typeof body.rate_limit.reset_at).toBe('string');
       // reset_at should be a valid ISO 8601 date in the future
       expect(new Date(body.rate_limit.reset_at).getTime()).toBeGreaterThan(Date.now());
@@ -655,48 +662,33 @@ describe('POST /v1/events', () => {
 
   describe('rate limiting', () => {
     test('batch accepted when count is below hourly limit', async () => {
-      // Seed KV with count below limit
+      // Free tier: 50 events/hour. Seed with 20, which is below the limit.
       const hourKey = new Date().toISOString().slice(0, 13);
-      kv._set(`event-rl:acc_test123:hour:${hourKey}`, '500');
+      kv._set(`event-rl:acc_test123:hour:${hourKey}`, '20');
 
       const r = await callEvents({ events: [makeEvent()] }, { kv, d1 });
       expect(r.status).toBe(202);
       const body = r.body as { accepted: number; rate_limit: { remaining: number } };
       expect(body.accepted).toBe(1);
-      expect(body.rate_limit.remaining).toBe(DEFAULT_HOURLY_LIMIT - 501);
+      // hourly_remaining = FREE_HOURLY_LIMIT - 20 (seeded) - 1 (this event) = 29
+      expect(body.rate_limit.remaining).toBe(FREE_HOURLY_LIMIT - 21);
     });
 
-    test('batch rejected when hourly limit is already reached', async () => {
-      // Seed KV at the exact limit
+    test('batch returns 402 (x402 payment required) when hourly limit is reached', async () => {
+      // Seed KV at the exact free-tier hourly limit
       const hourKey = new Date().toISOString().slice(0, 13);
-      kv._set(`event-rl:acc_test123:hour:${hourKey}`, String(DEFAULT_HOURLY_LIMIT));
+      kv._set(`event-rl:acc_test123:hour:${hourKey}`, String(FREE_HOURLY_LIMIT));
 
       const events = [makeEvent(), makeEvent()];
       const r = await callEvents({ events }, { kv, d1 });
-      expect(r.status).toBe(429);
-      const body = r.body as { accepted: number; rejected: number; rate_limit: { remaining: number } };
-      expect(body.accepted).toBe(0);
-      expect(body.rejected).toBe(events.length);
-      expect(body.rate_limit.remaining).toBe(0);
+      // x402: rate limit exceeded with no X-PAYMENT header → 402 Payment Required
+      expect(r.status).toBe(402);
+      const body = r.body as { x402Version: number; error: string; accepts: unknown[] };
+      expect(typeof body.x402Version).toBe('number');
+      expect(typeof body.error).toBe('string');
+      expect(Array.isArray(body.accepts)).toBe(true);
+      // No events should be inserted when rate limited
       expect(d1._rows.length).toBe(0);
-    });
-
-    test('partial batch accepted up to remaining headroom', async () => {
-      // Seed with 998 out of 1000 used
-      const hourKey = new Date().toISOString().slice(0, 13);
-      kv._set(`event-rl:acc_test123:hour:${hourKey}`, '998');
-
-      // Submit 5 events — only 2 should fit within headroom
-      const events = [makeEvent(), makeEvent(), makeEvent(), makeEvent(), makeEvent()];
-      const r = await callEvents({ events }, { kv, d1 });
-      expect(r.status).toBe(202);
-      const body = r.body as { accepted: number; rejected: number; errors: { reason: string }[] };
-      expect(body.accepted).toBe(2);
-      expect(body.rejected).toBe(3);
-      // The rate_limited errors should be in the errors array
-      const rateLimitedErrors = body.errors.filter(e => e.reason === 'rate_limited');
-      expect(rateLimitedErrors.length).toBe(3);
-      expect(d1._rows.length).toBe(2);
     });
 
     test('rate limit counter is updated after successful inserts', async () => {

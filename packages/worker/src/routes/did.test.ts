@@ -92,21 +92,28 @@ describe('buildDIDDocument', () => {
     expect(doc.assertionMethod.length).toBe(0);
   });
 
-  test('always includes JWKS service endpoint', () => {
-    // With key
+  test('always includes JWKS service endpoint and AgentLairTrustProfile service', () => {
+    // With key — now 2 services: JWKS + AgentLairTrustProfile (RFC-001 Phase 1)
     const docWithKey = buildDIDDocument('acc_test123', makeSigningKey());
     expect(docWithKey.service).toBeDefined();
-    expect(docWithKey.service!.length).toBe(1);
-    expect(docWithKey.service![0].type).toBe('JsonWebKeySet2020');
-    expect(docWithKey.service![0].serviceEndpoint).toBe(
+    expect(docWithKey.service!.length).toBe(2);
+
+    const jwksSvc = docWithKey.service!.find((s) => s.type === 'JsonWebKeySet2020');
+    expect(jwksSvc).toBeDefined();
+    expect(jwksSvc!.serviceEndpoint).toBe(
       'https://agentlair.dev/agents/acc_test123/.well-known/jwks.json',
     );
 
-    // Without key
+    const trustSvc = docWithKey.service!.find((s) => s.type === 'AgentLairTrustProfile');
+    expect(trustSvc).toBeDefined();
+    expect(trustSvc!.serviceEndpoint).toBe('https://agentlair.dev/v1/trust/acc_test123');
+
+    // Without key — same 2 services
     const docWithoutKey = buildDIDDocument('acc_test123', null);
     expect(docWithoutKey.service).toBeDefined();
-    expect(docWithoutKey.service!.length).toBe(1);
-    expect(docWithoutKey.service![0].serviceEndpoint).toBe(
+    expect(docWithoutKey.service!.length).toBe(2);
+    const jwksSvcNoKey = docWithoutKey.service!.find((s) => s.type === 'JsonWebKeySet2020');
+    expect(jwksSvcNoKey!.serviceEndpoint).toBe(
       'https://agentlair.dev/agents/acc_test123/.well-known/jwks.json',
     );
   });
