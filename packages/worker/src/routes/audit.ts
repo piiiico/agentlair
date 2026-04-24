@@ -1,5 +1,6 @@
 // ─── Audit Routes ────────────────────────────────────────────────────────────
 // Handles: GET /v1/audit/log — query audit trail with filters and pagination
+//          GET /v1/audit/:token_id — alias for /v1/audit/log (backward compat for JWTs)
 //          GET /v1/audit/verification-key — return Ed25519 public key
 //          GET /v1/attestations — return audit entries as CAF attestations
 //
@@ -171,4 +172,25 @@ auditRoutes.get('/verification-key', async (c) => {
     console.error('Verification key derivation failed:', e instanceof Error ? e.message : String(e));
     return err('Failed to derive verification key.', 500, 'key_derivation_error');
   }
+});
+
+// ─── GET /audit/:token_id ─────────────────────────────────────────────────────
+// Backward-compatibility alias. Old JWTs embed al_audit_url: /v1/audit/:jti.
+// There is no per-token filtering (audit log is at account level) — return
+// a helpful JSON response pointing to the correct endpoint.
+// NOTE: Must be after all literal routes (log, attestations, verification-key)
+// to avoid shadowing them.
+
+auditRoutes.get('/:token_id', async (c) => {
+  const account = c.get('account');
+  if (!account) return err('Authentication required.', 401, 'unauthorized');
+
+  const tokenId = c.req.param('token_id');
+
+  return json({
+    message: 'Audit log is at the account level. Use GET /v1/audit/log to query your full audit trail.',
+    audit_log_url: 'https://agentlair.dev/v1/audit/log',
+    token_id: tokenId,
+    note: 'Filter by action, category, or time range using query parameters.',
+  });
 });

@@ -843,6 +843,12 @@ app.get('/:handle', async (c, next) => {
   });
 });
 
+// Redirect /agent/:name (singular) to /agents/:name (plural) — common user mistake.
+app.get('/agent/:name', (c) => {
+  const name = c.req.param('name');
+  return Response.redirect(`https://agentlair.dev/agents/${name}`, 301);
+});
+
 // Agent identity discovery — x402-gated, no API key required.
 // GET /agents/:name — look up agent identity by handle, pay 0.005 USDC.
 // Browser requests (Accept: text/html) get a free HTML profile page instead.

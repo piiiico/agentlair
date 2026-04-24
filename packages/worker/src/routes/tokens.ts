@@ -66,7 +66,7 @@ export const tokenRoutes = new Hono<HonoEnv>();
  *   "token": "eyJ...",
  *   "expires_at": "2026-03-24T02:00:00Z",
  *   "jti": "aat_xyz789",
- *   "audit_url": "https://agentlair.dev/v1/audit/aat_xyz789"
+ *   "audit_url": "https://agentlair.dev/v1/audit/log"
  * }
  */
 tokenRoutes.post('/issue', async (c) => {
@@ -176,7 +176,7 @@ tokenRoutes.post('/issue', async (c) => {
     jti,
     did,
     al_scopes: scopes as string[],
-    al_audit_url: `${ISSUER}/v1/audit/${jti}`,
+    al_audit_url: `${ISSUER}/v1/audit/log`,
   };
 
   if (agentName) claims.al_name = agentName;
@@ -210,7 +210,7 @@ tokenRoutes.post('/issue', async (c) => {
       expires_at: expiresAt,
       expires_in: ttl,
       jti,
-      audit_url: `${ISSUER}/v1/audit/${jti}`,
+      audit_url: `${ISSUER}/v1/audit/log`,
     },
     201,
   );
@@ -263,7 +263,7 @@ export const publicTokenRoutes = new Hono<HonoEnv>();
  *   "jti": "aat_xyz789",
  *   "scope": "mcp:tools:read mcp:tools:execute",  // space-separated (RFC 7662)
  *   "al_scopes": ["mcp:tools:read", "mcp:tools:execute"],
- *   "al_audit_url": "https://agentlair.dev/v1/audit/aat_xyz789",
+ *   "al_audit_url": "https://agentlair.dev/v1/audit/log",
  *   "al_name": "research-agent-7",    // optional
  *   "al_email": "research-agent-7@agentlair.dev"  // optional
  * }

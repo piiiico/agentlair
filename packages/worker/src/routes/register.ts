@@ -265,10 +265,12 @@ export async function handleRegisterRoute(
   }
 
   // Build response
+  const agentHandle = emailAddress.split('@')[0];
   const responseBody: Record<string, unknown> = {
     api_key: keyValue,
     account_id: accountId,
     email_address: emailAddress,
+    profile_url: `https://agentlair.dev/agents/${agentHandle}`,
     tier: 'free',
     status: accountStatus,
     created_at: now,
