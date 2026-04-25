@@ -174,23 +174,42 @@ auditRoutes.get('/verification-key', async (c) => {
   }
 });
 
-// ─── GET /audit/:token_id ─────────────────────────────────────────────────────
-// Backward-compatibility alias. Old JWTs embed al_audit_url: /v1/audit/:jti.
-// There is no per-token filtering (audit log is at account level) — return
-// a helpful JSON response pointing to the correct endpoint.
-// NOTE: Must be after all literal routes (log, attestations, verification-key)
-// to avoid shadowing them.
+// ─── Public Audit Routes (no auth required) ──────────────────────────────────
+// GET /v1/audit/:jti — per-token metadata lookup for al_audit_url embedded in AATs.
+// Public endpoint: external services verify tokens without needing an AgentLair account.
+// Must be mounted BEFORE the /v1/* auth middleware in index.ts.
+// NOTE: Placed after literal routes so it doesn't shadow /log, /attestations, /verification-key.
 
-auditRoutes.get('/:token_id', async (c) => {
-  const account = c.get('account');
-  if (!account) return err('Authentication required.', 401, 'unauthorized');
+export const publicAuditRoutes = new Hono<HonoEnv>();
 
-  const tokenId = c.req.param('token_id');
+publicAuditRoutes.get('/:jti', async (c) => {
+  const jti = c.req.param('jti');
 
-  return json({
-    message: 'Audit log is at the account level. Use GET /v1/audit/log to query your full audit trail.',
-    audit_log_url: 'https://agentlair.dev/v1/audit/log',
-    token_id: tokenId,
-    note: 'Filter by action, category, or time range using query parameters.',
-  });
+  // Validate format
+  if (!/^aat_[a-z0-9]{16}$/.test(jti)) {
+    return c.json({ error: 'invalid_jti', message: 'Token ID must match format aat_[a-z0-9]{16}' }, 400);
+  }
+
+  // Look up token metadata from KV
+  const metaRaw = await c.env.KEYS.get(`aat-meta:${jti}`);
+  if (!metaRaw) {
+    return c.json({ error: 'not_found', message: 'Token not found. Tokens are only auditable while valid and up to 5 minutes after expiry.' }, 404);
+  }
+  const meta = JSON.parse(metaRaw);
+
+  // Check revocation status
+  const revocationRaw = await c.env.KEYS.get(`revoked:${jti}`);
+  const revocation = revocationRaw ? JSON.parse(revocationRaw) : null;
+
+  return c.json({
+    jti,
+    issued_at: meta.issued_at,
+    expires_at: meta.expires_at,
+    audience: meta.audience,
+    scopes: meta.scopes,
+    status: revocation ? 'revoked' : (new Date(meta.expires_at) < new Date() ? 'expired' : 'active'),
+    revoked_at: revocation?.revoked_at ?? null,
+    revocation_reason: revocation?.reason ?? null,
+    audit_log_url: `https://agentlair.dev/v1/audit/log?action=auth.token_issue`,
+  }, 200);
 });

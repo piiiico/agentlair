@@ -176,7 +176,7 @@ tokenRoutes.post('/issue', async (c) => {
     jti,
     did,
     al_scopes: scopes as string[],
-    al_audit_url: `${ISSUER}/v1/audit/log`,
+    al_audit_url: `${ISSUER}/v1/audit/${jti}`,
   };
 
   if (agentName) claims.al_name = agentName;
@@ -200,6 +200,22 @@ tokenRoutes.post('/issue', async (c) => {
 
   const expiresAt = new Date((now + ttl) * 1000).toISOString();
 
+  // Store per-token metadata in KV for the public audit endpoint (non-blocking, fail-open)
+  // TTL: token TTL + 300s (5 min buffer) so KV entry expires naturally after the token itself
+  if (c.env.KEYS) {
+    const meta = {
+      jti,
+      issued_at: new Date(now * 1000).toISOString(),
+      audience,
+      scopes: scopes as string[],
+      account_id: account.id,
+      expires_at: expiresAt,
+    };
+    c.executionCtx.waitUntil(
+      c.env.KEYS.put(`aat-meta:${jti}`, JSON.stringify(meta), { expirationTtl: ttl + 300 }),
+    );
+  }
+
   // Track issuance count for usage dashboard (non-blocking, fail-open)
   c.executionCtx.waitUntil(trackTokenIssuance(c.env, account.id));
 
@@ -210,7 +226,7 @@ tokenRoutes.post('/issue', async (c) => {
       expires_at: expiresAt,
       expires_in: ttl,
       jti,
-      audit_url: `${ISSUER}/v1/audit/log`,
+      audit_url: `${ISSUER}/v1/audit/${jti}`,
     },
     201,
   );
