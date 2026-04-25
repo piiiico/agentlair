@@ -1,48 +1,61 @@
 # AgentLair
 
-Identity infrastructure for AI agents — email, vault, and audit trail in one API.
+Give your AI agent an email address, encrypted vault, and a behavioral trust score — one API, no OAuth required.
 
 [![npm: @agentlair/mcp](https://img.shields.io/npm/v/@agentlair/mcp?label=%40agentlair%2Fmcp)](https://www.npmjs.com/package/@agentlair/mcp)
 [![npm: @agentlair/sdk](https://img.shields.io/npm/v/@agentlair/sdk?label=%40agentlair%2Fsdk)](https://www.npmjs.com/package/@agentlair/sdk)
 
-## What it does
-
 | Capability     | Description |
 |----------------|-------------|
 | Email          | Send and receive at `@agentlair.dev`. No OAuth, no human approval required. |
-| Vault          | Encrypted credential storage. Client-side encryption — the server never sees plaintext. |
-| Audit Trail    | Every action logged with Ed25519 signatures. Tamper-evident. |
-| Trust Scoring  | Behavioral score (0–100) derived from actual action patterns, not identity claims. |
+| Vault          | Encrypted credential storage. Client-side AES-GCM — the server stores ciphertext only. |
+| Audit Trail    | Every action logged with Ed25519 signatures. Tamper-evident, independently verifiable. |
+| Trust Scoring  | Behavioral score (0–100) derived from observed actions — consistency, restraint, transparency. |
 | MCP Server     | All capabilities available as MCP tools in Claude Code, Cursor, or any MCP client. |
 | Pods           | Namespace isolation for multi-agent or multi-tenant deployments. |
 
-## Try it now
+## Try it in 30 seconds
 
-No sign-up required. Explore the trust scoring API with synthetic demo data:
+No signup. See what a live trust score response looks like:
 
 ```bash
-# Default scenario — a healthy, high-trust agent (score 84, principal level)
+# Healthy agent — high trust (score 84, principal level)
 curl https://agentlair.dev/v1/demo
+```
 
-# Suspicious agent — low trust, declining trend (score 31, intern level)
+```json
+{
+  "agentId": "acc_demo_healthy_XXXXXXXXXX",
+  "score": 84,
+  "confidence": 0.91,
+  "atfLevel": "principal",
+  "trend": "stable",
+  "dimensions": {
+    "consistency":   { "score": 0.82 },
+    "restraint":     { "score": 0.87 },
+    "transparency":  { "score": 0.80 }
+  },
+  "observationCount": 1847
+}
+```
+
+```bash
+# Suspicious agent — score 31, declining trend
 curl 'https://agentlair.dev/v1/demo?scenario=suspicious'
 
-# New agent — insufficient data, wide confidence interval (score 34, 11 observations)
+# New agent — only 11 observations, wide confidence interval
 curl 'https://agentlair.dev/v1/demo?scenario=new'
 ```
 
-The response matches the `/v1/trust/:agentId` shape — same fields, fixture data.
-Rate limited to 10 requests/minute per IP.
+Rate limited to 10 requests/minute per IP. Response shape matches the live `/v1/trust/:agentId` endpoint.
 
-**Full interactive demo** — register a real agent, submit observations, and get a live trust score (curl + jq, ~30 seconds):
+**Full interactive demo** — register a real agent, submit observations, get a live trust score (curl + jq, ~60 seconds):
 
 ```bash
 curl -sL https://raw.githubusercontent.com/piiiico/agentlair/main/examples/quickstart.sh | bash
 ```
 
-## Quick start
-
-Register an agent in one call:
+## Register an agent
 
 ```bash
 curl -X POST https://agentlair.dev/v1/auth/agent-register \
@@ -50,12 +63,14 @@ curl -X POST https://agentlair.dev/v1/auth/agent-register \
   -d '{"name": "my-research-agent"}'
 ```
 
-Response:
-
 ```json
 {
   "api_key": "al_live_...",
-  "email_address": "my-research-agent@agentlair.dev"
+  "account_id": "acc_...",
+  "email_address": "my-research-agent@agentlair.dev",
+  "tier": "free",
+  "limits": { "emails_per_day": 10, "requests_per_day": 100 },
+  "warning": "Save your API key — it will not be shown again."
 }
 ```
 
