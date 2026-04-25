@@ -256,13 +256,23 @@ const pricingFree = [
   "No credit card required",
 ];
 
+const pricingStarter = [
+  "50 secrets",
+  "10 versions per secret",
+  "32 KB per value",
+  "1,000 API calls/day",
+  "5 agent email addresses",
+  "Email support",
+];
+
 const pricingPro = [
-  "Unlimited secrets",
+  "500 secrets",
   "100 versions per secret",
   "64 KB per value",
   "10,000 API calls/day",
-  "Priority support",
+  "50 agent email addresses",
   "x402 autonomous payments",
+  "Priority support",
 ];
 
 const securityItems = [
@@ -362,11 +372,11 @@ const apiEndpoints = [
 ];
 
 const tierLimits = [
-  { label: "Secrets", free: "10 keys", pro: "Unlimited" },
-  { label: "Version history", free: "3 per key", pro: "100 per key" },
-  { label: "Max blob size", free: "16 KB", pro: "64 KB" },
-  { label: "API requests/day", free: "100 (shared)", pro: "10,000" },
-  { label: "Recovery emails", free: "1", pro: "3" },
+  { label: "Secrets", free: "10 keys", starter: "50 keys", pro: "500 keys" },
+  { label: "Version history", free: "3 per key", starter: "10 per key", pro: "100 per key" },
+  { label: "Max blob size", free: "16 KB", starter: "32 KB", pro: "64 KB" },
+  { label: "API requests/day", free: "100", starter: "1,000", pro: "10,000" },
+  { label: "Recovery emails", free: "1", starter: "2", pro: "3" },
 ];
 
 const nextSteps = [
@@ -566,7 +576,7 @@ function VaultPricing() {
   return (
     <div className="space-y-4">
       <h2 className="text-foreground text-xl font-bold">Pricing</h2>
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid gap-4 sm:grid-cols-3">
         {/* Free */}
         <Card>
           <CardContent className="space-y-4">
@@ -587,18 +597,39 @@ function VaultPricing() {
           </CardContent>
         </Card>
 
-        {/* Pro */}
+        {/* Starter */}
         <Card className="border-primary/50">
           <CardContent className="space-y-4">
             <div>
               <div className="mb-1 flex items-center gap-2">
-                <h3 className="text-foreground font-semibold">Pro</h3>
+                <h3 className="text-foreground font-semibold">Starter</h3>
                 <span className="bg-primary text-primary-foreground rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide">
                   Popular
                 </span>
               </div>
               <div className="text-foreground text-3xl font-extrabold">
-                $9{" "}
+                $29{" "}
+                <span className="text-muted-foreground text-sm font-normal">/month</span>
+              </div>
+            </div>
+            <ul className="space-y-1.5">
+              {pricingStarter.map((item) => (
+                <li key={item} className="text-muted-foreground flex items-center gap-2 text-sm">
+                  <span className="font-bold text-green-500">✓</span>
+                  {item}
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+
+        {/* Pro */}
+        <Card>
+          <CardContent className="space-y-4">
+            <div>
+              <h3 className="text-foreground font-semibold">Pro</h3>
+              <div className="text-foreground text-3xl font-extrabold">
+                $149{" "}
                 <span className="text-muted-foreground text-sm font-normal">/month</span>
               </div>
             </div>
@@ -614,7 +645,10 @@ function VaultPricing() {
         </Card>
       </div>
       <p className="text-muted-foreground text-center text-sm">
-        Pro tier coming soon. Free tier is permanent — no expiry, no bait-and-switch.
+        Free tier is permanent — no expiry, no bait-and-switch.{" "}
+        <a href="/pricing" className="text-primary underline underline-offset-4">
+          See full pricing &rarr;
+        </a>
         <br />
         Autonomous agents:{" "}
         <strong className="text-foreground">x402 payments</strong> available — agents pay per-call at
@@ -763,7 +797,10 @@ function VaultApiRef() {
                       Free
                     </th>
                     <th className="text-muted-foreground px-6 py-3 text-left font-semibold">
-                      Pro ($9/mo)
+                      Starter ($29/mo)
+                    </th>
+                    <th className="text-muted-foreground px-6 py-3 text-left font-semibold">
+                      Pro ($149/mo)
                     </th>
                   </tr>
                 </thead>
@@ -772,6 +809,7 @@ function VaultApiRef() {
                     <tr key={row.label}>
                       <td className="text-muted-foreground px-6 py-3">{row.label}</td>
                       <td className="text-foreground px-6 py-3">{row.free}</td>
+                      <td className="text-foreground px-6 py-3">{row.starter}</td>
                       <td className="text-foreground px-6 py-3">{row.pro}</td>
                     </tr>
                   ))}

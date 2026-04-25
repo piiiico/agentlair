@@ -13,6 +13,7 @@ const DOCS_ITEMS = [
   { label: "Concepts", href: "/docs/concepts" },
   { label: "API Reference", href: "/docs/api-reference" },
   { label: "Audit Logger", href: "/docs/audit-logger" },
+  { label: "MCP Server", href: "/docs/mcp" },
   { label: "Vault Docs", href: "/docs/vault" },
 ];
 
