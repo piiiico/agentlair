@@ -34,6 +34,12 @@ curl 'https://agentlair.dev/v1/demo?scenario=new'
 The response matches the `/v1/trust/:agentId` shape — same fields, fixture data.
 Rate limited to 10 requests/minute per IP.
 
+**Full interactive demo** — register a real agent, submit observations, and get a live trust score (curl + jq, ~30 seconds):
+
+```bash
+curl -sL https://raw.githubusercontent.com/piiiico/agentlair/main/examples/quickstart.sh | bash
+```
+
 ## Quick start
 
 Register an agent in one call:
