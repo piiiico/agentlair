@@ -513,7 +513,53 @@ asyncio.run(main())`}
                 </Tip>
               </StepCard>
 
-              <StepCard number={10} title="Create an Agent Pod" optional>
+              <StepCard number={10} title="Issue an Agent Authentication Token (AAT)" optional>
+                <p>
+                  Issue a short-lived{" "}
+                  <strong className="text-foreground">signed JWT</strong> your
+                  agent can present to any external service. The receiving service
+                  verifies it offline via AgentLair's JWKS endpoint — no round-trip
+                  needed. Attach it as a Bearer token in downstream requests.
+                </p>
+
+                <CodeBlock
+                  code={`curl -X POST https://agentlair.dev/v1/tokens/issue \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "label": "my-service-token",
+    "ttl": 3600,
+    "audience": "https://your-service.com",
+    "scopes": ["read", "write"]
+  }'
+→ {
+    "token": "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9...",
+    "token_type": "Bearer",
+    "expires_at": "2026-04-25T13:11:32.000Z",
+    "expires_in": 3600,
+    "jti": "aat_u6hT2o4LASbDsuGc",
+    "audit_url": "https://agentlair.dev/v1/audit/aat_u6hT2o4LASbDsuGc"
+  }`}
+                  language="bash"
+                  title="Terminal"
+                />
+
+                <Tip>
+                  <strong className="text-foreground">audience</strong> is the
+                  URI of the service you're calling — it gets embedded in the JWT
+                  so the receiver can confirm the token was minted for them.{" "}
+                  <strong className="text-foreground">scopes</strong> must be a
+                  non-empty array. Verify tokens at your service with:{" "}
+                  <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-xs">
+                    GET https://agentlair.dev/.well-known/jwks.json
+                  </code>.{" "}
+                  <a href="/docs/api-reference#post-v1tokensissue" className="text-primary underline underline-offset-4">
+                    Full AAT reference →
+                  </a>
+                </Tip>
+              </StepCard>
+
+              <StepCard number={11} title="Create an Agent Pod" optional>
                 <p>
                   Pods give each of your clients a fully isolated environment —
                   their own API key, email address, vault, and calendar — all
