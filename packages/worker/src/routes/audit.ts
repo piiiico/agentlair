@@ -12,6 +12,7 @@ import { json, err } from '../utils.js';
 import { ed25519 } from '@noble/curves/ed25519.js';
 import type { AuditEntry } from '../middleware/audit.js';
 import { auditEntryToCAF } from '../caf.js';
+import { verifyX402Payment, settleX402Payment, trackX402Spend, make402Response, SERVICE_PRICES } from '../x402.js';
 
 export const auditRoutes = new Hono<HonoEnv>();
 
@@ -185,10 +186,33 @@ export const publicAuditRoutes = new Hono<HonoEnv>();
 publicAuditRoutes.get('/:jti', async (c) => {
   const jti = c.req.param('jti');
 
-  // Validate format
+  // Validate format before charging
   if (!/^aat_[A-Za-z0-9]{16}$/.test(jti)) {
     return c.json({ error: 'invalid_jti', message: 'Token ID must match format aat_[A-Za-z0-9]{16}' }, 400);
   }
+
+  // x402 payment gate — 0.001 USDC per lookup (unauthenticated callers; payment IS authentication)
+  const xPayment = c.req.header('X-PAYMENT');
+  if (!xPayment) {
+    return make402Response(SERVICE_PRICES.audit_lookup);
+  }
+  const verification = await verifyX402Payment(xPayment, SERVICE_PRICES.audit_lookup);
+  if (!verification.valid) {
+    return make402Response(SERVICE_PRICES.audit_lookup, { payment_error: verification.error });
+  }
+  const settlement = await settleX402Payment(xPayment, SERVICE_PRICES.audit_lookup);
+  if (!settlement.settled) {
+    return make402Response(SERVICE_PRICES.audit_lookup, { payment_error: settlement.error });
+  }
+  if (settlement.receipt) {
+    c.header('X-Payment-Response', settlement.receipt);
+  }
+  c.executionCtx.waitUntil(
+    trackX402Spend(c.env, 'anonymous', SERVICE_PRICES.audit_lookup.amount, {
+      payer: verification.payer,
+      service: 'audit_lookup',
+    }).catch(() => {}),
+  );
 
   // Look up token metadata from KV
   const metaRaw = await c.env.KEYS.get(`aat-meta:${jti}`);

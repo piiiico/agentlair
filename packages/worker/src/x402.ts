@@ -334,6 +334,34 @@ export const SERVICE_PRICES: Record<string, ServicePaymentConfig> = {
       },
     },
   },
+  audit_lookup: {
+    amount: '1000', // 0.001 USDC
+    resource: 'https://agentlair.dev/v1/audit',
+    description: 'AgentLair token audit lookup — 0.001 USDC per JTI metadata query.',
+    mimeType: 'application/json',
+    discovery: {
+      input: { jti: 'aat_AbCdEfGhIjKlMn01' },
+      inputSchema: {
+        properties: {
+          jti: { type: 'string', description: 'Agent Authentication Token ID (aat_[A-Za-z0-9]{16}) — used as path segment: /v1/audit/{jti}' },
+        },
+        required: ['jti'],
+      },
+      output: {
+        example: {
+          jti: 'aat_AbCdEfGhIjKlMn01',
+          issued_at: '2026-04-25T00:00:00Z',
+          expires_at: '2026-04-26T00:00:00Z',
+          audience: 'example.com',
+          scopes: ['email:send'],
+          status: 'active',
+          revoked_at: null,
+          revocation_reason: null,
+          audit_log_url: 'https://agentlair.dev/v1/audit/log?action=auth.token_issue',
+        },
+      },
+    },
+  },
   event_submit_anon: {
     amount: '100', // 0.0001 USDC
     resource: 'https://agentlair.dev/v1/events',

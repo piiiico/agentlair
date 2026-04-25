@@ -19,7 +19,7 @@ import { securityHeaders } from './middleware/security-headers.js';
 import { auditMiddleware } from './middleware/audit.js';
 import { budgetMiddleware } from './middleware/budget.js';
 import { encryptEmailField, encryptEmailE2E } from './platform-crypto.js';
-import { make402Response, SERVICE_PRICES, verifyX402Payment, settleX402Payment, trackX402Spend, autoUpgradeIfThreshold, getGlobalRevenue, checkSpendingCap } from './x402.js';
+import { make402Response, SERVICE_PRICES, X402_CONFIG, getPaymentRequirements, verifyX402Payment, settleX402Payment, trackX402Spend, autoUpgradeIfThreshold, getGlobalRevenue, checkSpendingCap } from './x402.js';
 import type { ServicePaymentConfig } from './x402.js';
 
 // ─── Route modules ─────────────────────────────────────────────────────────────
@@ -587,6 +587,63 @@ app.get('/.well-known/did.json', async (c) => {
 app.get('/.well-known/openid-configuration', (_c) => {
   const config = buildOIDCDiscovery();
   return new Response(JSON.stringify(config, null, 2), {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'public, max-age=3600',
+    },
+  });
+});
+
+// ── Bazaar x402 Catalog — CDP/agentic.market auto-indexing ───────────────────
+// Lists all x402-gated public endpoints with payment requirements and schemas.
+// CDP catalogs like agentic.market crawl this file to auto-index paid services.
+// No auth required — discovery is intentionally public.
+
+app.get('/.well-known/bazaar.json', (_c) => {
+  // Public x402-gated endpoints — payment IS authentication, no registration required
+  const services = [
+    {
+      name: 'Agent Trust Score',
+      endpoint: '/v1/trust/{agentId}',
+      method: 'GET',
+      requirements: getPaymentRequirements(SERVICE_PRICES.trust_query),
+      discovery: SERVICE_PRICES.trust_query.discovery,
+    },
+    {
+      name: 'Agent Discovery Lookup',
+      endpoint: '/v1/agents/lookup',
+      method: 'GET',
+      requirements: getPaymentRequirements(SERVICE_PRICES.agent_lookup),
+      discovery: SERVICE_PRICES.agent_lookup.discovery,
+    },
+    {
+      name: 'Token Audit Lookup',
+      endpoint: '/v1/audit/{jti}',
+      method: 'GET',
+      requirements: getPaymentRequirements(SERVICE_PRICES.audit_lookup),
+      discovery: SERVICE_PRICES.audit_lookup.discovery,
+    },
+    {
+      name: 'Token Verification',
+      endpoint: '/v1/auth/verify',
+      method: 'POST',
+      requirements: getPaymentRequirements(SERVICE_PRICES.token_verify),
+      discovery: SERVICE_PRICES.token_verify.discovery,
+    },
+  ];
+
+  return new Response(JSON.stringify({
+    x402Version: X402_CONFIG.x402Version,
+    name: 'AgentLair',
+    description: 'Persistent identity, trust scoring, and behavioral audit for AI agents. Payment IS authentication — no registration required.',
+    url: 'https://agentlair.dev',
+    network: X402_CONFIG.network,
+    asset: X402_CONFIG.asset,
+    payTo: X402_CONFIG.payTo,
+    docs: 'https://agentlair.dev/api',
+    services,
+  }, null, 2), {
     status: 200,
     headers: {
       'Content-Type': 'application/json',
