@@ -30,6 +30,9 @@ export interface Env {
   // Admin API key for privileged operations (tier overrides, etc.)
   // Set via: wrangler secret put ADMIN_KEY
   ADMIN_KEY?: string;
+  // Gateway wallet: 0x-prefixed hex secp256k1 private key for EIP-3009 signing
+  // Set via: wrangler secret put GATEWAY_WALLET_KEY
+  GATEWAY_WALLET_KEY?: string;
 }
 
 export interface Account {

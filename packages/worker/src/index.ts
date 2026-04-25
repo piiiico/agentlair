@@ -33,9 +33,10 @@ import { podRoutes } from './routes/pods.js';
 import { handleCalendarRoutes } from './routes/calendar.js';
 import { tokenRoutes, publicTokenRoutes } from './routes/tokens.js';
 import { signingKeyRoutes, getSigningKey } from './routes/signing-keys.js';
-import { auditRoutes } from './routes/audit.js';
+import { auditRoutes, publicAuditRoutes } from './routes/audit.js';
 import { sessionRoutes } from './routes/sessions.js';
 import { budgetRoutes } from './routes/budget.js';
+import { gatewayRoutes } from './routes/gateway.js';
 import { handleRegisterRoute } from './routes/register.js';
 import { handleRegisterVerifyRoute } from './routes/register-verify.js';
 import { handleCredentialRoutes } from './routes/credentials.js';
@@ -990,6 +991,11 @@ app.route('/v1/agents', discoveryRoutes);
 // Demo endpoint: public trust profile explorer (no auth, IP rate limited)
 app.route('/v1/demo', demoRoutes);
 
+// Public audit endpoint: GET /v1/audit/:jti — per-token metadata for al_audit_url in AATs.
+// No auth required: external services verify tokens without needing an AgentLair account.
+// Mounted BEFORE auth middleware so the /:jti handler runs unauthenticated.
+app.route('/v1/audit', publicAuditRoutes);
+
 // Admin routes: own auth via ADMIN_KEY (not user API keys)
 app.post('/v1/admin/tier', async (c) => {
   const response = await handleAdminRoutes(c.req.raw, c.env);
@@ -1314,6 +1320,9 @@ app.route('/v1/sessions', sessionRoutes);
 
 // Budget routes: per-agent spending caps (GET /v1/budget, PUT /v1/budget, GET /v1/budget/history)
 app.route('/v1/budget', budgetRoutes);
+
+// Gateway routes: governed x402 proxy (GET/PUT /policy, GET /budget, GET /history, POST /proxy, GET /wallet)
+app.route('/v1/gateway', gatewayRoutes);
 
 // Charge route: declare spending intent (POST /v1/charge)
 app.route('/v1/charge', chargeRoutes);
