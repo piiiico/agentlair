@@ -1,5 +1,6 @@
+import { format } from "date-fns";
+
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 
 const BlogPosts = ({ posts }: { posts: any[] }) => {
@@ -52,9 +53,9 @@ const BlogPosts = ({ posts }: { posts: any[] }) => {
                         {post.data.authorName}
                       </span>
                     </div>
-                    <Badge variant="secondary" className="h-fit">
-                      10 Min Read
-                    </Badge>
+                    <span className="text-muted-foreground text-xs">
+                      {format(post.data.pubDate, "MMM d, yyyy")}
+                    </span>
                   </div>
                 </div>
               </a>
