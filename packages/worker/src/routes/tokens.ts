@@ -279,7 +279,7 @@ export const publicTokenRoutes = new Hono<HonoEnv>();
  *   "jti": "aat_xyz789",
  *   "scope": "mcp:tools:read mcp:tools:execute",  // space-separated (RFC 7662)
  *   "al_scopes": ["mcp:tools:read", "mcp:tools:execute"],
- *   "al_audit_url": "https://agentlair.dev/v1/audit/log",
+ *   "al_audit_url": "https://agentlair.dev/v1/audit/{jti}",
  *   "al_name": "research-agent-7",    // optional
  *   "al_email": "research-agent-7@agentlair.dev"  // optional
  * }

@@ -186,8 +186,8 @@ publicAuditRoutes.get('/:jti', async (c) => {
   const jti = c.req.param('jti');
 
   // Validate format
-  if (!/^aat_[a-z0-9]{16}$/.test(jti)) {
-    return c.json({ error: 'invalid_jti', message: 'Token ID must match format aat_[a-z0-9]{16}' }, 400);
+  if (!/^aat_[A-Za-z0-9]{16}$/.test(jti)) {
+    return c.json({ error: 'invalid_jti', message: 'Token ID must match format aat_[A-Za-z0-9]{16}' }, 400);
   }
 
   // Look up token metadata from KV
