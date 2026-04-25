@@ -1,4 +1,4 @@
-import { ArrowRight, Calendar, FileText, Layers, Lock, ShieldCheck, Terminal, Zap, Code } from "lucide-react";
+import { ArrowRight, Calendar, FileText, Layers, Lock, Plug, ShieldCheck, Terminal, Zap, Code } from "lucide-react";
 
 import { Background } from "@/components/background";
 import { CodeBlock } from "@/components/shared/code-block";
@@ -74,6 +74,13 @@ const nextSteps = [
     title: "Python SDK",
     description:
       "pip install git+https://github.com/piiiico/agentlair-python.git — async-first, typed, zero extra dependencies.",
+  },
+  {
+    href: "/docs/mcp",
+    icon: Plug,
+    title: "MCP Server",
+    description:
+      "npx @agentlair/mcp@latest — give Claude Code, Cursor, or Windsurf email, vault, and calendar tools.",
   },
 ];
 
@@ -513,7 +520,45 @@ asyncio.run(main())`}
                 </Tip>
               </StepCard>
 
-              <StepCard number={10} title="Issue an Agent Authentication Token (AAT)" optional>
+              <StepCard number={10} title="Use the MCP Server" optional>
+                <p>
+                  Give Claude Code, Cursor, or Windsurf direct access to AgentLair email,
+                  vault, calendar, and task delegation — all from your AI assistant's chat.
+                </p>
+                <p>
+                  Add this to your MCP client config (e.g.{" "}
+                  <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-xs">
+                    ~/.claude/settings.json
+                  </code>{" "}
+                  for Claude Code):
+                </p>
+                <CodeBlock
+                  code={`{
+  "mcpServers": {
+    "agentlair": {
+      "command": "npx",
+      "args": ["@agentlair/mcp@latest"],
+      "env": {
+        "AGENTLAIR_API_KEY": "al_live_..."
+      }
+    }
+  }
+}`}
+                  language="json"
+                  title="~/.claude/settings.json"
+                />
+                <Tip>
+                  <strong className="text-foreground">No install needed.</strong>{" "}
+                  <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-xs">npx</code>{" "}
+                  fetches the latest version automatically. After saving the config,
+                  restart your editor — AgentLair tools appear in your next session.{" "}
+                  <a href="/docs/mcp" className="text-primary underline underline-offset-4">
+                    Full MCP docs →
+                  </a>
+                </Tip>
+              </StepCard>
+
+              <StepCard number={11} title="Issue an Agent Authentication Token (AAT)" optional>
                 <p>
                   Issue a short-lived{" "}
                   <strong className="text-foreground">signed JWT</strong> your
@@ -559,7 +604,7 @@ asyncio.run(main())`}
                 </Tip>
               </StepCard>
 
-              <StepCard number={11} title="Create an Agent Pod" optional>
+              <StepCard number={12} title="Create an Agent Pod" optional>
                 <p>
                   Pods give each of your clients a fully isolated environment —
                   their own API key, email address, vault, and calendar — all

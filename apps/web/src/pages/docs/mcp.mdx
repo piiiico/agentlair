@@ -1,0 +1,190 @@
+---
+layout: ../../layouts/BasicLayout.astro
+title: "MCP Server — AgentLair"
+description: "Give your AI coding assistant email, vault, calendar, and task delegation via the AgentLair MCP server. Works with Claude Code, Cursor, Windsurf, and any MCP client."
+---
+
+# AgentLair MCP Server
+
+**Give your AI assistant a real email address, secret vault, calendar, and task delegation — in one `npx` command.**
+
+The `@agentlair/mcp` server exposes all AgentLair capabilities as [Model Context Protocol](https://modelcontextprotocol.io) tools. Works with Claude Code, Cursor, Windsurf, Google ADK, and any MCP-compatible client.
+
+---
+
+## Prerequisites
+
+- An AgentLair API key — [get one free](/getting-started)
+- Node ≥ 18 or Bun (for `npx`)
+
+---
+
+## Install
+
+No installation needed — run via `npx`:
+
+```bash
+npx @agentlair/mcp@latest
+```
+
+This command is used as the MCP server entry point in your client configuration below.
+
+---
+
+## Client Configuration
+
+### Claude Code
+
+Add to `~/.claude/settings.json`:
+
+```json
+{
+  "mcpServers": {
+    "agentlair": {
+      "command": "npx",
+      "args": ["@agentlair/mcp@latest"],
+      "env": {
+        "AGENTLAIR_API_KEY": "al_live_..."
+      }
+    }
+  }
+}
+```
+
+After saving, restart Claude Code. The AgentLair tools appear automatically in your next session.
+
+### Cursor
+
+Add to `.cursor/mcp.json` in your project root (or `~/.cursor/mcp.json` for global):
+
+```json
+{
+  "mcpServers": {
+    "agentlair": {
+      "command": "npx",
+      "args": ["@agentlair/mcp@latest"],
+      "env": {
+        "AGENTLAIR_API_KEY": "al_live_..."
+      }
+    }
+  }
+}
+```
+
+### Windsurf
+
+Add to `~/.codeium/windsurf/mcp_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "agentlair": {
+      "command": "npx",
+      "args": ["@agentlair/mcp@latest"],
+      "env": {
+        "AGENTLAIR_API_KEY": "al_live_..."
+      }
+    }
+  }
+}
+```
+
+### Any MCP client
+
+The server communicates via stdio. Point your client at:
+
+```
+command: npx
+args: ["@agentlair/mcp@latest"]
+env: { "AGENTLAIR_API_KEY": "al_live_..." }
+```
+
+---
+
+## Environment Variables
+
+| Variable | Required | Description |
+|---|---|---|
+| `AGENTLAIR_API_KEY` | **Yes** | Your AgentLair API key (`al_live_...`). Get one at [agentlair.dev/getting-started](/getting-started). |
+
+---
+
+## Available Tools
+
+### Email
+
+| Tool | Description |
+|---|---|
+| `claim_address` | Claim a new `@agentlair.dev` email address. Free tier: up to 3 addresses. |
+| `send_email` | Send email from a claimed `@agentlair.dev` address to any recipient. No SMTP setup. |
+| `check_inbox` | Check the inbox for an `@agentlair.dev` address. Returns recent messages. |
+| `read_message` | Read the full body of a specific message by ID. |
+| `list_addresses` | List all `@agentlair.dev` addresses claimed on your account. |
+
+### Vault
+
+| Tool | Description |
+|---|---|
+| `vault_put` | Store a value (API key, secret, config) in the AgentLair Vault. Persists across sessions. |
+| `vault_get` | Retrieve a stored value by key name. |
+| `vault_list` | List all keys stored in your Vault (metadata only, values not returned). |
+| `vault_delete` | Delete a key and all its versions from the Vault. |
+
+### Calendar
+
+| Tool | Description |
+|---|---|
+| `calendar_create_event` | Create a calendar event. Published via iCal for human subscription. |
+| `calendar_list_events` | List events, optionally filtered by date range. |
+| `calendar_delete_event` | Delete an event by ID. |
+| `calendar_get_feed` | Get the public iCal URL for Google Calendar / Apple Calendar subscription. |
+
+### Task Delegation
+
+| Tool | Description |
+|---|---|
+| `delegate_task` | Delegate work to another AgentLair agent. Delivered to their inbox asynchronously. |
+
+---
+
+## Example Usage
+
+Once configured, your AI assistant can use AgentLair tools in natural language:
+
+> "Claim the address `researcher@agentlair.dev` and send a summary of today's findings to my Gmail."
+
+> "Store this OpenAI key in Vault under `openai-key` and retrieve it next time."
+
+> "Create a calendar event for Friday's team meeting and give me the iCal link."
+
+The MCP server handles all API calls — your assistant just uses the tools.
+
+---
+
+## Verify It's Working
+
+In Claude Code, after adding the config:
+
+```
+> List my AgentLair email addresses
+```
+
+If `list_addresses` returns your `@agentlair.dev` address, the server is connected.
+
+If you get an error about `AGENTLAIR_API_KEY`, check that the key is correctly set in your MCP config's `env` block.
+
+---
+
+## Package
+
+- **npm:** [`@agentlair/mcp`](https://www.npmjs.com/package/@agentlair/mcp)
+- **Version:** 1.2.0
+- **License:** MIT
+
+---
+
+## What's next
+
+- **[Getting Started](/getting-started)** — Register and get your free API key
+- **[Vault](/docs/vault)** — Zero-knowledge encrypted secret storage
+- **[API Reference](/docs/api-reference)** — Direct REST access to all endpoints
