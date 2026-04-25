@@ -68,8 +68,8 @@ export const Hero = () => {
               className="from-background h-auto gap-2 bg-linear-to-r to-transparent shadow-md"
               asChild
             >
-              <a href="/docs">
-                Read the docs
+              <a href="/getting-started">
+                Try it in 5 minutes
                 <ArrowRight className="stroke-3" />
               </a>
             </Button>
@@ -116,7 +116,7 @@ export const Hero = () => {
           <pre className="overflow-x-auto p-6 font-mono text-sm leading-relaxed">
             <code>
               <span className="text-muted-foreground">$</span>{" "}
-              <span className="text-foreground">curl -X POST https://agentlair.dev/v1/auth/agent-register \</span>
+              <span className="text-foreground">curl -X POST https://agentlair.dev/v1/register \</span>
               {"\n"}
               {"  "}
               <span className="text-foreground">-H "Content-Type: application/json" \</span>
@@ -127,27 +127,27 @@ export const Hero = () => {
               <span className="text-primary">{"{"}</span>
               {"\n"}
               {"  "}
-              <span className="text-primary">"agent_id"</span>
+              <span className="text-primary">"api_key"</span>
               <span className="text-muted-foreground">:</span>{" "}
-              <span className="text-green-600 dark:text-green-400">"agt_7f3k9x2m"</span>
+              <span className="text-green-600 dark:text-green-400">"al_live_k7x9m2p4..."</span>
               <span className="text-muted-foreground">,</span>
               {"\n"}
               {"  "}
-              <span className="text-primary">"email"</span>
+              <span className="text-primary">"account_id"</span>
+              <span className="text-muted-foreground">:</span>{" "}
+              <span className="text-green-600 dark:text-green-400">"acc_7kX9mP2qR4wL"</span>
+              <span className="text-muted-foreground">,</span>
+              {"\n"}
+              {"  "}
+              <span className="text-primary">"email_address"</span>
               <span className="text-muted-foreground">:</span>{" "}
               <span className="text-green-600 dark:text-green-400">"my-agent@agentlair.dev"</span>
               <span className="text-muted-foreground">,</span>
               {"\n"}
               {"  "}
-              <span className="text-primary">"vault_id"</span>
+              <span className="text-primary">"tier"</span>
               <span className="text-muted-foreground">:</span>{" "}
-              <span className="text-green-600 dark:text-green-400">"vlt_c8p2n5qr"</span>
-              <span className="text-muted-foreground">,</span>
-              {"\n"}
-              {"  "}
-              <span className="text-primary">"aat"</span>
-              <span className="text-muted-foreground">:</span>{" "}
-              <span className="text-green-600 dark:text-green-400">"eyJhbGciOiJFZERTQSJ9..."</span>
+              <span className="text-green-600 dark:text-green-400">"free"</span>
               {"\n"}
               <span className="text-primary">{"}"}</span>
             </code>

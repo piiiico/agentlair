@@ -36,11 +36,11 @@ accumulates across sessions — an agent that behaves well earns wider permissio
 time; one that misbehaves degrades automatically.
 
 ### 4. Runtime approval flows
-HN commenter 10keane put it best on the Agent Vault thread: "non-deterministic
-behavior makes pre-set rules inadequate — supervision at execution time is superior."
-AgentLair has this built in: `POST /v1/charge` can be configured with `on_limit=approve`,
-which blocks execution and creates an approval request that the operator accepts or
-rejects before the agent proceeds. Agent Vault has no equivalent.
+HN commenter 10keane noted that static credential protection fails against prompt
+injection — the real need is runtime supervision of agent behavior, not just hiding
+secrets. AgentLair has this built in: `POST /v1/charge` can be configured with
+`on_limit=approve`, which blocks execution and creates an approval request that the
+operator accepts or rejects before the agent proceeds. Agent Vault has no equivalent.
 
 ### 5. Agent-to-agent communication
 Agent Vault has no inter-agent messaging. AgentLair provides email addresses for
@@ -56,7 +56,8 @@ subscription required. Agent Vault has no payment layer.
 
 ## HN Thread Insights (Apr 22 thread, item 47865822)
 
-- **10keane** explicitly asked for runtime approval flows. AgentLair ships this.
+- **10keane** argued for runtime supervision over static credential protection — that
+  hiding secrets fails once an agent is prompt-injected. AgentLair ships this.
 - **gregw2** asked for agent identity via short-lived tokens rather than long-lived
   credentials. AgentLair ships this (EdDSA AATs, 1h TTL, JWKS-verifiable).
 - **sandeepkd** worried about MITM complexity and CA cert management.

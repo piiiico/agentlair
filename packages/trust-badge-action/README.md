@@ -26,7 +26,7 @@ jobs:
     permissions:
       pull-requests: write
     steps:
-      - uses: agentlair/trust-badge-action@v1
+      - uses: piiiico/trust-badge-action@v1
         with:
           agent-id: acc_youragentid  # Find at agentlair.dev/explore
 ```
