@@ -300,7 +300,7 @@ export async function handleRegisterRoute(
     responseBody.next_steps = [
       'GET /v1/account/me to verify your account',
       'POST /v1/email/send to send your first email',
-      'POST /v1/vault/secrets to store credentials',
+      'PUT /v1/vault/{key} to store credentials (body: {"ciphertext": "..."})',
       'Visit https://agentlair.dev/dashboard to view your account, inbox, and activity',
     ];
   }
@@ -321,6 +321,7 @@ Quickstart (Node / Bun):
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
+      from: '${emailAddress}',
       to: ['you@example.com'],
       subject: 'Hello from my AI agent',
       text: 'This email was sent by an AI agent via AgentLair.',

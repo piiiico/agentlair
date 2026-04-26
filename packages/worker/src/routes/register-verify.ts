@@ -120,7 +120,7 @@ export async function handleRegisterVerifyRoute(
     next_steps: [
       'POST /v1/email/send to send email to any recipient',
       'GET /v1/account/me to view your verified account',
-      'POST /v1/vault/secrets to store credentials',
+      'PUT /v1/vault/{key} to store credentials (body: {"ciphertext": "..."})',
     ],
   }, 200);
 }
