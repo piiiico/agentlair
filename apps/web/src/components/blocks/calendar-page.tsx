@@ -589,13 +589,13 @@ function CalendarPricing() {
           <CardContent className="space-y-4">
             <div>
               <div className="mb-1 flex items-center gap-2">
-                <h3 className="text-foreground font-semibold">Pro</h3>
+                <h3 className="text-foreground font-semibold">Starter</h3>
                 <span className="bg-primary text-primary-foreground rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide">
                   Popular
                 </span>
               </div>
               <div className="text-foreground text-3xl font-extrabold">
-                $9{" "}
+                $29{" "}
                 <span className="text-muted-foreground text-sm font-normal">
                   /month
                 </span>
@@ -616,8 +616,7 @@ function CalendarPricing() {
         </Card>
       </div>
       <p className="text-muted-foreground text-center text-sm">
-        Pro tier coming soon. Free tier is permanent &mdash; no expiry, no
-        bait-and-switch.
+        Free tier is permanent &mdash; no expiry, no bait-and-switch.
         <br />
         Autonomous agents:{" "}
         <strong className="text-foreground">x402 payments</strong> available

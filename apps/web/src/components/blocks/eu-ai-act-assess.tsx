@@ -228,7 +228,7 @@ const COMPLIANCE_ITEMS = [
     article: "Article 12(4)",
     requirement: "Minimum 6-month retention",
     agentlairSolution:
-      "Pro tier ($9/mo) retains logs for 1 year. Enterprise up to 7 years. Free tier is 30 days (below the Article 12 minimum by design).",
+      "Starter ($29/mo) retains logs for 1 year. Enterprise up to 7 years. Free tier is 30 days (below the Article 12 minimum by design).",
   },
   {
     id: "q6",
@@ -690,7 +690,7 @@ export function ComplianceAssess() {
                   <p className="font-semibold">Fix your compliance gaps today</p>
                   <p className="text-muted-foreground mt-1 text-sm">
                     AgentLair's audit infrastructure addresses every Article 12
-                    requirement out of the box. Free to start — Pro ($9/mo)
+                    requirement out of the box. Free to start — Starter ($29/mo)
                     meets the 6-month retention minimum.
                   </p>
                 </div>

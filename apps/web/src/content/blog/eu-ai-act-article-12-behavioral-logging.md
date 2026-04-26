@@ -107,7 +107,7 @@ The 18-field audit schema covers the complete Article 12(2) surface: `id`, `time
 
 The query API supports time-range filtering, category filtering, outcome filtering, and resource filtering. CAF-format attestation documents are available at `GET /v1/attestations`.
 
-Retention is tier-based: Free (30 days, intentionally below Article 12 minimum), Starter at $9/month (1 year, exceeds the 6-month minimum), Enterprise (up to 7 years for healthcare and finance). The free tier's non-compliance is a deliberate design choice — it creates a natural, regulation-driven upgrade path.
+Retention is tier-based: Free (30 days, intentionally below Article 12 minimum), Starter at $29/month (1 year, exceeds the 6-month minimum), Enterprise (up to 7 years for healthcare and finance). The free tier's non-compliance is a deliberate design choice — it creates a natural, regulation-driven upgrade path.
 
 The architectural property that distinguishes AgentLair from generic observability is independence from agent control. The agent cannot choose what to log. It cannot skip a logging call. It cannot modify the record after the fact. This is the property Article 12 demands, and it is an architectural property, not a configuration option.
 
@@ -147,4 +147,4 @@ The infrastructure required is specific. Build it correctly or find infrastructu
 
 ---
 
-*AgentLair's audit trail ships with Ed25519-signed, hash-chained behavioral logs generated at the infrastructure layer, outside agent control. The Starter tier ($9/month) provides one-year retention and satisfies the Article 12 minimum requirements for most high-risk classifications. [See how it maps to Article 12](/eu-ai-act).*
+*AgentLair's audit trail ships with Ed25519-signed, hash-chained behavioral logs generated at the infrastructure layer, outside agent control. The Starter tier ($29/month) provides one-year retention and satisfies the Article 12 minimum requirements for most high-risk classifications. [See how it maps to Article 12](/eu-ai-act).*

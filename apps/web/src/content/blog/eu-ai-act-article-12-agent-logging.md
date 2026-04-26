@@ -69,7 +69,7 @@ If you're building AI agents that touch high-risk domains (and by Annex III's de
 
 This is what AgentLair's audit trail provides. Every authenticated API call is intercepted at the middleware layer — the agent doesn't choose what gets logged. Each entry is Ed25519-signed and SHA-256 hash-chained. The signing key is controlled by AgentLair infrastructure, not the agent. Entries are queryable by time, category, actor, resource, and outcome.
 
-The free tier retains logs for 30 days. The Pro tier ($9/month) retains for 1 year — exceeding the Article 12 minimum. Enterprise retains up to 7 years.
+The free tier retains logs for 30 days. The Starter tier ($29/month) retains for 1 year — exceeding the Article 12 minimum. Enterprise retains up to 7 years.
 
 ## The Standards Vacuum Is Temporary
 
@@ -86,7 +86,7 @@ Article 12 creates a natural market segmentation:
 - **Agents not touching high-risk domains:** Logging is optional, helpful for debugging
 - **Agents in Annex III categories:** Logging is mandatory, 6-month minimum, tamper-evident
 
-This isn't a feature upsell. It's a regulatory floor. The €15M penalty makes the $9/month for compliant retention look like what it is: insurance.
+This isn't a feature upsell. It's a regulatory floor. The €15M penalty makes the $29/month for compliant retention look like what it is: insurance.
 
 ## Timeline
 
