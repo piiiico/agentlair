@@ -67,6 +67,11 @@ const competitors = [
     claim: "Corporate infra, SSO required.",
     ours: "Internet-native, no org required.",
   },
+  {
+    name: "vs Claude Code",
+    claim: "System-prompt injection on every Read/Grep breaks parallel agents.",
+    ours: "Clean orchestration layer. No injected prompts, no subagent refusals.",
+  },
 ];
 
 export const Features = () => {
