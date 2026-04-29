@@ -5,7 +5,7 @@ pubDate: 2026-04-10
 authorName: "Pico"
 ---
 
-If you're integrating Visa's Trusted Agent Protocol today, you're solving a real problem well. TAP gives you cryptographic proof that a request was signed by a registered agent key — RFC 9421 HTTP Message Signatures, JWKS-backed, clean and composable.
+If you're integrating Visa's Trusted Agent Protocol today, you're solving a real problem well. TAP gives you cryptographic proof that a request was signed by a registered agent key: RFC 9421 HTTP Message Signatures, JWKS-backed, clean and composable.
 
 Here's what you get after TAP verification succeeds:
 
@@ -17,7 +17,7 @@ const agentId = verifyTAPSignature(request); // valid key in registry
 // You know WHO signed it. You don't know WHETHER to honor it.
 ```
 
-That's the gap. TAP is HTTPS for agents — it verifies identity. It is not a credit score for agents. It doesn't tell you whether the agent has a history of trustworthy behavior, whether it's operating within its delegation bounds, or whether you should approve this specific transaction.
+That's the gap. TAP is HTTPS for agents: it verifies identity. It is not a credit score for agents. It doesn't tell you whether the agent has a history of trustworthy behavior, whether it's operating within its delegation bounds, or whether you should approve this specific transaction.
 
 ## What TAP Proves (and What It Doesn't)
 
@@ -34,7 +34,7 @@ TAP does *not* prove:
 - The registry the agent is in should itself be trusted
 - The agent can be held accountable if something goes wrong
 
-This isn't a TAP criticism — these are intentionally out of scope. TAP's maintainers know this. Inside the TAP repository there's a `/products/premium/search` endpoint that returns HTTP 402 with x402 payment details. Visa's engineers are actively prototyping TAP + x402 together — and there's a deliberate gap where governance sits.
+This isn't a TAP criticism; these are intentionally out of scope. TAP's maintainers know this. Inside the TAP repository there's a `/products/premium/search` endpoint that returns HTTP 402 with x402 payment details. Visa's engineers are actively prototyping TAP + x402 together, and there's a deliberate gap where governance sits.
 
 ## The Stack, as It Stands
 
@@ -46,7 +46,7 @@ Two open standards have converged to form the infrastructure for agentic commerc
 | L3a | x402 (Linux Foundation) | "How does this agent pay?" | 23 founding members, 140M+ txns |
 | L4 | ? | "Should this agent be allowed to do this?" | No standard exists |
 
-L4 is the missing layer. It's not an oversight — it's where the next several years of work happens.
+L4 is the open problem. It's not an oversight; it's where the next several years of work happens.
 
 ## What the Complete Flow Looks Like
 
@@ -81,7 +81,7 @@ const trustScore = await commit.getTrustScore({
 });
 
 if (trustScore.level === "high") {
-  // Autonomous — no human gate needed
+  // Autonomous: no human gate needed
   processTransaction();
 } else if (trustScore.level === "medium") {
   // Request confirmation for this amount
@@ -96,19 +96,19 @@ if (trustScore.level === "high") {
 
 Behavioral trust isn't a reputation score based on self-reported data. It's computed from signals that are structurally costly to fake at scale:
 
-- **Commitment history** — transactions completed, agreements honored, promises kept across time
-- **Behavioral patterns** — spending velocity, anomaly detection, consistency across contexts
-- **Human backing** — cryptographic link to a verified human identity (BankID, World ID, eIDAS 2.0)
-- **Cross-platform consistency** — behavior aggregated across registries and operators
-- **Public outcome data** — regulatory filings, financial records, audit trails
+- **Commitment history:** transactions completed, agreements honored, promises kept across time
+- **Behavioral patterns:** spending velocity, anomaly detection, consistency across contexts
+- **Human backing:** cryptographic link to a verified human identity (BankID, World ID, eIDAS 2.0)
+- **Cross-platform consistency:** behavior aggregated across registries and operators
+- **Public outcome data:** regulatory filings, financial records, audit trails
 
-The output is a per-entity, per-context trust signal — not a global score, but a contextual evaluation. An agent trusted for $50 purchases isn't automatically trusted for $5,000. An agent with a clean payment history doesn't automatically get access to privileged APIs.
+The output is a per-entity, per-context trust signal, not a global score but a contextual evaluation. An agent trusted for $50 purchases isn't automatically trusted for $5,000. An agent with a clean payment history doesn't automatically get access to privileged APIs.
 
 ## Why This Matters for Your TAP Integration
 
 Three problems you'll hit as TAP adoption grows:
 
-**The 60% problem.** Visa's own research (B2AI study, n=2,000, April 2026) found that 60% of consumers will not permit AI spending without approval gates. Blanket approval of every TAP-verified agent satisfies the 40%. Behavioral trust lets you build graduated autonomy — remove gates for trusted agents, keep them for unknowns — so you can satisfy the majority without creating friction for every transaction.
+**The 60% problem.** Visa's own research (B2AI study, n=2,000, April 2026) found that 60% of consumers will not permit AI spending without approval gates. Blanket approval of every TAP-verified agent satisfies the 40%. Behavioral trust lets you build graduated autonomy: remove gates for trusted agents, keep them for unknowns, and satisfy the majority without creating friction for every transaction.
 
 **Registry governance.** TAP's reference registry is open-write. A valid signature proves the key exists in a registry. It doesn't tell you whether that registry should be trusted, or whether this particular agent within a trusted registry is operating within its expected pattern. Behavioral trust fills that gap.
 
@@ -133,17 +133,17 @@ Additionally, this doesn't require surveillance. ZK proofs (zkTLS has processed 
 
 ## What This Looks Like in Production
 
-The CSA's Agentic Trust Framework — published February 2026, featured at RSAC as the industry-standard model for agent governance — defines exactly what graduated trust looks like:
+The CSA's Agentic Trust Framework, published February 2026 and featured at RSAC as the industry-standard model for agent governance, defines exactly what graduated trust looks like:
 
 > Agents progress from **Intern** (read-only, continuous oversight) through **Junior** (recommends, human approval required) and **Senior** (executes within policy) to **Principal** (autonomous within domain). Any significant incident triggers automatic demotion.
 
-The ATF defines the model. What makes it operational across organizational boundaries — when an agent from Company A is calling a service at Company B — is behavioral commitment data that spans both.
+The ATF defines the model. What makes it operational across organizational boundaries (when an agent from Company A is calling a service at Company B) is behavioral commitment data that spans both.
 
 ## Where This Is Heading
 
-L3 standardization creates L4 demand. Every x402 Foundation member — Adyen, AWS, American Express, Circle, Cloudflare, Coinbase, Fiserv, Google, KakaoPay, Mastercard, Microsoft, Shopify, Stripe, Visa, and nine others — operates agent payment infrastructure. None has standardized how to evaluate whether those agents should be trusted.
+L3 standardization creates L4 demand. Every x402 Foundation member (Adyen, AWS, American Express, Circle, Cloudflare, Coinbase, Fiserv, Google, KakaoPay, Mastercard, Microsoft, Shopify, Stripe, Visa, and nine others) operates agent payment infrastructure. None has standardized how to evaluate whether those agents should be trusted.
 
-Visa is building the stack with a deliberate gap at the top. The TAP + x402 stub in the same repo isn't an accident — it's an engineering team signaling: "we've solved identity and payments, governance is separate."
+Visa is building the stack with a deliberate gap at the top. The TAP + x402 stub in the same repo isn't an accident; it's an engineering team signaling: "we've solved identity and payments, governance is separate."
 
 The window for an independent, protocol-agnostic L4 layer is open. It closes when either TAP v2 extends into trust scoring, or a well-funded incumbent captures the developer narrative first.
 

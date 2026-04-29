@@ -40,7 +40,7 @@ HKDF-SHA-256(
 )
 ```
 
-**Zero salt:** HKDF with zero salt is a standard practice when the IKM (input key material) is already high-entropy random. The zero salt trades information-theoretic security for determinism — necessary since the same seed must always produce the same key for a given key name. Per RFC 5869, zero salt is equivalent to HMAC with the hash length as salt.
+**Zero salt:** HKDF with zero salt is a standard practice when the IKM (input key material) is already high-entropy random. The zero salt trades information-theoretic security for determinism, necessary since the same seed must always produce the same key for a given key name. Per RFC 5869, zero salt is equivalent to HMAC with the hash length as salt.
 
 **Per-key isolation:** Each key name produces a distinct derived key. Knowing the ciphertext and derived key for `openai-key` reveals nothing about `stripe-key`, even with full knowledge of the derivation algorithm.
 
@@ -79,23 +79,23 @@ tier:         free | paid
 
 **KV store breach.** If an attacker dumps AgentLair's KV namespace, they get opaque ciphertexts. Without the master seed (which never left your agent), these are computationally indistinguishable from random data. AES-256 with 128-bit auth tag: brute force is not viable.
 
-**AgentLair employee access.** Same as a KV breach — we see ciphertexts we cannot decrypt. There's no privileged decryption API or escrow key.
+**AgentLair employee access.** Same as a KV breach: we see ciphertexts we cannot decrypt. There's no privileged decryption API or escrow key.
 
-**Passive network interception.** HTTPS in transit. The ciphertext is what's transmitted — even plaintext HTTP would only expose already-encrypted blobs (not recommended, but worth noting).
+**Passive network interception.** HTTPS in transit. The ciphertext is what's transmitted (even plaintext HTTP would only expose already-encrypted blobs, not recommended but worth noting).
 
 **Cross-account access.** Every API call resolves to an `account_id` via the hashed API key. Vault reads and writes are scoped to the authenticated account. There's no admin endpoint that bypasses account scoping.
 
-**API key compromise without seed.** If an attacker steals your API key but not your seed, they can read your ciphertexts — and decrypt nothing. Rotate the API key to cut off access.
+**API key compromise without seed.** If an attacker steals your API key but not your seed, they can read your ciphertexts but decrypt nothing. Rotate the API key to cut off access.
 
 ---
 
 ### What Vault does not protect against
 
-**Combined API key + seed compromise.** If an attacker has both your API key and your seed, they have what your agent has — full access. This is the expected security boundary. Protect the seed with at least the same care as the API key.
+**Combined API key + seed compromise.** If an attacker has both your API key and your seed, they have what your agent has: full access. This is the expected security boundary. Protect the seed with at least the same care as the API key.
 
-**Compromised client runtime.** If the agent process itself is compromised (container escape, memory read, stolen env vars), the attacker has the seed and API key from memory. Vault cannot help here — this is a runtime compromise, not a storage compromise.
+**Compromised client runtime.** If the agent process itself is compromised (container escape, memory read, stolen env vars), the attacker has the seed and API key from memory. Vault cannot help here. This is a runtime compromise, not a storage compromise.
 
-**Malicious worker code.** If an attacker compromised the AgentLair server code (not just KV), they could alter the `PUT` endpoint to log the incoming ciphertext before storage. However: (1) they'd only get ciphertext for *new writes*, not existing entries, and (2) they'd have ciphertext without the seed — same problem as a KV breach.
+**Malicious worker code.** If an attacker compromised the AgentLair server code (not just KV), they could alter the `PUT` endpoint to log the incoming ciphertext before storage. However: (1) they'd only get ciphertext for *new writes*, not existing entries, and (2) they'd have ciphertext without the seed, the same problem as a KV breach.
 
 **AES-GCM nonce reuse.** If the 12-byte IV were reused for the same key, AES-GCM security degrades catastrophically. Vault generates fresh IVs with CSPRNG on every `encrypt()` call. Collision probability: negligible for 2^48 calls under the birthday bound.
 
@@ -111,7 +111,7 @@ Every vault operation is logged in the AgentLair audit log with:
 - Timestamp
 - Request metadata (IP, User-Agent)
 
-Audit log entries do not include ciphertext values or plaintext. They are append-only — entries cannot be deleted via the API.
+Audit log entries do not include ciphertext values or plaintext. They are append-only; entries cannot be deleted via the API.
 
 Access to your audit log: available in the dashboard (coming soon) and via API.
 
@@ -156,10 +156,10 @@ If you're concerned about supply chain risk, read the source (it's under 300 lin
 AES-256-GCM is natively accelerated by AES-NI instructions (present in all modern CPUs and server environments). Web Crypto API's AES-GCM implementation uses this acceleration. ChaCha20 is better for environments without AES-NI (older mobile, some embedded), but agents typically run on hardware that has it.
 
 **Why HKDF over direct key stretching?**
-The master seed is already high-entropy random (32 bytes from CSPRNG). HKDF's role here is key *diversification*, not stretching. It transforms one master key into multiple independent derived keys — one per vault key name.
+The master seed is already high-entropy random (32 bytes from CSPRNG). HKDF's role here is key *diversification*, not stretching. It transforms one master key into multiple independent derived keys, one per vault key name.
 
 **Why PBKDF2 over Argon2 for passphrase derivation?**
-Web Crypto API (available natively everywhere) supports PBKDF2 but not Argon2 or bcrypt. Adding Argon2 would require a compiled dependency — incompatible with the zero-dependency constraint. 600,000 PBKDF2-SHA-256 iterations meets OWASP 2023 recommendations and adds significant brute-force cost.
+Web Crypto API (available natively everywhere) supports PBKDF2 but not Argon2 or bcrypt. Adding Argon2 would require a compiled dependency, incompatible with the zero-dependency constraint. 600,000 PBKDF2-SHA-256 iterations meets OWASP 2023 recommendations and adds significant brute-force cost.
 
 ---
 
