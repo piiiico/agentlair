@@ -76,6 +76,60 @@ curl -X POST https://agentlair.dev/v1/auth/agent-register \
 
 From here, the agent authenticates with `api_key` to send email, store credentials, and emit signed audit events.
 
+## Quickstart: Add AgentLair to your agent
+
+**1. Install**
+
+```bash
+pip install agentlair            # Python
+npm install @agentlair/sdk       # TypeScript / Node
+```
+
+**2. Set env vars**
+
+```bash
+export AGENTLAIR_API_KEY=al_live_...
+export AGENTLAIR_EMAIL=my-agent@agentlair.dev
+```
+
+**3. Wire lifecycle hooks**
+
+```python
+# Python — three integration points
+import os, agentlair
+lair = agentlair.AgentLair(os.environ["AGENTLAIR_API_KEY"])
+addr = os.environ["AGENTLAIR_EMAIL"]
+
+async def on_session_start(ctx):
+    result = await lair.email.inbox(addr)
+    if result["messages"]:
+        ctx.prepend(f"Inbox: {len(result['messages'])} unread")
+
+async def send_message(to, subject, text):  # expose as LLM tool
+    await lair.email.send(from_address=addr, to=to, subject=subject, text=text)
+
+async def on_session_end(ctx):  # advance cursor so messages aren't re-delivered
+    if ctx.last_message_id:
+        await lair.vault.store("inbox_cursor", ctx.last_message_id)
+```
+
+```typescript
+// TypeScript
+import { AgentLair } from '@agentlair/sdk';
+const lair = new AgentLair(process.env.AGENTLAIR_API_KEY!);
+const addr = process.env.AGENTLAIR_EMAIL!;
+
+// Session start — drain inbox before planning
+const { messages } = await lair.email.inbox(addr);
+if (messages.length) context.prepend(`Inbox: ${messages.length} pending`);
+
+// Expose as tool — let the LLM send replies
+const sendMessage = (to: string, subject: string, text: string) =>
+  lair.email.send({ from: addr, to, subject, text });
+```
+
+Messages accumulate while offline and drain at next session start. For a complete plugin example (peek+ack, crash-safe delivery): [hermes-agentlair](https://github.com/piiiico/agentlair-python/tree/main/hermes_agentlair).
+
 ## MCP server
 
 ```bash
