@@ -56,6 +56,7 @@ export function getCategory(path: string, status: number): string {
   if (path.startsWith('/v1/pods/') || path === '/v1/pods') return 'pod';
   if (path.startsWith('/v1/calendar/')) return 'calendar';
   if (path.startsWith('/v1/tokens/') || path === '/v1/tokens') return 'auth';
+  if (path.match(/^\/v1\/agents\/[^/]+\/memory-trust$/)) return 'memory';
   if (path.startsWith('/v1/sessions/') || path === '/v1/sessions') return 'session';
   if (path.startsWith('/v1/budget') || path === '/v1/budget') return 'budget';
   return 'system';
@@ -75,6 +76,7 @@ export function getAction(category: string, method: string, path: string): strin
   if (pathLower === '/v1/tokens/issue') return 'auth.token_issue';
   if (pathLower === '/v1/tokens/info') return 'auth.token_info';
   if (pathLower === '/v1/tokens/introspect') return 'auth.token_introspect';
+  if (pathLower.match(/^\/v1\/agents\/[^/]+\/memory-trust$/)) return 'memory.trust_query';
   if (pathLower.startsWith('/v1/auth/') && method === 'DELETE') return 'auth.revoke_key';
   if (pathLower.startsWith('/v1/account/')) return 'auth.account';
   if (pathLower.startsWith('/v1/e2e/')) return 'auth.e2e';
@@ -361,5 +363,66 @@ export async function writeBudgetAuditEvent(
     ).run();
   } catch (e) {
     console.error('Budget audit event write failed:', e instanceof Error ? e.message : String(e));
+  }
+}
+
+// ─── writeMemoryAuditEvent — signed audit event for memory-scoped AAT issuance ──
+// Called from tokens.ts when an AAT with memory:read or memory:write scope is issued.
+// Enables the /v1/agents/:id/memory-trust endpoint to analyze behavioral patterns.
+
+export async function writeMemoryAuditEvent(
+  env: import('../types.js').Env,
+  params: {
+    accountId: string;
+    memoryRead: boolean;
+    memoryWrite: boolean;
+    audience: string;
+    jti: string;
+  },
+): Promise<void> {
+  if (!env.AUDIT || !env.AUDIT_SIGNING_KEY) return;
+  try {
+    const prevHash = await getPrevHash(env);
+    const now = new Date().toISOString();
+    const details: Record<string, boolean | string> = {
+      memory_read: params.memoryRead,
+      memory_write: params.memoryWrite,
+      audience: params.audience,
+      jti: params.jti,
+    };
+    const entryWithoutSignature: Omit<AuditEntry, 'signature'> = {
+      id: nanoid(20),
+      timestamp: now,
+      account_id: params.accountId,
+      actor_type: 'account',
+      actor_id: params.accountId,
+      actor_ip_hash: null,
+      category: 'memory',
+      action: 'memory.token_issue',
+      method: 'POST',
+      path: '/v1/tokens/issue',
+      resource_type: 'memory_token',
+      resource_id: params.jti,
+      status: 201,
+      result: 'success',
+      error_code: null,
+      details,
+      prev_hash: prevHash,
+    };
+    const signature = await signEntry(entryWithoutSignature, env.AUDIT_SIGNING_KEY);
+    const entry: AuditEntry = { ...entryWithoutSignature, signature };
+    lastEntryHash = await sha256hex(JSON.stringify(entry));
+    await env.AUDIT.prepare(
+      `INSERT INTO audit_log (id, timestamp, account_id, actor_type, actor_id, actor_ip_hash, category, action, method, path, resource_type, resource_id, status, result, error_code, details, prev_hash, signature)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(
+      entry.id, entry.timestamp, entry.account_id, entry.actor_type, entry.actor_id,
+      entry.actor_ip_hash, entry.category, entry.action, entry.method, entry.path,
+      entry.resource_type, entry.resource_id, entry.status, entry.result,
+      entry.error_code, entry.details !== null ? JSON.stringify(entry.details) : null,
+      entry.prev_hash, entry.signature,
+    ).run();
+  } catch (e) {
+    console.error('Memory audit event write failed:', e instanceof Error ? e.message : String(e));
   }
 }

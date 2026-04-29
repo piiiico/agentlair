@@ -43,6 +43,7 @@ import { handleCredentialRoutes } from './routes/credentials.js';
 import { approvalRoutes, chargeRoutes } from './routes/approvals.js';
 import { trustRoutes, publicTrustRoutes } from './routes/trust.js';
 import { discoveryRoutes } from './routes/discovery.js';
+import { memoryTrustRoutes } from './routes/memory-trust.js';
 import { badgeRoutes } from './routes/badge.js';
 import { handleTaskRoutes } from './routes/tasks.js';
 import { telemetryRoutes } from './routes/telemetry.js';
@@ -1044,6 +1045,10 @@ app.route('/v1/trust', publicTrustRoutes);
 // Agent discovery: always public, always requires x402 (0.005 USDC)
 // GET /v1/agents/lookup?handle=<name>&email=<email>&id=<acc_...>
 app.route('/v1/agents', discoveryRoutes);
+
+// Memory trust: always public, always requires x402 (0.01 USDC)
+// GET /v1/agents/:id/memory-trust — verified memory behavioral patterns
+app.route('/v1/agents', memoryTrustRoutes);
 
 // Demo endpoint: public trust profile explorer (no auth, IP rate limited)
 app.route('/v1/demo', demoRoutes);

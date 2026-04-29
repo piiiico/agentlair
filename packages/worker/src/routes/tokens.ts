@@ -20,6 +20,7 @@ import { trackTokenIssuance, checkAndIncrementTokenVerify, TOKEN_VERIFY_LIMITS }
 import { SERVICE_PRICES, make402Response } from '../x402.js';
 import { getTrustAttestationForEmbed } from '../idp/trust-embed.js';
 import { isTokenRevoked, getAccountRevocationTime } from '../idp/revoke.js';
+import { writeMemoryAuditEvent } from '../middleware/audit.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -31,6 +32,22 @@ const MIN_TTL = 60; // 1 minute
 // Valid scope patterns (Phase 1: permissive, tighten in Phase 2)
 const SCOPE_PATTERN = /^[a-z][a-z0-9._:-]*$/;
 const MAX_SCOPES = 20;
+
+// Documented well-known scopes — not enforced (any pattern-valid scope is accepted),
+// but listed here for discovery, tooling, and integration guides.
+export const KNOWN_SCOPES = [
+  'mcp:tools:read',
+  'mcp:tools:execute',
+  'email:read',
+  'email:send',
+  'vault:read',
+  'vault:write',
+  'memory:read',
+  'memory:write',
+  'calendar:read',
+  'calendar:write',
+  'budget:read',
+] as const;
 
 // ─── Pure helpers (exported for unit testing) ─────────────────────────────────
 
@@ -219,6 +236,21 @@ tokenRoutes.post('/issue', async (c) => {
   // Track issuance count for usage dashboard (non-blocking, fail-open)
   c.executionCtx.waitUntil(trackTokenIssuance(c.env, account.id));
 
+  // Write memory audit event if any memory scopes were requested (non-blocking, fail-open)
+  const requestedMemoryRead = (scopes as string[]).includes('memory:read');
+  const requestedMemoryWrite = (scopes as string[]).includes('memory:write');
+  if (requestedMemoryRead || requestedMemoryWrite) {
+    c.executionCtx.waitUntil(
+      writeMemoryAuditEvent(c.env, {
+        accountId: account.id,
+        memoryRead: requestedMemoryRead,
+        memoryWrite: requestedMemoryWrite,
+        audience,
+        jti,
+      }).catch(() => {}),
+    );
+  }
+
   return json(
     {
       token,
@@ -245,7 +277,8 @@ tokenRoutes.get('/info', async (c) => {
     issuer: ISSUER,
     jwks_uri: `${ISSUER}/.well-known/jwks.json`,
     signing_algorithm: 'EdDSA',
-    supported_scopes: 'any (agent-declared, validated by target service)',
+    supported_scopes: KNOWN_SCOPES,
+    scope_policy: 'permissive — any lowercase scope matching [a-z][a-z0-9._:-]* is accepted',
     default_ttl: DEFAULT_TTL,
     max_ttl: MAX_TTL,
     min_ttl: MIN_TTL,

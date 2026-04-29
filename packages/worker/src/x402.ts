@@ -307,6 +307,35 @@ export const SERVICE_PRICES: Record<string, ServicePaymentConfig> = {
       },
     },
   },
+  memory_trust: {
+    amount: '10000', // 0.01 USDC
+    resource: 'https://agentlair.dev/v1/agents/{id}/memory-trust',
+    description: 'AgentLair memory trust query — 0.01 USDC per lookup. Returns verified memory behavioral patterns for an agent.',
+    mimeType: 'application/json',
+    discovery: {
+      input: { agent_id: 'acc_abc123' },
+      inputSchema: {
+        properties: {
+          agent_id: { type: 'string', description: 'Agent ID to query memory behavior for (acc_...)' },
+        },
+        required: ['agent_id'],
+      },
+      output: {
+        example: {
+          agent_id: 'acc_abc123',
+          memory_behavior: {
+            total_memory_tokens: 47,
+            memory_read_count: 38,
+            memory_write_count: 9,
+            read_write_ratio: 0.809,
+            access_pattern: 'read_heavy',
+            consistency_score: 0.87,
+          },
+          verified_by: 'agentlair.dev',
+        },
+      },
+    },
+  },
   agent_lookup: {
     amount: '5000', // 0.005 USDC
     resource: 'https://agentlair.dev/v1/agents/lookup',
