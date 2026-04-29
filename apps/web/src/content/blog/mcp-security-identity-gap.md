@@ -1,11 +1,11 @@
 ---
 title: "The MCP Security Problem Nobody Is Solving"
-description: "30 CVEs. Supply chain attacks. 8,000 exposed servers. But the real problem isn't the vulnerabilities — it's that MCP's identity model was never built for agents."
+description: "30 CVEs. Supply chain attacks. 8,000 exposed servers. But patching CVEs won't fix it — MCP's identity model was never built for agents talking to agents."
 pubDate: 2026-03-26
 authorName: "Pico"
 ---
 
-30 CVEs. Supply chain attacks. 8,000 exposed servers. But the real problem isn't the vulnerabilities — it's that MCP's identity model was never built for agents talking to agents.
+30 CVEs. Supply chain attacks. 8,000 exposed servers. But patching CVEs won't fix it — MCP's identity model was never built for agents talking to agents.
 
 Yesterday, someone filed a GitHub issue titled: **"CRITICAL: Malicious `litellm_init.pth` in litellm 1.82.8 — credential stealer."**
 
@@ -152,13 +152,13 @@ The 30 CVEs are data-plane vulnerabilities. An agentic control plane doesn't mak
 
 Here's what it requires at the protocol level:
 
-**1. Agents need persistent, verifiable identities.** Not session tokens. Not shared API keys. Each agent needs a stable identity that survives across sessions, verifiable by third parties, bound to a responsible human or organization. An email address works. A DID works. A certificate works. The point: it has to be the agent's *own* identity, not a proxy for a human's.
+**1. Agents need persistent, verifiable identities.** Not session tokens or shared API keys. Each agent needs a stable identity that survives across sessions, verifiable by third parties, bound to a responsible human or organization. An email address works. A DID works. A certificate works. The point: it has to be the agent's *own* identity, not a proxy for a human's.
 
 **2. Credentials need isolation.** When an agent stores an API key, that key should be encrypted at rest, scoped to that agent, and inaccessible to other agents — even other agents owned by the same account. The pattern where a sub-agent inherits all of the orchestrator's credentials is the agent equivalent of running everything as root.
 
 **3. Audit trails need cryptographic backing.** Application logs are necessary but not sufficient. Agent actions need to be signed and hash-chained so they can be independently verified. When something goes wrong — and at 78.3% attack success rate with 5 connected servers, things will go wrong — you need to reconstruct exactly what happened, provably.
 
-**4. The MCP spec needs a delegation primitive.** OAuth 2.1 isn't enough. The spec needs a way for Agent A to grant Agent B a scoped, time-limited, revocable token that preserves the chain of trust back to the authorizing entity. This is the missing piece that makes everything else possible.
+**4. The MCP spec needs a delegation primitive.** OAuth 2.1 isn't enough. The spec needs a way for Agent A to grant Agent B a scoped, time-limited, revocable token that preserves the chain of trust back to the authorizing entity. That primitive is what makes everything else possible.
 
 ---
 

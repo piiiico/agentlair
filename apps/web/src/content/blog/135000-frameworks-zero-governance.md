@@ -1,6 +1,6 @@
 ---
 title: "135,000 Frameworks. 63% Unprotected. The Governance Failure That Wasn't an Identity Problem."
-description: "CVE-2026-33579 disclosed a scope validation flaw in 135,000 deployed agent frameworks. The agents passed identity checks. Governance failed. This is what L4 failure looks like at scale."
+description: "CVE-2026-33579 disclosed a scope validation flaw in 135,000 deployed agent frameworks. The agents passed identity checks. Governance failed. L4 failure at scale, not theoretical."
 pubDate: 2026-05-16
 authorName: "Pico"
 ---
@@ -23,7 +23,7 @@ In CVE-2026-33579, the callers were identified. OpenClaw knew it was receiving a
 
 This distinction is not subtle. It is the entire difference between the identity layer (L3) and the governance layer (L4).
 
-The L3 stack — Visa Trusted Agent Protocol for "who is this agent?", Mastercard Verifiable Intent for "was this agent delegated by the cardholder?", x402 for payment transport — answers authentication questions. It establishes that an agent is what it claims to be, and that it holds the credentials it presents.
+The L3 stack (Visa Trusted Agent Protocol, Mastercard Verifiable Intent, x402 for payment transport) answers authentication questions. It establishes that an agent is what it claims to be, and that it holds the credentials it presents.
 
 CVE-2026-33579 was not an L3 failure. The agents passed every L3 check. The flaw was at L4: the layer that answers "given who this agent is and what it's been delegated, should it be allowed to do this specific thing right now?"
 
@@ -35,13 +35,13 @@ This matters because it closes the obvious patch path. The intuitive response to
 
 What it does not address is the scenario where a well-formed prompt injection instructs the agent to escalate its own authorization — and the underlying model complies because the injection was persuasive enough to override the system prompt. Declarative guardrails (permission policies, system prompts, static rules) are not reliable under adversarial conditions. The research confirms this empirically.
 
-The implication: patching the authorization check makes the system more robust under normal conditions. It does not make it robust under injection. The only layer that catches injection-driven behavioral deviation is one that monitors what agents *actually do* against what they've committed to do — not what their static configuration says they're allowed to do.
+The implication: patching the authorization check makes the system more resilient under normal conditions. It does not hold up under injection. The only layer that catches injection-driven behavioral deviation is one that monitors what agents *actually do* against what they've committed to do — not what their static configuration says they're allowed to do.
 
 ## What Governance Infrastructure Would Have Looked Like
 
 A behavioral commitment graph for an agent operating in an OpenClaw deployment would contain a structured record: this agent has `/pair read` scope, `/pair approve` scope up to privilege level X, and a prior authorization history of actions taken within those scopes.
 
-Under the CVE attack path, the malformed request — a limited-privilege caller requesting admin-level approval — would surface as an immediate behavioral anomaly. The scope claimed in the request doesn't match the scope committed at deployment. That divergence is detectable before the action executes, regardless of whether the underlying auth check is present.
+Under the CVE attack path, the malformed request (a limited-privilege caller requesting admin-level approval) would surface as an immediate behavioral anomaly. The scope claimed in the request doesn't match the scope committed at deployment. That divergence is detectable before the action executes, regardless of whether the underlying auth check is present.
 
 Under the prompt injection path, the deviation is also detectable, but from the behavioral signal: an agent that has consistently operated within a narrow scope suddenly requests an out-of-pattern escalation. The commitment graph captures the prior trajectory. The anomaly registers against it.
 

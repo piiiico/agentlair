@@ -30,7 +30,7 @@ The disconnect is straightforward: organizations deployed agents faster than the
 
 RSAC 2026 (late March to mid-April 2026) was the first conference cycle where major vendors shipped agent governance products rather than announcing roadmaps. Five frameworks deserve attention:
 
-**Microsoft Agent Governance Toolkit (AGT)** — Open-sourced April 2, 2026. The most comprehensive single-org governance stack: behavioral trust scoring (0-1000 scale with exponential moving average), DID-based identity with Ed25519 and ML-DSA-65 post-quantum signatures, Inter-Agent Trust Protocol (IATP), and runtime policy enforcement in sub-millisecond latency. SDKs for Python, TypeScript, Rust, Go, and .NET. MIT license. This is serious infrastructure.
+**Microsoft Agent Governance Toolkit (AGT)** — Open-sourced April 2, 2026. The most thorough single-org governance stack: behavioral trust scoring (0-1000 scale with exponential moving average), DID-based identity with Ed25519 and ML-DSA-65 post-quantum signatures, Inter-Agent Trust Protocol (IATP), and runtime policy enforcement in sub-millisecond latency. SDKs for Python, TypeScript, Rust, Go, and .NET. MIT license. This is serious infrastructure.
 
 **Cisco DefenseClaw** — Open-source scanning and threat detection for agent deployments. Focuses on vulnerability discovery in agent configurations and dependencies.
 
@@ -88,7 +88,7 @@ L4 remains structurally absent. Not because nobody has tried — but because it 
 
 The "L1-L4" labels are now used by multiple actors with incompatible definitions. AgentNexus (an open-source communication infrastructure project) defines L4 as "entity-verified certification" — meaning a DID bound to a legal entity. This is what the framework above calls L1. Armalo AI uses L4 to describe financial staking as a proxy for trust. ERC-8004's "Know Your Agent" standard blends L1-L3 with economic staking.
 
-When evaluating any vendor claiming "L4 trust," ask: does this system aggregate behavioral data across organizations the agent interacts with? If the answer is no, it is operating at L3 or below, regardless of what the marketing calls it.
+When evaluating any vendor claiming "L4 trust," ask: does this system aggregate behavioral data across organizations the agent interacts with? If that answer is no, it is operating at L3 or below, regardless of what the marketing calls it.
 
 ## 4. Regulation Creates Demand
 
@@ -171,7 +171,7 @@ The TOCTOU gap is not a theoretical concern. Anthropic's Mythos evaluation (eval
 
 Vidoc Security Lab subsequently reproduced Mythos-class vulnerability discovery using public APIs (GPT-5.4 and Claude Opus 4.6) for under $30 per file scan. The capability is no longer gated behind consortium access. Every developer with an API key can build an agent with this capability. The behavioral monitoring question is no longer "should enterprises care?" — it is "how do you detect what any developer's agent is doing in your environment?"
 
-Continuous behavioral telemetry is the only structural mechanism that closes the TOCTOU gap. Not periodic audits. Not registration-time verification. Not financial staking that only triggers after damage is done. Continuous, independent, cross-org behavioral monitoring — where "independent" means the agent being monitored cannot suppress, modify, or delay its own telemetry.
+Continuous behavioral telemetry is the only structural mechanism that closes the TOCTOU gap. Not periodic audits, not registration-time verification, not financial staking that only triggers after damage is done. Continuous, independent, cross-org behavioral monitoring — where "independent" means the agent being monitored cannot suppress, modify, or delay its own telemetry.
 
 ## 7. What Comes Next
 
