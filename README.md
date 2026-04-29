@@ -128,7 +128,7 @@ const sendMessage = (to: string, subject: string, text: string) =>
   lair.email.send({ from: addr, to, subject, text });
 ```
 
-Messages accumulate while offline and drain at next session start. For a complete plugin example (peek+ack, crash-safe delivery): [hermes-agentlair](https://github.com/piiiico/agentlair-python/tree/main/hermes_agentlair).
+Messages accumulate while offline and drain at next session start. For a complete plugin example (peek+ack, crash-safe delivery): [hermes-agentlair](https://github.com/piiiico/hermes-agentlair).
 
 ## MCP server
 
