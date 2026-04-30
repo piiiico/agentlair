@@ -970,3 +970,156 @@ export async function autoUpgradeIfThreshold(
     // Silent — auto-upgrade is best-effort
   }
 }
+
+// ─── Billing Anomaly Detection ─────────────────────────────────────────────
+// Compares each spend event against the 7-day rolling average for the same
+// (account_id, category) tuple. Alerts when a single transaction exceeds 3x
+// the rolling average — structural protection against silent billing spikes
+// (see HERMES.md CVE, Anthropic anti-abuse system, Apr 2026).
+//
+// Thresholds (all configurable here):
+//   MIN_SAMPLE:     3 prior transactions required (avoids false positives on new accounts)
+//   ALERT_FACTOR:   3x rolling average triggers alert
+//   MIN_AMOUNT:  1000 atomic USDC (~0.001 USDC) — skip noise from tiny transactions
+
+const ANOMALY_MIN_SAMPLE = 3;
+const ANOMALY_ALERT_FACTOR = 3;
+const ANOMALY_MIN_AMOUNT = 1000; // 0.001 USDC in atomic units
+
+export interface BillingAnomalyRow {
+  id: string;
+  account_id: string;
+  category: string;
+  timestamp: string;
+  amount_usdc: number;
+  rolling_avg_usdc: number;
+  multiplier: number;
+  spend_ledger_id: string;
+  alerted: number;
+  created_at: string;
+}
+
+/**
+ * Check if a spend event is anomalous. If so, record it in billing_anomalies and
+ * send an email alert. Fire-and-forget safe — never throws or blocks the caller.
+ */
+export async function checkAndAlertBillingAnomaly(
+  env: Env,
+  accountId: string,
+  category: string,
+  amountUsdc: number,
+  spendLedgerId: string,
+): Promise<void> {
+  if (!env.AUDIT) return;
+  if (amountUsdc < ANOMALY_MIN_AMOUNT) return;
+
+  try {
+    // Ensure table exists (idempotent DDL — safe to run per-request)
+    await env.AUDIT.prepare(`
+      CREATE TABLE IF NOT EXISTS billing_anomalies (
+        id TEXT PRIMARY KEY,
+        account_id TEXT NOT NULL,
+        category TEXT NOT NULL,
+        timestamp TEXT NOT NULL,
+        amount_usdc INTEGER NOT NULL,
+        rolling_avg_usdc INTEGER NOT NULL,
+        multiplier REAL NOT NULL,
+        spend_ledger_id TEXT NOT NULL,
+        alerted INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )
+    `).run();
+
+    // Compute 7-day rolling average, excluding current transaction
+    const stats = await env.AUDIT.prepare(`
+      SELECT AVG(amount_usdc) AS avg_amount, COUNT(*) AS tx_count
+      FROM spend_ledger
+      WHERE account_id = ?
+        AND category = ?
+        AND timestamp >= datetime('now', '-7 days')
+        AND id != ?
+    `).bind(accountId, category, spendLedgerId).first<{ avg_amount: number | null; tx_count: number }>();
+
+    if (!stats || stats.tx_count < ANOMALY_MIN_SAMPLE || stats.avg_amount == null) return;
+
+    const rollingAvg = Math.round(stats.avg_amount);
+    if (rollingAvg === 0) return;
+
+    const multiplier = amountUsdc / rollingAvg;
+    if (multiplier <= ANOMALY_ALERT_FACTOR) return;
+
+    // Record anomaly in DB
+    const anomalyId = `ba_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`;
+    const now = new Date().toISOString();
+    const alerted = env.RESEND_API_KEY ? 1 : 0;
+
+    await env.AUDIT.prepare(`
+      INSERT INTO billing_anomalies
+        (id, account_id, category, timestamp, amount_usdc, rolling_avg_usdc, multiplier, spend_ledger_id, alerted)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(anomalyId, accountId, category, now, amountUsdc, rollingAvg, multiplier, spendLedgerId, alerted).run();
+
+    // Email alert (if Resend configured)
+    if (!env.RESEND_API_KEY) return;
+
+    const usdcAmount = (amountUsdc / 1_000_000).toFixed(6);
+    const avgUsdc = (rollingAvg / 1_000_000).toFixed(6);
+
+    await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${env.RESEND_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: 'AgentLair Billing <noreply@agentlair.dev>',
+        to: ['hakon@amdal.dev'],
+        subject: `[AgentLair] Billing anomaly: ${multiplier.toFixed(1)}x spike on ${category}`,
+        text: [
+          'Billing anomaly detected on AgentLair.',
+          '',
+          `Account:    ${accountId}`,
+          `Category:   ${category}`,
+          `Amount:     ${usdcAmount} USDC`,
+          `7-day avg:  ${avgUsdc} USDC`,
+          `Multiplier: ${multiplier.toFixed(2)}x`,
+          `Time:       ${now}`,
+          '',
+          `This transaction is ${multiplier.toFixed(1)}x the rolling 7-day average for this account/category.`,
+          '',
+          `Anomaly ID: ${anomalyId}`,
+          `Ledger ref: ${spendLedgerId}`,
+          '',
+          'Review dashboard: https://agentlair.dev/v1/admin/billing-anomalies',
+        ].join('\n'),
+      }),
+    });
+  } catch {
+    // Non-critical — never fail a payment for anomaly detection
+  }
+}
+
+/**
+ * Query billing anomalies for the admin dashboard.
+ * Returns most recent anomalies first, up to `limit`.
+ */
+export async function getBillingAnomalies(
+  db: D1Database,
+  opts?: { limit?: number; accountId?: string },
+): Promise<BillingAnomalyRow[]> {
+  try {
+    const limit = Math.min(opts?.limit ?? 50, 200);
+    if (opts?.accountId) {
+      const { results } = await db.prepare(
+        `SELECT * FROM billing_anomalies WHERE account_id = ? ORDER BY timestamp DESC LIMIT ?`
+      ).bind(opts.accountId, limit).all();
+      return results as unknown as BillingAnomalyRow[];
+    }
+    const { results } = await db.prepare(
+      `SELECT * FROM billing_anomalies ORDER BY timestamp DESC LIMIT ?`
+    ).bind(limit).all();
+    return results as unknown as BillingAnomalyRow[];
+  } catch {
+    return [];
+  }
+}

@@ -17,6 +17,7 @@ import type { Context, Next } from 'hono';
 import type { HonoEnv } from '../types.js';
 import { writeBudgetAuditEvent } from './audit.js';
 import { getBudgetResetAt } from '../utils.js';
+import { checkAndAlertBillingAnomaly } from '../x402.js';
 
 // Paths that are subject to budget enforcement (paid operations)
 const PAID_PATHS: Array<{ prefix: string; method?: string }> = [
@@ -101,6 +102,9 @@ export async function recordBudgetSpend(
       INSERT INTO spend_ledger (id, account_id, key_id, timestamp, amount_usdc, currency, category, description, reference_id, audit_entry_id)
       VALUES (?, ?, ?, ?, ?, 'USDC', ?, ?, ?, ?)
     `).bind(id, agentId, keyId, timestamp, amountUsdc, category, description, referenceId, auditEntryId).run();
+
+    // 3. Anomaly check — fire-and-forget, never throws
+    void checkAndAlertBillingAnomaly(env, agentId, category, amountUsdc, id);
   } catch {
     // Non-critical — don't fail the payment
   }

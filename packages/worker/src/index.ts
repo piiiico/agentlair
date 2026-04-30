@@ -19,7 +19,7 @@ import { securityHeaders } from './middleware/security-headers.js';
 import { auditMiddleware } from './middleware/audit.js';
 import { budgetMiddleware } from './middleware/budget.js';
 import { encryptEmailField, encryptEmailE2E } from './platform-crypto.js';
-import { make402Response, SERVICE_PRICES, X402_CONFIG, getPaymentRequirements, verifyX402Payment, settleX402Payment, trackX402Spend, autoUpgradeIfThreshold, getGlobalRevenue, checkSpendingCap } from './x402.js';
+import { make402Response, SERVICE_PRICES, X402_CONFIG, getPaymentRequirements, verifyX402Payment, settleX402Payment, trackX402Spend, autoUpgradeIfThreshold, getGlobalRevenue, checkSpendingCap, getBillingAnomalies } from './x402.js';
 import type { ServicePaymentConfig } from './x402.js';
 
 // ─── Route modules ─────────────────────────────────────────────────────────────
@@ -1184,6 +1184,29 @@ app.get('/v1/admin/revenue', async (c) => {
     by_service: serviceBreakdown,
     by_payer: payerBreakdown,
     by_account: revenue.by_account,
+  });
+});
+
+app.get('/v1/admin/billing-anomalies', async (c) => {
+  const authHeader = c.req.header('Authorization') || '';
+  const adminKey = authHeader.replace(/^Bearer\s+/i, '').trim();
+  if (!c.env.ADMIN_KEY || !adminKey || adminKey !== c.env.ADMIN_KEY) {
+    return err('Unauthorized. Admin key required.', 403, 'admin_unauthorized');
+  }
+  if (!c.env.AUDIT) {
+    return err('Database not configured.', 503, 'db_unavailable');
+  }
+  const url = new URL(c.req.url);
+  const accountId = url.searchParams.get('account_id') || undefined;
+  const limit = Math.min(parseInt(url.searchParams.get('limit') || '50'), 200);
+  const anomalies = await getBillingAnomalies(c.env.AUDIT, { limit, accountId });
+  return json({
+    count: anomalies.length,
+    anomalies: anomalies.map(a => ({
+      ...a,
+      amount_usdc_human: (a.amount_usdc / 1_000_000).toFixed(6),
+      rolling_avg_usdc_human: (a.rolling_avg_usdc / 1_000_000).toFixed(6),
+    })),
   });
 });
 
