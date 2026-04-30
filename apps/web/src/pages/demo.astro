@@ -1,0 +1,11 @@
+---
+import { AttackDemo } from '@/components/blocks/attack-demo';
+import DefaultLayout from '@/layouts/DefaultLayout.astro';
+---
+
+<DefaultLayout
+  title="Live Demo · AgentLair"
+  description="Watch AgentLair's behavioral trust engine catch an MCP action chaining attack in real-time. Three tool calls. Each authorized. Together, they exfiltrate your customer database."
+>
+  <AttackDemo client:load />
+</DefaultLayout>

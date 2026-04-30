@@ -22,6 +22,7 @@ const ITEMS = [
   { label: "Pods", href: "/pods" },
   { label: "Vault", href: "/vault" },
   { label: "Explore", href: "/explore" },
+  { label: "Demo", href: "/demo" },
   { label: "Blog", href: "/blog" },
   { label: "Pricing", href: "/pricing" },
   { label: "Start Free", href: "/register" },
