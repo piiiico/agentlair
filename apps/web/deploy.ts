@@ -17,6 +17,7 @@ import blake3 from "blake3-wasm";
 import { readFileSync, readdirSync, statSync } from "fs";
 import { join, extname, relative } from "path";
 import { config } from "dotenv";
+import { runVoiceGate } from "/workspace/tools/voice-check/deploy-voice-gate.ts";
 
 // --- Configuration ---
 const SECRETS_PATH = "/workspace/.secrets/cloudflare.env";
@@ -269,6 +270,14 @@ async function createDeployment(
 // --- Main ---
 
 async function main() {
+  // Voice gate — runs BEFORE deploy. --skip-voice to bypass.
+  if (!process.argv.includes("--skip-voice")) {
+    const gate = runVoiceGate(DIST_DIR);
+    if (!gate.passed) {
+      process.exit(1);
+    }
+  }
+
   console.log(`Deploying ${DIST_DIR} to CF Pages project "${PROJECT_NAME}"...\n`);
 
   // 1. Discover and hash files
