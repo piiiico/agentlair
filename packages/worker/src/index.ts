@@ -1306,6 +1306,12 @@ app.use('/v1/*', async (c: Context<HonoEnv>, next: Next): Promise<void | Respons
     }
   }
 
+  // Checkout is never rate-limited — a user trying to pay should never be blocked.
+  if (c.req.path === '/v1/checkout' && c.req.method === 'POST') {
+    await next();
+    return;
+  }
+
   // Rate limit: unified account-level daily check
   const allowed = await checkRateLimit(c.env, account.id, account.tier || 'free');
   if (!allowed) {
