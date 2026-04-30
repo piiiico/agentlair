@@ -21,11 +21,37 @@ const formattedDate = post.data.pubDate.toLocaleDateString('en-US', {
   month: 'long',
   day: 'numeric',
 });
+
+const canonicalUrl = `https://agentlair.dev/blog/${post.id}`;
+const jsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'Article',
+  headline: post.data.title,
+  description: post.data.description,
+  datePublished: post.data.pubDate.toISOString(),
+  dateModified: (post.data.updatedDate ?? post.data.pubDate).toISOString(),
+  author: {
+    '@type': 'Person',
+    name: post.data.authorName ?? 'AgentLair Team',
+  },
+  publisher: {
+    '@type': 'Organization',
+    name: 'AgentLair',
+    url: 'https://agentlair.dev',
+  },
+  url: canonicalUrl,
+  mainEntityOfPage: {
+    '@type': 'WebPage',
+    '@id': canonicalUrl,
+  },
+  ...(post.data.image ? { image: post.data.image } : {}),
+};
 ---
 
 <html lang="en">
   <head>
     <BaseHead title={post.data.title} description={post.data.description} />
+    <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />
   </head>
   <body class="h-screen antialiased">
     <Navbar client:only="react" />
