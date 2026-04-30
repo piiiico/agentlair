@@ -52,6 +52,7 @@ import { didRoutes } from './routes/did.js';
 import { specRoutes } from './routes/spec.js';
 import { idpRoutes, revokeRoutes, buildOIDCDiscovery } from './idp/index.js';
 import { demoRoutes } from './routes/demo.js';
+import { handleCheckout, handleStripeWebhook } from './routes/stripe.js';
 import { EXPLORE_HTML } from './routes/explore.js';
 import { computeTrustScore } from './trust-engine.js';
 
@@ -1097,7 +1098,7 @@ app.post('/v1/waitlist', async (c) => {
   // Insert into D1 waitlist table (deduplicated per email+tier)
   if (c.env.AUDIT) {
     try {
-      const id = nanoid();
+      const id = nanoid(21);
       await c.env.AUDIT.prepare(
         'INSERT INTO waitlist (id, email, company, tier) VALUES (?, ?, ?, ?) ON CONFLICT(email, tier) DO NOTHING'
       ).bind(id, cleanEmail, cleanCompany || null, normalizedTier).run();
@@ -1141,6 +1142,14 @@ app.post('/v1/waitlist', async (c) => {
   }
 
   return json({ ok: true, message: `You're on the ${normalizedTier} waitlist. Check your email for confirmation.` });
+});
+
+// ── Stripe Webhook: POST /v1/stripe/webhook — process Stripe events ──────────
+// No auth — Stripe signature verification (STRIPE_WEBHOOK_SECRET required).
+// Handles: checkout.session.completed → tier upgrade.
+// Registered BEFORE auth middleware so Stripe can call it without an API key.
+app.post('/v1/stripe/webhook', async (c) => {
+  return handleStripeWebhook(c.req.raw, c.env);
 });
 
 // Admin routes: own auth via ADMIN_KEY (not user API keys)
@@ -1433,6 +1442,17 @@ app.use('/v1/*', auditMiddleware());
 app.use('/v1/*', budgetMiddleware());
 
 // ── 6. Protected API routes (auth required) ─────────────────────────────────────
+
+// Stripe Checkout: POST /v1/checkout — create Stripe checkout session (auth required)
+// Body: { tier: "starter" | "pro" } → returns { url } for client-side redirect to Stripe.
+// Returns 503 { stripe_available: false } when STRIPE_SECRET_KEY not configured (graceful fallback).
+app.post('/v1/checkout', async (c) => {
+  const account = c.get('account');
+  if (!account) {
+    return err('Authentication required.', 401, 'unauthorized');
+  }
+  return handleCheckout(c.req.raw, c.env, account);
+});
 
 // Register verify: OTP verification to unlock restricted accounts (requires auth)
 app.post('/v1/register/verify', legacyHandler(handleRegisterVerifyRoute));
