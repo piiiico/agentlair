@@ -1058,6 +1058,83 @@ app.route('/v1/demo', demoRoutes);
 // Mounted BEFORE auth middleware so the /:jti handler runs unauthenticated.
 app.route('/v1/audit', publicAuditRoutes);
 
+// ── Waitlist: lead capture for paid tiers (no auth required) ────────────────
+// Captures email + company before Stripe checkout is live.
+// Stores in AUDIT D1 (waitlist table). Sends confirmation via Resend.
+app.post('/v1/waitlist', async (c) => {
+  let body: { email?: string; company?: string; tier?: string };
+  try {
+    body = await c.req.json() as { email?: string; company?: string; tier?: string };
+  } catch {
+    return err('Invalid JSON body.', 400, 'invalid_body');
+  }
+
+  const { email, company, tier } = body;
+
+  // Validate email
+  if (!email || typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+    return err('Valid email is required.', 400, 'invalid_email');
+  }
+
+  // Validate tier
+  const validTiers = ['starter', 'pro', 'enterprise'];
+  const normalizedTier = (tier || '').toLowerCase().trim();
+  if (!validTiers.includes(normalizedTier)) {
+    return err('Tier must be starter, pro, or enterprise.', 400, 'invalid_tier');
+  }
+
+  const cleanEmail = email.trim().toLowerCase();
+  const cleanCompany = (company || '').trim().slice(0, 100);
+
+  // Insert into D1 waitlist table (deduplicated per email+tier)
+  if (c.env.AUDIT) {
+    try {
+      const id = nanoid();
+      await c.env.AUDIT.prepare(
+        'INSERT INTO waitlist (id, email, company, tier) VALUES (?, ?, ?, ?) ON CONFLICT(email, tier) DO NOTHING'
+      ).bind(id, cleanEmail, cleanCompany || null, normalizedTier).run();
+    } catch (dbErr) {
+      // Log but don't fail — email still goes out
+      console.error('Waitlist D1 insert error:', dbErr);
+    }
+  }
+
+  // Send confirmation email via Resend
+  const { getEmailProvider } = await import('./email-provider.js');
+  const provider = getEmailProvider(c.env);
+  if (provider) {
+    const tierDisplay = normalizedTier.charAt(0).toUpperCase() + normalizedTier.slice(1);
+    const priceMap: Record<string, string> = { starter: '$29/mo', pro: '$149/mo', enterprise: 'custom pricing' };
+    try {
+      await provider.send({
+        from: 'AgentLair <noreply@agentlair.dev>',
+        to: [cleanEmail],
+        subject: `You're on the AgentLair ${tierDisplay} waitlist`,
+        text: [
+          `Hi${cleanCompany ? ` from ${cleanCompany}` : ''},`,
+          ``,
+          `Thanks for your interest in AgentLair ${tierDisplay} (${priceMap[normalizedTier] || normalizedTier}).`,
+          ``,
+          `You're on the waitlist. We'll reach out as soon as checkout is ready — you'll be first in line.`,
+          ``,
+          `In the meantime, you can start with the free tier at agentlair.dev/register — it includes agent identity, AAT issuance, and 1,000 verifications/month.`,
+          ``,
+          `— Håkon, AgentLair`,
+        ].join('\n'),
+        html: `<p>Hi${cleanCompany ? ` from <strong>${cleanCompany}</strong>` : ''},</p>
+<p>Thanks for your interest in <strong>AgentLair ${tierDisplay}</strong> (${priceMap[normalizedTier] || normalizedTier}).</p>
+<p>You're on the waitlist. We'll reach out as soon as checkout is ready — you'll be first in line.</p>
+<p>In the meantime, you can <a href="https://agentlair.dev/register">start with the free tier</a> — it includes agent identity, AAT issuance, and 1,000 verifications/month.</p>
+<p>— Håkon, AgentLair</p>`,
+      }, c.env);
+    } catch (emailErr) {
+      console.error('Waitlist confirmation email error:', emailErr);
+    }
+  }
+
+  return json({ ok: true, message: `You're on the ${normalizedTier} waitlist. Check your email for confirmation.` });
+});
+
 // Admin routes: own auth via ADMIN_KEY (not user API keys)
 app.post('/v1/admin/tier', async (c) => {
   const response = await handleAdminRoutes(c.req.raw, c.env);
