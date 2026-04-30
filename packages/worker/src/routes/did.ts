@@ -19,6 +19,7 @@
 
 import { Hono } from 'hono';
 import { err } from '../utils.js';
+import { getPublicKey, b64urlEncode } from '../jwt.js';
 import type { HonoEnv, Env } from '../types.js';
 import type { SigningKeyRecord } from './signing-keys.js';
 
@@ -57,7 +58,26 @@ interface ServiceEndpoint {
   serviceEndpoint: string;
 }
 
-export function buildDIDDocument(accountId: string, signingKey: SigningKeyRecord | null): DIDDocument {
+/**
+ * Build a W3C DID Document for the given account.
+ *
+ * Verification method priority:
+ * 1. Per-agent signing key (from KV) — used when active
+ * 2. Root signing key (AUDIT_SIGNING_KEY public key) — fallback when no per-agent key
+ *
+ * AATs are always signed with the root AUDIT_SIGNING_KEY, so even agents without a
+ * per-agent key MUST expose the root public key so verifiers can verify their AATs.
+ *
+ * @param accountId     AgentLair account ID (acc_...)
+ * @param signingKey    Per-agent signing key record from KV, or null if not provisioned
+ * @param rootPublicKeyX  Base64url-encoded Ed25519 public key derived from AUDIT_SIGNING_KEY.
+ *                        Used as fallback when signingKey is null or revoked.
+ */
+export function buildDIDDocument(
+  accountId: string,
+  signingKey: SigningKeyRecord | null,
+  rootPublicKeyX?: string,
+): DIDDocument {
   const did = `did:web:${ISSUER_DOMAIN}:agents:${accountId}`;
   const keyId = `${did}#key-1`;
   const jwksUrl = `${ISSUER_BASE}/agents/${accountId}/.well-known/jwks.json`;
@@ -85,7 +105,17 @@ export function buildDIDDocument(accountId: string, signingKey: SigningKeyRecord
     ],
   };
 
+  // Determine which public key to embed:
+  // - Per-agent active key takes priority
+  // - Root key is the fallback (AATs are always signed with the root key)
+  let publicKeyX: string | undefined;
   if (signingKey && signingKey.status === 'active') {
+    publicKeyX = signingKey.public_key;
+  } else if (rootPublicKeyX) {
+    publicKeyX = rootPublicKeyX;
+  }
+
+  if (publicKeyX) {
     const vm: VerificationMethod = {
       id: keyId,
       type: 'JsonWebKey2020',
@@ -93,7 +123,7 @@ export function buildDIDDocument(accountId: string, signingKey: SigningKeyRecord
       publicKeyJwk: {
         kty: 'OKP',
         crv: 'Ed25519',
-        x: signingKey.public_key,
+        x: publicKeyX,
         use: 'sig',
         alg: 'EdDSA',
       },
@@ -161,10 +191,23 @@ didRoutes.get('/:id/did.json', async (c) => {
   // minimal DID Document. The account's existence is implied by the DID claim
   // in their AAT; we don't require a separate account lookup here.
 
-  // Look up active signing key (optional — DID Document is valid without it)
+  // Look up active signing key (optional — falls back to root key)
   const signingKey = await getSigningKeyForAccount(c.env, accountId);
 
-  const doc = buildDIDDocument(accountId, signingKey);
+  // Derive root public key for fallback — AATs are signed with AUDIT_SIGNING_KEY,
+  // so verifiers need the root public key when no per-agent key is provisioned.
+  let rootPublicKeyX: string | undefined;
+  if (c.env.AUDIT_SIGNING_KEY) {
+    try {
+      const rootPublicKeyBytes = getPublicKey(c.env.AUDIT_SIGNING_KEY);
+      rootPublicKeyX = b64urlEncode(rootPublicKeyBytes);
+    } catch {
+      // Key derivation failed — serve DID doc without fallback key rather than erroring
+      console.error('[did] Failed to derive root public key from AUDIT_SIGNING_KEY');
+    }
+  }
+
+  const doc = buildDIDDocument(accountId, signingKey, rootPublicKeyX);
 
   return new Response(JSON.stringify(doc, null, 2), {
     status: 200,

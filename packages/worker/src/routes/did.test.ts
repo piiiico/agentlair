@@ -75,7 +75,7 @@ describe('buildDIDDocument', () => {
     expect(doc.assertionMethod).toContain(keyRef);
   });
 
-  test('no verification method when signing key is null', () => {
+  test('no verification method when signing key is null and no root key provided', () => {
     const doc = buildDIDDocument('acc_test123', null);
 
     expect(doc.verificationMethod.length).toBe(0);
@@ -83,13 +83,48 @@ describe('buildDIDDocument', () => {
     expect(doc.assertionMethod.length).toBe(0);
   });
 
-  test('no verification method when signing key is revoked', () => {
+  test('no verification method when signing key is revoked and no root key provided', () => {
     const key = makeSigningKey({ status: 'revoked' });
     const doc = buildDIDDocument('acc_test123', key);
 
     expect(doc.verificationMethod.length).toBe(0);
     expect(doc.authentication.length).toBe(0);
     expect(doc.assertionMethod.length).toBe(0);
+  });
+
+  test('falls back to root public key when signing key is null', () => {
+    const rootPublicKeyX = 'cm9vdC1wdWJsaWMta2V5LXg'; // base64url test value
+    const doc = buildDIDDocument('acc_test123', null, rootPublicKeyX);
+
+    expect(doc.verificationMethod.length).toBe(1);
+    const vm = doc.verificationMethod[0];
+    expect(vm.id).toBe('did:web:agentlair.dev:agents:acc_test123#key-1');
+    expect(vm.type).toBe('JsonWebKey2020');
+    expect(vm.controller).toBe('did:web:agentlair.dev:agents:acc_test123');
+    expect(vm.publicKeyJwk.kty).toBe('OKP');
+    expect(vm.publicKeyJwk.crv).toBe('Ed25519');
+    expect(vm.publicKeyJwk.x).toBe(rootPublicKeyX);
+    expect(vm.publicKeyJwk.alg).toBe('EdDSA');
+    expect(doc.authentication).toContain('did:web:agentlair.dev:agents:acc_test123#key-1');
+    expect(doc.assertionMethod).toContain('did:web:agentlair.dev:agents:acc_test123#key-1');
+  });
+
+  test('falls back to root public key when signing key is revoked', () => {
+    const rootPublicKeyX = 'cm9vdC1wdWJsaWMta2V5LXg';
+    const revokedKey = makeSigningKey({ status: 'revoked' });
+    const doc = buildDIDDocument('acc_test123', revokedKey, rootPublicKeyX);
+
+    expect(doc.verificationMethod.length).toBe(1);
+    expect(doc.verificationMethod[0].publicKeyJwk.x).toBe(rootPublicKeyX);
+  });
+
+  test('per-agent key takes priority over root key fallback when both present', () => {
+    const perAgentKey = makeSigningKey({ public_key: 'per-agent-key-x' });
+    const rootPublicKeyX = 'cm9vdC1wdWJsaWMta2V5LXg';
+    const doc = buildDIDDocument('acc_test123', perAgentKey, rootPublicKeyX);
+
+    expect(doc.verificationMethod.length).toBe(1);
+    expect(doc.verificationMethod[0].publicKeyJwk.x).toBe('per-agent-key-x');
   });
 
   test('always includes JWKS service endpoint and AgentLairTrustProfile service', () => {
