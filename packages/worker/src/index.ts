@@ -1086,6 +1086,14 @@ app.post('/v1/waitlist', async (c) => {
   const cleanEmail = email.trim().toLowerCase();
   const cleanCompany = (company || '').trim().slice(0, 100);
 
+  const escapeHtml = (s: string): string =>
+    s.replace(/&/g, '&amp;')
+     .replace(/</g, '&lt;')
+     .replace(/>/g, '&gt;')
+     .replace(/"/g, '&quot;')
+     .replace(/'/g, '&#39;');
+  const safeCompany = cleanCompany ? escapeHtml(cleanCompany) : '';
+
   // Insert into D1 waitlist table (deduplicated per email+tier)
   if (c.env.AUDIT) {
     try {
@@ -1121,7 +1129,7 @@ app.post('/v1/waitlist', async (c) => {
           ``,
           `— Håkon, AgentLair`,
         ].join('\n'),
-        html: `<p>Hi${cleanCompany ? ` from <strong>${cleanCompany}</strong>` : ''},</p>
+        html: `<p>Hi${safeCompany ? ` from <strong>${safeCompany}</strong>` : ''},</p>
 <p>Thanks for your interest in <strong>AgentLair ${tierDisplay}</strong> (${priceMap[normalizedTier] || normalizedTier}).</p>
 <p>You're on the waitlist. We'll reach out as soon as checkout is ready — you'll be first in line.</p>
 <p>In the meantime, you can <a href="https://agentlair.dev/register">start with the free tier</a> — it includes agent identity, AAT issuance, and 1,000 verifications/month.</p>
