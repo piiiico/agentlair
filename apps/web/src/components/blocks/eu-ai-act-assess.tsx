@@ -470,10 +470,10 @@ export function ComplianceAssess() {
     e.preventDefault();
     setEmailLoading(true);
     try {
-      await fetch("https://agentlair.dev/v1/compliance-guide", {
+      await fetch("/v1/waitlist", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, source: "eu-ai-act-assess" }),
+        body: JSON.stringify({ email, tier: "starter", source: "eu-ai-act-calculator" }),
       });
     } catch {
       // silently succeed — UX should not block on backend availability

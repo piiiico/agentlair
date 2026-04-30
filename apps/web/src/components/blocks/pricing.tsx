@@ -27,6 +27,8 @@ const plans = [
     cta: "Get Started",
     href: "/register",
     waitlist: false,
+    stripe: false,
+    tier: null as string | null,
     highlighted: false,
   },
   {
@@ -48,9 +50,11 @@ const plans = [
       "Trust level: senior achievable",
       "Email support",
     ],
-    cta: "Join Waitlist",
+    cta: "Subscribe",
     href: null,
-    waitlist: true,
+    waitlist: false,
+    stripe: true,
+    tier: "starter",
     highlighted: true,
   },
   {
@@ -71,9 +75,11 @@ const plans = [
       "W3C VC issuance",
       "Priority support",
     ],
-    cta: "Join Waitlist",
+    cta: "Subscribe",
     href: null,
-    waitlist: true,
+    waitlist: false,
+    stripe: true,
+    tier: "pro",
     highlighted: false,
   },
   {
@@ -94,13 +100,56 @@ const plans = [
     cta: "Contact Us",
     href: "mailto:hei@agentlair.dev",
     waitlist: false,
+    stripe: false,
+    tier: null,
     highlighted: false,
   },
 ];
 
+type CheckoutState = "idle" | "loading" | "error";
+
+async function startCheckout(tier: string): Promise<{ url?: string; stripe_available?: boolean; error?: string }> {
+  try {
+    const res = await fetch("/v1/checkout", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tier }),
+    });
+    const data = await res.json() as { url?: string; stripe_available?: boolean; error?: string };
+    if (!res.ok) return data;
+    return data;
+  } catch {
+    return { error: "network_error" };
+  }
+}
 
 export const Pricing = ({ className }: { className?: string }) => {
   const [modalTier, setModalTier] = useState<string | null>(null);
+  const [checkoutState, setCheckoutState] = useState<Record<string, CheckoutState>>({});
+
+  const handleSubscribeClick = async (tier: string) => {
+    setCheckoutState(prev => ({ ...prev, [tier]: "loading" }));
+    const result = await startCheckout(tier);
+
+    if (result.url) {
+      // Stripe is live — redirect to hosted checkout
+      window.location.href = result.url;
+      return;
+    }
+
+    // Stripe not yet configured (503) or auth required (401) → fall back to waitlist
+    if (result.stripe_available === false || result.error === "unauthorized") {
+      setCheckoutState(prev => ({ ...prev, [tier]: "idle" }));
+      setModalTier(tier.charAt(0).toUpperCase() + tier.slice(1));
+      return;
+    }
+
+    // Other error
+    setCheckoutState(prev => ({ ...prev, [tier]: "error" }));
+    setTimeout(() => {
+      setCheckoutState(prev => ({ ...prev, [tier]: "idle" }));
+    }, 3000);
+  };
 
   return (
     <section id="pricing" className={cn("py-28 lg:py-32", className)}>
@@ -116,66 +165,84 @@ export const Pricing = ({ className }: { className?: string }) => {
         </div>
 
         <div className="mt-8 grid items-start gap-5 text-start md:mt-12 md:grid-cols-2 lg:mt-20 lg:grid-cols-4">
-          {plans.map((plan) => (
-            <Card
-              key={plan.name}
-              className={`${
-                plan.highlighted
-                  ? "outline-primary origin-top outline-4"
-                  : ""
-              }`}
-            >
-              <CardContent className="flex flex-col gap-7 px-6 py-5">
-                <div className="space-y-2">
-                  <h3 className="text-foreground font-semibold">{plan.name}</h3>
-                  <div className="space-y-1">
-                    <div className="text-foreground text-2xl font-bold">
-                      {plan.price}
-                      {plan.period && (
-                        <span className="text-muted-foreground text-sm font-normal">
-                          {plan.period}
-                        </span>
-                      )}
+          {plans.map((plan) => {
+            const tierKey = plan.tier || "";
+            const state = checkoutState[tierKey] || "idle";
+
+            return (
+              <Card
+                key={plan.name}
+                className={`${
+                  plan.highlighted
+                    ? "outline-primary origin-top outline-4"
+                    : ""
+                }`}
+              >
+                <CardContent className="flex flex-col gap-7 px-6 py-5">
+                  <div className="space-y-2">
+                    <h3 className="text-foreground font-semibold">{plan.name}</h3>
+                    <div className="space-y-1">
+                      <div className="text-foreground text-2xl font-bold">
+                        {plan.price}
+                        {plan.period && (
+                          <span className="text-muted-foreground text-sm font-normal">
+                            {plan.period}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                <span className="text-muted-foreground text-sm">
-                  {plan.description}
-                </span>
+                  <span className="text-muted-foreground text-sm">
+                    {plan.description}
+                  </span>
 
-                <div className="space-y-3">
-                  {plan.features.map((feature) => (
-                    <div
-                      key={feature}
-                      className="text-muted-foreground flex items-center gap-1.5"
+                  <div className="space-y-3">
+                    {plan.features.map((feature) => (
+                      <div
+                        key={feature}
+                        className="text-muted-foreground flex items-center gap-1.5"
+                      >
+                        <Check className="size-5 shrink-0" />
+                        <span className="text-sm">{feature}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {plan.stripe ? (
+                    <Button
+                      className="w-fit"
+                      variant={plan.highlighted ? "default" : "outline"}
+                      onClick={() => handleSubscribeClick(plan.tier!)}
+                      disabled={state === "loading"}
                     >
-                      <Check className="size-5 shrink-0" />
-                      <span className="text-sm">{feature}</span>
-                    </div>
-                  ))}
-                </div>
-
-                {plan.waitlist ? (
-                  <Button
-                    className="w-fit"
-                    variant={plan.highlighted ? "default" : "outline"}
-                    onClick={() => setModalTier(plan.name)}
-                  >
-                    {plan.cta}
-                  </Button>
-                ) : (
-                  <Button
-                    className="w-fit"
-                    variant={plan.highlighted ? "default" : "outline"}
-                    asChild
-                  >
-                    <a href={plan.href!}>{plan.cta}</a>
-                  </Button>
-                )}
-              </CardContent>
-            </Card>
-          ))}
+                      {state === "loading"
+                        ? "Redirecting…"
+                        : state === "error"
+                        ? "Try again"
+                        : plan.cta}
+                    </Button>
+                  ) : plan.waitlist ? (
+                    <Button
+                      className="w-fit"
+                      variant={plan.highlighted ? "default" : "outline"}
+                      onClick={() => setModalTier(plan.name)}
+                    >
+                      {plan.cta}
+                    </Button>
+                  ) : (
+                    <Button
+                      className="w-fit"
+                      variant={plan.highlighted ? "default" : "outline"}
+                      asChild
+                    >
+                      <a href={plan.href!}>{plan.cta}</a>
+                    </Button>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       </div>
 

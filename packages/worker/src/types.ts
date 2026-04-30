@@ -33,6 +33,12 @@ export interface Env {
   // Gateway wallet: 0x-prefixed hex secp256k1 private key for EIP-3009 signing
   // Set via: wrangler secret put GATEWAY_WALLET_KEY
   GATEWAY_WALLET_KEY?: string;
+  // Stripe Checkout Sessions — traditional card-based paid tier subscriptions
+  // Set via: wrangler secret put STRIPE_SECRET_KEY
+  STRIPE_SECRET_KEY?: string;
+  // Stripe webhook signing secret — verify events from Stripe
+  // Set via: wrangler secret put STRIPE_WEBHOOK_SECRET
+  STRIPE_WEBHOOK_SECRET?: string;
 }
 
 export interface Account {

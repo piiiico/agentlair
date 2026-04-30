@@ -24,6 +24,17 @@ id = "5eb916dd7125415da51c15cd85c3b761"
 #   ADMIN_KEY                — Admin API key for privileged operations (tier overrides, etc.)
 #                              Generate: openssl rand -hex 32
 #                              Set:      wrangler secret put ADMIN_KEY
+#
+# Stripe Checkout (activate paid subscriptions):
+#   1. Create Stripe account at dashboard.stripe.com
+#   2. Create products: Starter ($29/mo) and Pro ($149/mo)
+#   3. Set secrets:
+#   STRIPE_SECRET_KEY        — Stripe secret key (sk_live_... or sk_test_... for testing)
+#                              Set:      wrangler secret put STRIPE_SECRET_KEY
+#   STRIPE_WEBHOOK_SECRET    — Stripe webhook signing secret (whsec_...)
+#                              From:     Stripe Dashboard → Webhooks → Signing secret
+#                              Register: POST https://agentlair.dev/v1/stripe/webhook (checkout.session.completed)
+#                              Set:      wrangler secret put STRIPE_WEBHOOK_SECRET
 
 [[analytics_engine_datasets]]
 binding = "AE_ANALYTICS"

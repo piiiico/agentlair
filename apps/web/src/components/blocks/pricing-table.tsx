@@ -23,13 +23,16 @@ interface FeatureSection {
   }[];
 }
 
+type ButtonMode = "href" | "stripe" | "waitlist";
+type CheckoutState = "idle" | "loading" | "error";
+
 const pricingPlans = [
   {
     name: "Free",
     button: {
       text: "Get Started",
-      href: "/register",
-      waitlist: false,
+      href: "/register" as string | null,
+      mode: "href" as ButtonMode,
       tier: null as string | null,
       variant: "outline" as const,
     },
@@ -37,20 +40,20 @@ const pricingPlans = [
   {
     name: "Starter",
     button: {
-      text: "Join Waitlist",
+      text: "Subscribe",
       href: null as string | null,
-      waitlist: true,
-      tier: "Starter" as string | null,
+      mode: "stripe" as ButtonMode,
+      tier: "starter" as string | null,
       variant: "outline" as const,
     },
   },
   {
     name: "Pro",
     button: {
-      text: "Join Waitlist",
+      text: "Subscribe",
       href: null as string | null,
-      waitlist: true,
-      tier: "Pro" as string | null,
+      mode: "stripe" as ButtonMode,
+      tier: "pro" as string | null,
       variant: "outline" as const,
     },
   },
@@ -59,12 +62,27 @@ const pricingPlans = [
     button: {
       text: "Contact Us",
       href: "mailto:hei@agentlair.dev" as string | null,
-      waitlist: false,
+      mode: "href" as ButtonMode,
       tier: null as string | null,
       variant: "outline" as const,
     },
   },
 ];
+
+async function startCheckout(tier: string): Promise<{ url?: string; stripe_available?: boolean; error?: string }> {
+  try {
+    const res = await fetch("/v1/checkout", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tier }),
+    });
+    const data = await res.json() as { url?: string; stripe_available?: boolean; error?: string };
+    if (!res.ok) return data;
+    return data;
+  } catch {
+    return { error: "network_error" };
+  }
+}
 
 const comparisonFeatures: FeatureSection[] = [
   {
@@ -358,6 +376,28 @@ const renderFeatureValue = (value: true | false | null | string) => {
 export const PricingTable = () => {
   const [selectedPlan, setSelectedPlan] = useState(0); // Default to Free
   const [modalTier, setModalTier] = useState<string | null>(null);
+  const [checkoutState, setCheckoutState] = useState<Record<string, CheckoutState>>({});
+
+  const handleSubscribeClick = async (tier: string) => {
+    setCheckoutState(prev => ({ ...prev, [tier]: "loading" }));
+    const result = await startCheckout(tier);
+
+    if (result.url) {
+      window.location.href = result.url;
+      return;
+    }
+
+    if (result.stripe_available === false || result.error === "unauthorized") {
+      setCheckoutState(prev => ({ ...prev, [tier]: "idle" }));
+      setModalTier(tier.charAt(0).toUpperCase() + tier.slice(1));
+      return;
+    }
+
+    setCheckoutState(prev => ({ ...prev, [tier]: "error" }));
+    setTimeout(() => {
+      setCheckoutState(prev => ({ ...prev, [tier]: "idle" }));
+    }, 3000);
+  };
 
   return (
     <section className="pb-28 lg:py-32">
@@ -366,6 +406,8 @@ export const PricingTable = () => {
           selectedPlan={selectedPlan}
           onPlanChange={setSelectedPlan}
           onWaitlistClick={setModalTier}
+          onSubscribeClick={handleSubscribeClick}
+          checkoutState={checkoutState}
         />
         <FeatureSections selectedPlan={selectedPlan} />
       </div>
@@ -386,13 +428,53 @@ const PlanHeaders = ({
   selectedPlan,
   onPlanChange,
   onWaitlistClick,
+  onSubscribeClick,
+  checkoutState,
 }: {
   selectedPlan: number;
   onPlanChange: (index: number) => void;
   onWaitlistClick: (tier: string) => void;
+  onSubscribeClick: (tier: string) => void;
+  checkoutState: Record<string, CheckoutState>;
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const currentPlan = pricingPlans[selectedPlan];
+
+  const renderButton = (plan: typeof pricingPlans[0], className?: string) => {
+    const state = plan.button.tier ? (checkoutState[plan.button.tier] || "idle") : "idle";
+
+    if (plan.button.mode === "stripe") {
+      return (
+        <Button
+          variant={plan.button.variant}
+          className={className}
+          onClick={() => onSubscribeClick(plan.button.tier!)}
+          disabled={state === "loading"}
+        >
+          {state === "loading" ? "Redirecting…" : state === "error" ? "Try again" : plan.button.text}
+        </Button>
+      );
+    }
+
+    if (plan.button.mode === "waitlist") {
+      return (
+        <Button
+          variant={plan.button.variant}
+          className={className}
+          onClick={() => onWaitlistClick(plan.button.tier!)}
+        >
+          {plan.button.text}
+        </Button>
+      );
+    }
+
+    // href mode
+    return (
+      <Button variant={plan.button.variant} className={className} asChild>
+        <a href={plan.button.href!}>{plan.button.text}</a>
+      </Button>
+    );
+  };
 
   return (
     <div className="">
@@ -408,25 +490,7 @@ const PlanHeaders = ({
                 className={`size-5 transition-transform ${isOpen ? "rotate-180" : ""}`}
               />
             </CollapsibleTrigger>
-            {currentPlan.button.waitlist ? (
-              <Button
-                variant={currentPlan.button.variant}
-                className="w-fit"
-                onClick={() => onWaitlistClick(currentPlan.button.tier!)}
-              >
-                {currentPlan.button.text}
-              </Button>
-            ) : (
-              <Button
-                variant={currentPlan.button.variant}
-                className="w-fit"
-                asChild
-              >
-                <a href={currentPlan.button.href!}>
-                  {currentPlan.button.text}
-                </a>
-              </Button>
-            )}
+            {renderButton(currentPlan, "w-fit")}
           </div>
           <CollapsibleContent className="flex flex-col space-y-2 p-2">
             {pricingPlans.map(
@@ -456,19 +520,7 @@ const PlanHeaders = ({
         {pricingPlans.map((plan, index) => (
           <div key={index} className="">
             <h3 className="mb-3 text-2xl font-semibold">{plan.name}</h3>
-            {plan.button.waitlist ? (
-              <Button
-                variant={plan.button.variant}
-                className=""
-                onClick={() => onWaitlistClick(plan.button.tier!)}
-              >
-                {plan.button.text}
-              </Button>
-            ) : (
-              <Button variant={plan.button.variant} className="" asChild>
-                <a href={plan.button.href!}>{plan.button.text}</a>
-              </Button>
-            )}
+            {renderButton(plan)}
           </div>
         ))}
       </div>
