@@ -1,0 +1,83 @@
+---
+import { getCollection, render } from 'astro:content';
+import BaseHead from '@/components/BaseHead.astro';
+import BlogCTA from '@/components/BlogCTA.astro';
+import { Footer } from '@/components/blocks/footer';
+import { Navbar } from '@/components/blocks/navbar';
+
+export async function getStaticPaths() {
+  const pages = await getCollection('learn');
+  return pages.map((page) => ({
+    params: { slug: page.id },
+    props: { page },
+  }));
+}
+
+const { page } = Astro.props;
+const { Content } = await render(page);
+
+const formattedDate = page.data.pubDate.toLocaleDateString('en-US', {
+  year: 'numeric',
+  month: 'long',
+  day: 'numeric',
+});
+
+const canonicalUrl = `https://agentlair.dev/learn/${page.id}`;
+
+const baseJsonLd: Record<string, unknown> = {
+  '@context': 'https://schema.org',
+  '@type': page.data.schemaType ?? 'Article',
+  headline: page.data.title,
+  description: page.data.description,
+  datePublished: page.data.pubDate.toISOString(),
+  dateModified: (page.data.updatedDate ?? page.data.pubDate).toISOString(),
+  author: {
+    '@type': 'Organization',
+    name: 'AgentLair',
+    url: 'https://agentlair.dev',
+  },
+  publisher: {
+    '@type': 'Organization',
+    name: 'AgentLair',
+    url: 'https://agentlair.dev',
+  },
+  url: canonicalUrl,
+  mainEntityOfPage: {
+    '@type': 'WebPage',
+    '@id': canonicalUrl,
+  },
+};
+
+// Add DefinedTerm structure for pages that define terminology
+if (page.data.schemaType === 'DefinedTerm') {
+  baseJsonLd['inDefinedTermSet'] = {
+    '@type': 'DefinedTermSet',
+    name: 'AgentLair Glossary',
+    url: 'https://agentlair.dev/learn',
+  };
+}
+---
+
+<html lang="en">
+  <head>
+    <BaseHead title={page.data.title} description={page.data.description} />
+    <script type="application/ld+json" set:html={JSON.stringify(baseJsonLd)} />
+  </head>
+  <body class="h-screen antialiased">
+    <Navbar client:only="react" />
+    <main>
+      <section class="mx-auto max-w-2xl px-4 py-28 lg:pt-44 lg:pb-32">
+        <header class="mb-8">
+          <p class="text-sm text-muted-foreground mb-3">{formattedDate}</p>
+          <h1 class="text-3xl font-bold tracking-tight mb-4">{page.data.title}</h1>
+          <p class="text-lg text-muted-foreground">{page.data.description}</p>
+        </header>
+        <article class="prose prose-lg dark:prose-invert">
+          <Content />
+        </article>
+        <BlogCTA />
+      </section>
+    </main>
+    <Footer />
+  </body>
+</html>

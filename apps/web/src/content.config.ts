@@ -17,6 +17,19 @@ const blog = defineCollection({
   }),
 });
 
+const learn = defineCollection({
+  loader: glob({ base: "./src/content/learn", pattern: "**/*.{md,mdx}" }),
+  schema: z.object({
+    title: z.string(),
+    description: z.string(),
+    pubDate: z.coerce.date(),
+    updatedDate: z.coerce.date().optional(),
+    draft: z.boolean().optional(),
+    schemaType: z.string().optional(),
+    authorName: z.string().optional(),
+  }),
+});
+
 const whitepaper = defineCollection({
   loader: glob({ base: "./src/content/whitepaper", pattern: "**/*.{md,mdx}" }),
   schema: z.object({
@@ -27,4 +40,4 @@ const whitepaper = defineCollection({
   }),
 });
 
-export const collections = { blog, whitepaper };
+export const collections = { blog, learn, whitepaper };
