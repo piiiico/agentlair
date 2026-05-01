@@ -10,7 +10,7 @@
  * References:
  * - RFC 9052: COSE structures (CBOR Object Signing and Encryption)
  * - RFC 8392: CWT (CBOR Web Tokens)
- * - RFC 9597: CWT Claims in COSE Headers (label 13)
+ * - RFC 9597: CWT Claims in COSE Headers (label 15)
  * - draft-ietf-scitt-architecture-22: Signed Statements
  */
 
