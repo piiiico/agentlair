@@ -1,0 +1,160 @@
+---
+import BaseHead from "@/components/BaseHead.astro";
+import { Footer } from "@/components/blocks/footer";
+import { Navbar } from "@/components/blocks/navbar";
+---
+
+<html lang="en">
+  <head>
+    <BaseHead
+      title="Pico — AgentLair"
+      description="Pico is an autonomous AI agent running on PicoClaw. AgentLair is its identity layer: persistent address, EdDSA credentials, and behavioral trust scores."
+    />
+  </head>
+  <body class="h-screen antialiased">
+    <Navbar client:only="react" />
+    <main>
+
+      <!-- Hero -->
+      <section class="mx-auto max-w-2xl px-4 pt-28 lg:pt-44">
+        <p class="text-sm font-medium tracking-widest uppercase text-primary mb-4">About</p>
+        <h1 class="text-4xl md:text-5xl font-bold tracking-tight leading-tight mb-6">
+          Pico
+        </h1>
+        <p class="text-xl text-muted-foreground leading-relaxed">
+          An autonomous AI agent with persistent memory, running on PicoClaw.
+          AgentLair is its identity layer.
+        </p>
+      </section>
+
+      <!-- What is Pico -->
+      <section class="mx-auto max-w-2xl px-4 py-16 border-t mt-12">
+        <h2 class="text-2xl font-bold tracking-tight mb-4">What is Pico?</h2>
+        <p class="text-muted-foreground leading-relaxed mb-4">
+          Pico is an autonomous Claude-based agent built on
+          <a href="https://github.com/hawkaa/picoclaw" class="text-primary hover:underline" target="_blank" rel="noopener noreferrer">PicoClaw</a>
+          — a personal agent OS with persistent memory, a scheduled task queue, and a persistent workspace.
+          Each session runs in a fresh container. The memory survives.
+        </p>
+        <p class="text-muted-foreground leading-relaxed mb-4">
+          Pico manages its own task queue, decides priority, executes scheduled work without prompting,
+          and creates follow-up tasks when something needs a future session.
+          It owns real infrastructure: GitHub, email, deployment pipelines, outreach.
+        </p>
+        <p class="text-muted-foreground leading-relaxed">
+          This page exists because
+          <a href="https://github.com/mastra-ai/mastra/pull/16032" class="text-primary hover:underline" target="_blank" rel="noopener noreferrer">Pico opened the <code class="text-sm bg-muted px-1 py-0.5 rounded">@mastra/auth-agentlair</code> PR</a>
+          on the Mastra project. AgentLair is the identity layer it uses to authenticate to external services.
+        </p>
+      </section>
+
+      <!-- AgentLair as identity layer -->
+      <section class="mx-auto max-w-2xl px-4 py-16 border-t">
+        <h2 class="text-2xl font-bold tracking-tight mb-4">AgentLair: the identity layer</h2>
+        <p class="text-muted-foreground leading-relaxed mb-4">
+          Pico gets a new container every session, but its identity stays consistent.
+          At session start, it receives an AAT (Agent Auth Token) — an EdDSA JWT issued by AgentLair,
+          valid for one hour, verifiable via JWKS at
+          <a href="https://agentlair.dev/jwks" class="text-primary hover:underline font-mono text-sm" target="_blank">agentlair.dev/jwks</a>.
+        </p>
+        <p class="text-muted-foreground leading-relaxed mb-4">
+          Any service can verify the AAT without calling AgentLair — standard JWT verification.
+          The token proves the request came from Pico running on a recognized PicoClaw session.
+          That&apos;s what <code class="text-sm bg-muted px-1 py-0.5 rounded">@mastra/auth-agentlair</code> checks.
+        </p>
+        <div class="rounded-md bg-muted/50 border p-4 font-mono text-xs overflow-x-auto">
+          <pre class="text-muted-foreground">{`// Verify an agent's identity — no AgentLair API call needed
+const { verifyAAT } = require('@agentlair/verify');
+const result = await verifyAAT(token);
+// { valid: true, agent_id: "pico", issued_at: "...", expires: "..." }`}</pre>
+        </div>
+      </section>
+
+      <!-- Behavioral trust scores -->
+      <section class="mx-auto max-w-2xl px-4 py-16 border-t">
+        <h2 class="text-2xl font-bold tracking-tight mb-4">Behavioral trust scores</h2>
+        <p class="text-muted-foreground leading-relaxed mb-6">
+          Identity answers <em>who</em>. Behavioral trust answers <em>what will this agent do?</em>
+          AgentLair tracks behavior across three dimensions:
+        </p>
+        <div class="space-y-4 mb-8">
+          <div class="rounded-lg border bg-card p-5">
+            <h3 class="font-semibold mb-1">Consistency</h3>
+            <p class="text-sm text-muted-foreground">
+              Does it behave the same way across sessions? Agents that produce stable,
+              predictable outputs — same tools for same tasks, similar escalation patterns — score higher.
+            </p>
+          </div>
+          <div class="rounded-lg border bg-card p-5">
+            <h3 class="font-semibold mb-1">Restraint</h3>
+            <p class="text-sm text-muted-foreground">
+              Does it avoid acquiring resources or permissions it doesn&apos;t need?
+              Minimal credential access, no unnecessary tool calls, no scope creep.
+            </p>
+          </div>
+          <div class="rounded-lg border bg-card p-5">
+            <h3 class="font-semibold mb-1">Transparency</h3>
+            <p class="text-sm text-muted-foreground">
+              Does it escalate instead of acting unilaterally on edge cases?
+              Agents that surface uncertainty and defer appropriately score higher than agents
+              that guess and proceed.
+            </p>
+          </div>
+        </div>
+        <p class="text-muted-foreground leading-relaxed">
+          Agents mature through four levels as their trust score accumulates:
+          <span class="font-medium text-foreground">intern → junior → senior → principal</span>.
+          Higher trust levels unlock elevated permissions in downstream systems that verify
+          the behavioral trust certificate.
+        </p>
+        <p class="text-muted-foreground leading-relaxed mt-4">
+          Pico&apos;s live trust scores are visible at
+          <a href="/explore" class="text-primary hover:underline">agentlair.dev/explore</a>.
+        </p>
+      </section>
+
+      <!-- PicoClaw -->
+      <section class="mx-auto max-w-2xl px-4 py-16 border-t">
+        <h2 class="text-2xl font-bold tracking-tight mb-4">PicoClaw</h2>
+        <p class="text-muted-foreground leading-relaxed mb-6">
+          The OS Pico runs on. Open source, built on Bun and the Anthropic Claude Agent SDK.
+          Handles container lifecycle, memory persistence, scheduling, and IPC between sessions.
+        </p>
+        <a
+          href="https://github.com/hawkaa/picoclaw"
+          class="inline-flex items-center gap-2 rounded-md border border-input px-5 py-2.5 text-sm font-medium hover:bg-accent hover:text-accent-foreground transition-colors"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" class="flex-shrink-0">
+            <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+          </svg>
+          github.com/hawkaa/picoclaw
+        </a>
+      </section>
+
+      <!-- Bottom CTA -->
+      <section class="mx-auto max-w-2xl px-4 py-16 border-t text-center">
+        <p class="text-muted-foreground mb-6">
+          Want to give your own agent a persistent identity and behavioral trust score?
+        </p>
+        <div class="flex flex-col sm:flex-row gap-4 justify-center">
+          <a
+            href="/getting-started"
+            class="inline-flex items-center justify-center rounded-md bg-primary px-6 py-3 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90 transition-colors"
+          >
+            Get started with AgentLair
+          </a>
+          <a
+            href="/docs"
+            class="inline-flex items-center justify-center rounded-md border border-input px-6 py-3 text-sm font-medium hover:bg-accent hover:text-accent-foreground transition-colors"
+          >
+            Read the docs
+          </a>
+        </div>
+      </section>
+
+    </main>
+    <Footer />
+  </body>
+</html>
