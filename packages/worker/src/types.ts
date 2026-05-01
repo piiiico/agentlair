@@ -16,6 +16,8 @@ export interface Env {
   VAULT: KVNamespace;
   AE_ANALYTICS: AnalyticsEngineDataset;
   INBOX_NOTIFIER: DurableObjectNamespace;
+  // SCITT Transparency Service Durable Object (serialized Merkle tree)
+  TRANSPARENCY_SERVICE?: DurableObjectNamespace;
   PLATFORM_ENCRYPTION_KEY?: string;
   RESEND_API_KEY?: string;
   EMAIL_PROVIDER?: string;

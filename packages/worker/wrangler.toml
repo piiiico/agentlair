@@ -44,6 +44,10 @@ dataset = "agentlair_events"
 name = "INBOX_NOTIFIER"
 class_name = "InboxNotifier"
 
+[[durable_objects.bindings]]
+name = "TRANSPARENCY_SERVICE"
+class_name = "TransparencyService"
+
 # DEPLOYED 2026-03-18: This DO migration was applied — InboxNotifier namespace now
 # exists permanently on Cloudflare. Changed new_classes → new_sqlite_classes at deploy
 # time (CF free plan requires new_sqlite_classes; InboxNotifier uses no storage so
@@ -51,6 +55,12 @@ class_name = "InboxNotifier"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["InboxNotifier"]
+
+# SCITT Transparency Service — serialized Merkle tree for Receipt issuance.
+# Fixes the per-isolate hash chain bug by serializing all writes through a single DO.
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["TransparencyService"]
 
 # Audit trail D1 database
 # Note: database_id is a placeholder — the deploy task will create the actual D1 database

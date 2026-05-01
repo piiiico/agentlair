@@ -3,6 +3,7 @@
 //          GET /v1/audit/:token_id — alias for /v1/audit/log (backward compat for JWTs)
 //          GET /v1/audit/verification-key — return Ed25519 public key
 //          GET /v1/attestations — return audit entries as CAF attestations
+//          GET /v1/attestations/:id/scitt — single attestation as COSE_Sign1 (SCITT)
 //
 // All routes require authentication (mounted after auth middleware in index.ts).
 
@@ -12,6 +13,7 @@ import { json, err } from '../utils.js';
 import { ed25519 } from '@noble/curves/ed25519.js';
 import type { AuditEntry } from '../middleware/audit.js';
 import { auditEntryToCAF } from '../caf.js';
+import { cafToSignedStatement } from '../caf-scitt.js';
 import { verifyX402Payment, settleX402Payment, trackX402Spend, make402Response, SERVICE_PRICES } from '../x402.js';
 
 export const auditRoutes = new Hono<HonoEnv>();
@@ -144,6 +146,76 @@ auditRoutes.get('/attestations', async (c) => {
   } catch (e) {
     console.error('Attestations query failed:', e instanceof Error ? e.message : String(e));
     return err('Failed to query attestations.', 500, 'attestations_query_error');
+  }
+});
+
+// ─── GET /attestations/:id/scitt ─────────────────────────────────────────────
+// Return a single audit entry as a COSE_Sign1 Signed Statement (SCITT-compatible).
+//
+// :id — audit log entry ID (nanoid, e.g. "a1b2c3d4e5f6g7h8i9j0")
+//
+// Response:
+//   Content-Type: application/cose
+//   Body: raw COSE_Sign1 bytes (CBOR tag 18 + 4-element array)
+//
+// The COSE envelope carries:
+//   Protected header: alg=EdDSA, content-type=application/caf+json, kid, CWT claims (iss/sub/iat)
+//   Payload: full CAF attestation JSON (the complete auditable record)
+//   Signature: Ed25519 over COSE Sig_Structure (RFC 9052 §4.4)
+//
+// Clients can verify the signature using the public key at GET /audit/verification-key.
+// Future: pair with a Transparency Service to upgrade to a Transparent Statement with Receipt.
+
+auditRoutes.get('/attestations/:id/scitt', async (c) => {
+  const account = c.get('account');
+  if (!account) return err('Authentication required.', 401, 'unauthorized');
+
+  if (!c.env.AUDIT) {
+    return err('Audit trail not enabled for this instance.', 503, 'audit_unavailable');
+  }
+
+  if (!c.env.AUDIT_SIGNING_KEY) {
+    return err('Audit signing key not configured.', 503, 'audit_unavailable');
+  }
+
+  const entryId = c.req.param('id');
+
+  try {
+    // Look up the audit entry — enforce account ownership (IDOR guard)
+    const queryResult = await c.env.AUDIT
+      .prepare('SELECT * FROM audit_log WHERE id = ? AND account_id = ? LIMIT 1')
+      .bind(entryId, account.id)
+      .all<AuditEntry>();
+
+    const raw = queryResult.results?.[0];
+    if (!raw) {
+      return err('Attestation not found.', 404, 'attestation_not_found');
+    }
+
+    // Parse details JSON string (stored as text in D1)
+    const entry: AuditEntry = {
+      ...raw,
+      details: raw.details
+        ? (typeof raw.details === 'string' ? JSON.parse(raw.details as unknown as string) : raw.details)
+        : null,
+    };
+
+    // Convert audit entry → CAF attestation → COSE_Sign1
+    const attestation = await auditEntryToCAF(entry, c.env.AUDIT_SIGNING_KEY);
+    const coseBytes   = await cafToSignedStatement(attestation, c.env.AUDIT_SIGNING_KEY);
+
+    // Return raw COSE bytes with correct content-type
+    // Wrap in new Uint8Array to ensure ArrayBuffer (not ArrayBufferLike) backing
+    return new Response(new Uint8Array(coseBytes), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/cose',
+        'Content-Length': String(coseBytes.length),
+      },
+    });
+  } catch (e) {
+    console.error('SCITT export failed:', e instanceof Error ? e.message : String(e));
+    return err('Failed to export SCITT statement.', 500, 'scitt_export_error');
   }
 });
 

@@ -52,6 +52,7 @@ import { didRoutes } from './routes/did.js';
 import { specRoutes } from './routes/spec.js';
 import { idpRoutes, revokeRoutes, buildOIDCDiscovery } from './idp/index.js';
 import { demoRoutes } from './routes/demo.js';
+import { scittRoutes } from './routes/scitt.js';
 import { handleCheckout, handleStripeWebhook } from './routes/stripe.js';
 import { EXPLORE_HTML } from './routes/explore.js';
 import { computeTrustScore } from './trust-engine.js';
@@ -1511,6 +1512,9 @@ app.route('/v1/agents', signingKeyRoutes);
 app.route('/v1/audit', auditRoutes);
 app.route('/v1', auditRoutes);
 
+// SCITT Transparency Service routes: POST /v1/scitt/entries, GET /v1/scitt/entries/:id, GET /v1/scitt/entries/:id/receipt
+app.route('/v1/scitt', scittRoutes);
+
 // Session lifecycle routes (PicoClaw agent session tracking)
 app.route('/v1/sessions', sessionRoutes);
 
@@ -2074,3 +2078,4 @@ export default {
 
 // Required by CF Workers runtime to locate the DO class by name
 export { InboxNotifier };
+export { TransparencyService } from './durable-objects/transparency-service.js';
