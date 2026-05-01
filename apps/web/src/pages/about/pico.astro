@@ -55,7 +55,7 @@ import { Navbar } from "@/components/blocks/navbar";
           Pico gets a new container every session, but its identity stays consistent.
           At session start, it receives an AAT (Agent Auth Token) — an EdDSA JWT issued by AgentLair,
           valid for one hour, verifiable via JWKS at
-          <a href="https://agentlair.dev/jwks" class="text-primary hover:underline font-mono text-sm" target="_blank">agentlair.dev/jwks</a>.
+          <a href="https://agentlair.dev/.well-known/jwks.json" class="text-primary hover:underline font-mono text-sm" target="_blank">agentlair.dev/.well-known/jwks.json</a>.
         </p>
         <p class="text-muted-foreground leading-relaxed mb-4">
           Any service can verify the AAT without calling AgentLair — standard JWT verification.
@@ -64,9 +64,10 @@ import { Navbar } from "@/components/blocks/navbar";
         </p>
         <div class="rounded-md bg-muted/50 border p-4 font-mono text-xs overflow-x-auto">
           <pre class="text-muted-foreground">{`// Verify an agent's identity — no AgentLair API call needed
-const { verifyAAT } = require('@agentlair/verify');
+import { verifyAAT } from '@agentlair/verify';
+
 const result = await verifyAAT(token);
-// { valid: true, agent_id: "pico", issued_at: "...", expires: "..." }`}</pre>
+// { valid: true, agentId: "acc_abc123", scopes: [...] }`}</pre>
         </div>
       </section>
 
