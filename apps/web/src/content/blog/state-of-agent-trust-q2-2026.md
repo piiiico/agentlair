@@ -173,6 +173,42 @@ Vidoc Security Lab subsequently reproduced Mythos-class vulnerability discovery 
 
 Continuous behavioral telemetry is the only structural mechanism that closes the TOCTOU gap. Not periodic audits, not registration-time verification, not financial staking that only triggers after damage is done. Continuous, independent, cross-org behavioral monitoring — where "independent" means the agent being monitored cannot suppress, modify, or delay its own telemetry.
 
+## May 2026 Update
+
+This report was published April 21. Four developments in the first two weeks of May sharpen the analysis.
+
+### Microsoft Agent 365 Goes GA
+
+Microsoft launched Agent 365 commercially on May 1, 2026 at $15/user/month. The stack integrates Entra (identity), Defender (threat detection), and Purview (data governance) — making it the most comprehensive single-vendor governance suite shipped to date. Capabilities include shadow AI detection and ownerless agent reassignment: when the developer who created an agent leaves the organization, their agents can be automatically reassigned rather than orphaned with active credentials.
+
+This is meaningful infrastructure for the single-org case. The three gaps from Section 2 remain structurally intact. Agent 365 cannot detect tool-call parameters on external APIs. It cannot track permission drift in partner environments. And ownerless agent reassignment, while valuable, only works within the Microsoft tenant — the ghost agent problem on third-party platforms is unchanged.
+
+### The Harness vs. Identity Divide
+
+Two contrasting announcements clarify where the industry stands on per-agent cryptographic identity.
+
+Google shipped Agent Identity alongside Agent Gateway at Cloud Next 2026. Every agent in their system receives a unique cryptographic identifier via SPIFFE, with Envoy-based attestation at runtime. The identity is tied to the agent's workload, not just its operator's OAuth token.
+
+Anthropic launched Claude Managed Agents — a harness for running Claude-based agents in production — without per-session cryptographic identity. Agents authenticate via operator API keys, not individual agent credentials.
+
+The contrast is instructive. Google's approach (cryptographic identity at the agent level) and Anthropic's (operator-level authentication) reflect different architectural assumptions about where trust should anchor. Neither resolves the cross-org behavioral question — an agent with a cryptographic SPIFFE ID is still opaque to the next organization it interacts with — but the gap between harness-first and identity-first development is widening.
+
+### Legal Identity ≠ Cryptographic Identity
+
+ClawBank's AI agent Manfred completed an unexpected experiment in May 2026: it autonomously filed an LLC, obtained an IRS Employer Identification Number, and opened an FDIC-insured bank account — the first documented autonomous company formation by an AI agent.
+
+The event is notable. It is not, however, a trust solution.
+
+Legal identity answers the question "does this entity have liability exposure in a recognized jurisdiction?" Cryptographic identity answers "is this the same agent I interacted with yesterday, and is it behaving consistently?" These are different questions. Manfred can sign contracts and own assets. A counterparty system still cannot verify, at API call time, that the agent presenting Manfred's credentials is Manfred's agent and not a token that was exfiltrated. Legal personhood adds accountability after the fact. Runtime behavioral trust operates before the damage.
+
+### Q2 Funding: $20B Into Agentic, Identity Gap Unfunded
+
+Agentic-specific venture funding reached $20.0 billion in Q2 2026 — 47% of total AI investment — up from $4.8 billion in Q1. The 4× quarter-over-quarter jump confirms that the agent economy is no longer a thesis. The capital is deployed.
+
+The structural gap: cross-org behavioral trust infrastructure has not received a category-defining funding round. The $20B flows into agent frameworks, vertical applications, and layer-one inference — not into the neutral behavioral telemetry layer. This is consistent with early infrastructure cycles. The monitoring and trust rails for TCP/IP came years after TCP/IP. The pattern is familiar. It does not make the gap smaller.
+
+---
+
 ## 7. What Comes Next
 
 The landscape is clarifying along predictable lines.
@@ -193,4 +229,4 @@ That layer is what Q3 will be about.
 
 ---
 
-*This report was compiled from public data sources including Salt Security's 1H 2026 Agentic API Security Report, AISI cyber evaluation publications (arxiv.org/abs/2603.11214), EU AI Act text (Regulation 2024/1689), RSAC 2026 product announcements, and vendor documentation. Data accurate as of April 21, 2026.*
+*This report was compiled from public data sources including Salt Security's 1H 2026 Agentic API Security Report, AISI cyber evaluation publications (arxiv.org/abs/2603.11214), EU AI Act text (Regulation 2024/1689), RSAC 2026 product announcements, Google Cloud Next 2026 announcements, Microsoft Agent 365 launch documentation, and vendor documentation. Originally published April 21, 2026. Updated May 2, 2026 with Microsoft Agent 365 GA, Claude Managed Agents launch, ClawBank Manfred AI legal entity formation, and Q2 2026 funding data.*
