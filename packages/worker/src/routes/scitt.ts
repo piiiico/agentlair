@@ -246,3 +246,276 @@ function arrayToBase64(arr: Uint8Array): string {
 function base64ToArray(b64: string): Uint8Array {
   return Uint8Array.from(atob(b64), c => c.charCodeAt(0));
 }
+
+function xmlEscape(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// ─── Public SCITT Corpus Routes (no auth required) ───────────────────────────
+//
+// Exposes the AgentLair SCITT receipt corpus as a public, paginated feed.
+//
+// Endpoints:
+//   GET /v1/scitt/corpus              — paginated receipt list (JSON)
+//   GET /v1/scitt/corpus/stats        — aggregate statistics
+//   GET /v1/scitt/corpus.atom         — Atom 1.0 feed (subscribable)
+//
+// Privacy: account_id exposed only as public DID; no payloads, no IPs, no details.
+// These routes must be mounted BEFORE the /v1/* auth middleware in index.ts.
+
+export const publicScittRoutes = new Hono<HonoEnv>();
+
+// ─── GET /corpus ─────────────────────────────────────────────────────────────
+// Paginated list of all issued SCITT receipts.
+// No auth required — public corpus for EU AI Act Article 12 compliance visibility.
+//
+// Query params:
+//   after=<leaf_index>  — cursor (integer); returns entries with leaf_index > after
+//   limit=<n>           — page size (default 50, max 100)
+//
+// Response:
+//   { items: [...], next_cursor: number|null, count: number }
+//
+// Item fields:
+//   entry_id, issuer_did, issued_at, statement_type, leaf_index,
+//   tree_size, root_hash, signature, receipt_url
+
+publicScittRoutes.get('/corpus', async (c) => {
+  if (!c.env.AUDIT) {
+    return err('Transparency Service not available.', 503, 'ts_unavailable');
+  }
+
+  const url = new URL(c.req.url);
+  const afterParam = url.searchParams.get('after');
+  const after = afterParam !== null ? parseInt(afterParam, 10) : -1;
+  const limitParam = parseInt(url.searchParams.get('limit') || '50', 10);
+  const limit = Math.min(Math.max(1, isNaN(limitParam) ? 50 : limitParam), 100);
+
+  if (afterParam !== null && (isNaN(after) || after < -1)) {
+    return err('Invalid cursor: after must be a non-negative integer.', 400, 'invalid_cursor');
+  }
+
+  try {
+    const results = await c.env.AUDIT.prepare(`
+      SELECT
+        r.entry_id,
+        r.leaf_index,
+        r.tree_size,
+        r.root_hash,
+        r.created_at,
+        a.account_id,
+        a.category,
+        a.action,
+        a.signature
+      FROM scitt_receipts r
+      JOIN audit_log a ON a.id = r.entry_id
+      WHERE r.leaf_index > ?
+      ORDER BY r.leaf_index ASC
+      LIMIT ?
+    `)
+      .bind(after, limit)
+      .all<{
+        entry_id: string;
+        leaf_index: number;
+        tree_size: number;
+        root_hash: string;
+        created_at: string;
+        account_id: string;
+        category: string;
+        action: string;
+        signature: string;
+      }>();
+
+    const items = (results.results || []).map((row) => ({
+      entry_id: row.entry_id,
+      issuer_did: `did:web:agentlair.dev:agents:${row.account_id}`,
+      issued_at: row.created_at,
+      statement_type: `${row.category}.${row.action}`,
+      leaf_index: row.leaf_index,
+      tree_size: row.tree_size,
+      root_hash: row.root_hash,
+      signature: row.signature,
+      receipt_url: `https://agentlair.dev/v1/scitt/entries/${row.entry_id}/receipt`,
+    }));
+
+    const lastItem = items[items.length - 1];
+    const next_cursor = items.length === limit ? (lastItem?.leaf_index ?? null) : null;
+
+    return json({
+      items,
+      next_cursor,
+      count: items.length,
+    });
+  } catch (e) {
+    console.error('SCITT corpus query failed:', e instanceof Error ? e.message : String(e));
+    return err('Failed to query corpus.', 500, 'corpus_query_error');
+  }
+});
+
+// ─── GET /corpus/stats ───────────────────────────────────────────────────────
+// Aggregate statistics for the entire SCITT corpus.
+// No auth required.
+//
+// Response:
+//   {
+//     total_receipts: number,
+//     unique_issuers: number,
+//     by_statement_type: [{ statement_type, count }],
+//     by_week: [{ week, count }],        // chronological, last 52 weeks
+//     by_issuer: [{ issuer_did, count }] // top 20 by receipt count
+//   }
+
+publicScittRoutes.get('/corpus/stats', async (c) => {
+  if (!c.env.AUDIT) {
+    return err('Transparency Service not available.', 503, 'ts_unavailable');
+  }
+
+  try {
+    // Total receipts + unique issuers (single JOIN query)
+    const totals = await c.env.AUDIT.prepare(`
+      SELECT
+        COUNT(*) as total_receipts,
+        COUNT(DISTINCT a.account_id) as unique_issuers
+      FROM scitt_receipts r
+      JOIN audit_log a ON a.id = r.entry_id
+    `).first<{ total_receipts: number; unique_issuers: number }>();
+
+    // Count by statement type (category.action)
+    const byType = await c.env.AUDIT.prepare(`
+      SELECT
+        a.category || '.' || a.action as statement_type,
+        COUNT(*) as count
+      FROM scitt_receipts r
+      JOIN audit_log a ON a.id = r.entry_id
+      GROUP BY statement_type
+      ORDER BY count DESC
+      LIMIT 50
+    `).all<{ statement_type: string; count: number }>();
+
+    // Count by ISO week (last 52 weeks, returned in chronological order)
+    const byWeek = await c.env.AUDIT.prepare(`
+      SELECT
+        strftime('%Y-W%W', r.created_at) as week,
+        COUNT(*) as count
+      FROM scitt_receipts r
+      GROUP BY week
+      ORDER BY week DESC
+      LIMIT 52
+    `).all<{ week: string; count: number }>();
+
+    // Top 20 issuers by receipt count
+    const byIssuer = await c.env.AUDIT.prepare(`
+      SELECT
+        a.account_id,
+        COUNT(*) as count
+      FROM scitt_receipts r
+      JOIN audit_log a ON a.id = r.entry_id
+      GROUP BY a.account_id
+      ORDER BY count DESC
+      LIMIT 20
+    `).all<{ account_id: string; count: number }>();
+
+    return json({
+      total_receipts: totals?.total_receipts ?? 0,
+      unique_issuers: totals?.unique_issuers ?? 0,
+      by_statement_type: byType.results || [],
+      // Reverse so oldest week is first (chronological)
+      by_week: (byWeek.results || []).reverse(),
+      by_issuer: (byIssuer.results || []).map((r) => ({
+        issuer_did: `did:web:agentlair.dev:agents:${r.account_id}`,
+        count: r.count,
+      })),
+    });
+  } catch (e) {
+    console.error('SCITT corpus stats failed:', e instanceof Error ? e.message : String(e));
+    return err('Failed to query corpus stats.', 500, 'corpus_stats_error');
+  }
+});
+
+// ─── GET /corpus.atom ─────────────────────────────────────────────────────────
+// Atom 1.0 feed of the 50 most recent SCITT receipts.
+// No auth required. Subscribable via any feed reader.
+// Cache-Control: public, max-age=300 (5 minutes).
+
+publicScittRoutes.get('/corpus.atom', async (c) => {
+  if (!c.env.AUDIT) {
+    return new Response('Transparency Service not available.', { status: 503 });
+  }
+
+  try {
+    const results = await c.env.AUDIT.prepare(`
+      SELECT
+        r.entry_id,
+        r.leaf_index,
+        r.tree_size,
+        r.root_hash,
+        r.created_at,
+        a.account_id,
+        a.category,
+        a.action
+      FROM scitt_receipts r
+      JOIN audit_log a ON a.id = r.entry_id
+      ORDER BY r.leaf_index DESC
+      LIMIT 50
+    `).all<{
+      entry_id: string;
+      leaf_index: number;
+      tree_size: number;
+      root_hash: string;
+      created_at: string;
+      account_id: string;
+      category: string;
+      action: string;
+    }>();
+
+    const rows = results.results || [];
+    const lastUpdated = rows[0]?.created_at ?? new Date().toISOString();
+
+    const entries = rows.map((row) => {
+      const stType = `${row.category}.${row.action}`;
+      const did = `did:web:agentlair.dev:agents:${row.account_id}`;
+      const entryUrl = `https://agentlair.dev/v1/scitt/entries/${xmlEscape(row.entry_id)}`;
+      return `  <entry>
+    <id>${entryUrl}</id>
+    <title>${xmlEscape(stType)} [leaf:${row.leaf_index}]</title>
+    <updated>${xmlEscape(row.created_at)}</updated>
+    <author>
+      <name>${xmlEscape(did)}</name>
+      <uri>${xmlEscape(did)}</uri>
+    </author>
+    <link rel="related" href="${entryUrl}/receipt"/>
+    <summary>SCITT receipt — type: ${xmlEscape(stType)}, leaf: ${row.leaf_index}, tree_size: ${row.tree_size}, root: ${xmlEscape(row.root_hash)}</summary>
+  </entry>`;
+    }).join('\n');
+
+    const atom = `<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>AgentLair SCITT Receipt Corpus</title>
+  <id>https://agentlair.dev/v1/scitt/corpus.atom</id>
+  <updated>${xmlEscape(lastUpdated)}</updated>
+  <link rel="self" type="application/atom+xml" href="https://agentlair.dev/v1/scitt/corpus.atom"/>
+  <link rel="alternate" type="application/json" href="https://agentlair.dev/v1/scitt/corpus"/>
+  <author>
+    <name>AgentLair Transparency Service</name>
+    <uri>https://agentlair.dev</uri>
+  </author>
+  <subtitle>Verifiable SCITT receipts from the AgentLair Transparency Service. EU AI Act Article 12 aligned.</subtitle>
+${entries}
+</feed>`;
+
+    return new Response(atom, {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/atom+xml; charset=UTF-8',
+        'Cache-Control': 'public, max-age=300',
+      },
+    });
+  } catch (e) {
+    console.error('SCITT corpus Atom feed failed:', e instanceof Error ? e.message : String(e));
+    return new Response('Failed to generate feed.', { status: 500 });
+  }
+});
