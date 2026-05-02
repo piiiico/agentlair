@@ -54,7 +54,7 @@ import { specRoutes } from './routes/spec.js';
 import { idpRoutes, revokeRoutes, buildOIDCDiscovery } from './idp/index.js';
 import { demoRoutes } from './routes/demo.js';
 import { scittRoutes, publicScittRoutes } from './routes/scitt.js';
-import { popaRoutes } from './routes/popa.js';
+import { popaRoutes, popaEnrollRoutes } from './routes/popa.js';
 import { runPoPADaily } from './crons/popa-daily.js';
 import { handleCheckout, handleStripeWebhook } from './routes/stripe.js';
 import { EXPLORE_HTML } from './routes/explore.js';
@@ -1549,6 +1549,12 @@ app.route('/v1', auditRoutes);
 
 // SCITT Transparency Service routes: POST /v1/scitt/entries, GET /v1/scitt/entries/:id, GET /v1/scitt/entries/:id/receipt
 app.route('/v1/scitt', scittRoutes);
+
+// PoPA enrollment: POST /v1/popa/enroll — auth-gated. The public popaRoutes
+// mount above (line ~1091) handles GET /v1/popa/:did before auth. Hono falls
+// through that public mount on POST (no method match), the /v1/* auth
+// middleware runs, and lands here.
+app.route('/v1/popa', popaEnrollRoutes);
 
 // Session lifecycle routes (PicoClaw agent session tracking)
 app.route('/v1/sessions', sessionRoutes);
