@@ -69,3 +69,11 @@ new_sqlite_classes = ["TransparencyService"]
 binding = "AUDIT"
 database_name = "agentlair-audit"
 database_id = "7e358e12-9c65-4803-9d1d-298fec510099"
+
+# Cron triggers
+# Daily PoPA emission at 00:00 UTC (one attestation per enabled subscriber per day).
+# IMPORTANT: wrangler.toml [triggers] may not register cron via the deploy script alone.
+# Deploy stage MUST verify via GET /accounts/{id}/workers/scripts/agentlair-api/schedules
+# and PUT it explicitly if absent (per agentlair-pipeline.md napkin entry 2026-04-24).
+[triggers]
+crons = ["0 0 * * *"]

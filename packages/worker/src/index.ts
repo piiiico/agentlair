@@ -11,6 +11,7 @@ import { InboxNotifier } from './durable-objects/inbox-notifier.js';
 import { API_DISCOVERY, OPENAPI_SPEC, SCALAR_DOCS_HTML } from './openapi.js';
 import { AGENT_CARD } from './a2a.js';
 import { LLMS_TXT } from './llms-txt.js';
+import { RSL_XML, AGENTS_JSON } from './well-known-extras.js';
 import { authenticateAny } from './middleware/auth.js';
 import { buildJWKS, getPublicKey, computeKeyId, publicKeyToJWK } from './jwt.js';
 import { checkRateLimit, checkPodRateLimit } from './middleware/ratelimit.js';
@@ -53,6 +54,8 @@ import { specRoutes } from './routes/spec.js';
 import { idpRoutes, revokeRoutes, buildOIDCDiscovery } from './idp/index.js';
 import { demoRoutes } from './routes/demo.js';
 import { scittRoutes } from './routes/scitt.js';
+import { popaRoutes } from './routes/popa.js';
+import { runPoPADaily } from './crons/popa-daily.js';
 import { handleCheckout, handleStripeWebhook } from './routes/stripe.js';
 import { EXPLORE_HTML } from './routes/explore.js';
 import { computeTrustScore } from './trust-engine.js';
@@ -489,6 +492,28 @@ app.get('/.well-known/mcp/server.json', () =>
     docs: 'https://agentlair.dev/api',
     llms_txt: 'https://agentlair.dev/llms.txt',
   }, null, 2), {
+    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=3600' },
+  })
+);
+
+// ── RSL — Really Simple Licensing ────────────────────────────────────────────
+// Declares training/inference license terms per https://rslstandard.org/
+// Free with CC-BY-4.0 attribution; commercial training requires license.
+
+app.get('/.well-known/rsl.xml', () =>
+  new Response(RSL_XML, {
+    status: 200,
+    headers: { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=86400' },
+  })
+);
+
+// ── agents.json — Agent Discovery ────────────────────────────────────────────
+// First-mover convention: AAT issuer DID, citation policy, x402 receiver,
+// behavioral-trust thresholds, and contact for agent inquiries.
+
+app.get('/.well-known/agents.json', () =>
+  new Response(JSON.stringify(AGENTS_JSON, null, 2), {
+    status: 200,
     headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=3600' },
   })
 );
@@ -1059,6 +1084,11 @@ app.route('/v1/demo', demoRoutes);
 // No auth required: external services verify tokens without needing an AgentLair account.
 // Mounted BEFORE auth middleware so the /:jti handler runs unauthenticated.
 app.route('/v1/audit', publicAuditRoutes);
+
+// Public PoPA endpoint: GET /v1/popa/:did — Proof-of-Presence streak metrics.
+// No auth required: external verifiers read attestation chains by DID.
+// Mounted BEFORE auth middleware so the /:did handler runs unauthenticated.
+app.route('/v1/popa', popaRoutes);
 
 // ── Waitlist: lead capture for paid tiers (no auth required) ────────────────
 // Captures email + company before Stripe checkout is live.
@@ -2073,6 +2103,19 @@ export default {
 
   async email(message: CfEmailMessage, env: Env, ctx: ExecutionContext) {
     return handleInboundEmail(message, env, ctx);
+  },
+
+  /**
+   * Cron triggers (registered in wrangler.toml [triggers]).
+   *  - "0 0 * * *" → daily PoPA emission for all enabled subscribers.
+   *
+   * Cron runs are non-blocking from the platform's view; we use waitUntil
+   * to keep the isolate alive long enough to finish.
+   */
+  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
+    if (event.cron === '0 0 * * *') {
+      ctx.waitUntil(runPoPADaily(env));
+    }
   },
 };
 
