@@ -189,53 +189,11 @@ scittRoutes.get('/entries/:entry_id', async (c) => {
 });
 
 // ─── GET /entries/:entry_id/receipt ─────────────────────────────────────────
-// Return just the SCITT Receipt (raw COSE_Sign1 bytes).
-
-scittRoutes.get('/entries/:entry_id/receipt', async (c) => {
-  const account = c.get('account');
-  if (!account) return err('Authentication required.', 401, 'unauthorized');
-
-  if (!c.env.AUDIT) {
-    return err('Audit trail not configured.', 503, 'audit_unavailable');
-  }
-
-  const entryId = c.req.param('entry_id');
-
-  // IDOR guard
-  const ownerCheck = await c.env.AUDIT
-    .prepare('SELECT id FROM audit_log WHERE id = ? AND account_id = ? LIMIT 1')
-    .bind(entryId, account.id)
-    .first();
-
-  if (!ownerCheck) {
-    return err('Entry not found.', 404, 'entry_not_found');
-  }
-
-  // Get receipt
-  let receipt: { receipt_cbor: string } | null = null;
-  try {
-    receipt = await c.env.AUDIT
-      .prepare('SELECT receipt_cbor FROM scitt_receipts WHERE entry_id = ? LIMIT 1')
-      .bind(entryId)
-      .first<{ receipt_cbor: string }>();
-  } catch {
-    // Table may not exist
-  }
-
-  if (!receipt) {
-    return err('No receipt for this entry. Register via POST /v1/scitt/entries.', 404, 'no_receipt');
-  }
-
-  // Return raw COSE bytes
-  const receiptBytes = base64ToArray(receipt.receipt_cbor);
-  return new Response(receiptBytes, {
-    status: 200,
-    headers: {
-      'Content-Type': 'application/scitt-receipt+cose',
-      'Content-Length': String(receiptBytes.length),
-    },
-  });
-});
+// Removed: the public receipt route on publicScittRoutes (mounted earlier in
+// index.ts at line 1096) now handles this path for all callers.
+// SCITT receipts are public artifacts per RFC 9052 / IETF SCITT — no IDOR
+// scoping is appropriate. The authenticated GET /entries/:id route (which
+// includes the full Transparent Statement with account-private payload) remains.
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -269,6 +227,50 @@ function xmlEscape(s: string): string {
 
 export const publicScittRoutes = new Hono<HonoEnv>();
 
+// ─── GET /entries/:entry_id/receipt (public) ─────────────────────────────────
+// Return just the SCITT Receipt (raw COSE_Sign1 bytes). No auth required.
+//
+// SCITT receipts are public artifacts per RFC 9052 / IETF SCITT — they contain
+// only the cryptographic proof of inclusion, not account-private payload data.
+// Anyone can fetch and verify a receipt against the public JWKS.
+//
+// Lookup is by entry_id only (no IDOR scoping — receipts belong to no single
+// account). Mounted earlier than the /v1/* auth middleware (line 1096 in
+// index.ts), so this route preempts the now-removed authenticated handler.
+
+publicScittRoutes.get('/entries/:entry_id/receipt', async (c) => {
+  if (!c.env.AUDIT) {
+    return err('Audit trail not configured.', 503, 'audit_unavailable');
+  }
+
+  const entryId = c.req.param('entry_id');
+
+  // No IDOR check — receipts are public artifacts.
+  let receipt: { receipt_cbor: string } | null = null;
+  try {
+    receipt = await c.env.AUDIT
+      .prepare('SELECT receipt_cbor FROM scitt_receipts WHERE entry_id = ? LIMIT 1')
+      .bind(entryId)
+      .first<{ receipt_cbor: string }>();
+  } catch {
+    // Table may not exist yet
+  }
+
+  if (!receipt) {
+    return err('No receipt for this entry.', 404, 'no_receipt');
+  }
+
+  // Return raw COSE bytes
+  const receiptBytes = base64ToArray(receipt.receipt_cbor);
+  return new Response(receiptBytes, {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/scitt-receipt+cose',
+      'Content-Length': String(receiptBytes.length),
+    },
+  });
+});
+
 // ─── GET /corpus ─────────────────────────────────────────────────────────────
 // Paginated list of all issued SCITT receipts.
 // No auth required — public corpus for EU AI Act Article 12 compliance visibility.
@@ -295,7 +297,7 @@ publicScittRoutes.get('/corpus', async (c) => {
   const limitParam = parseInt(url.searchParams.get('limit') || '50', 10);
   const limit = Math.min(Math.max(1, isNaN(limitParam) ? 50 : limitParam), 100);
 
-  if (afterParam !== null && (isNaN(after) || after < -1)) {
+  if (afterParam !== null && (isNaN(after) || after < 0)) {
     return err('Invalid cursor: after must be a non-negative integer.', 400, 'invalid_cursor');
   }
 

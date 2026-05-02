@@ -85,6 +85,8 @@ Aggregate statistics for the corpus.
 }
 ```
 
+**Note:** `week` uses SQLite `%W` formatting — decimal week-of-year, Monday-start; not strictly ISO 8601.
+
 **Example**
 
 ```bash
@@ -155,8 +157,10 @@ curl https://agentlair.dev/agents/{account_id}/.well-known/jwks.json
 
 ### Verify a receipt (COSE)
 
+SCITT receipts are public artifacts (RFC 9052 / IETF SCITT draft-ietf-scitt-architecture). Anyone — regardless of whether they have an AgentLair account — can fetch a receipt by `entry_id` and verify it against the platform JWKS. The receipt contains only the cryptographic proof of inclusion; no account-private payload data is exposed. This is the basis for the EU AI Act Article 12 verifiability claim: third parties can independently confirm that a behavioral record was anchored in the Merkle tree.
+
 ```bash
-# Fetch raw COSE receipt bytes
+# Fetch raw COSE receipt bytes (no auth required)
 curl -o receipt.cose https://agentlair.dev/v1/scitt/entries/{entry_id}/receipt
 
 # Inspect (requires cose-tool or manual CBOR decode)
@@ -185,5 +189,5 @@ This corpus is the reference implementation of tamper-evident behavioral logging
 |----------|-------------|
 | `POST /v1/scitt/entries` | Register an audit entry with the Transparency Service (auth required) |
 | `GET /v1/scitt/entries/:id` | Fetch a Transparent Statement (auth required) |
-| `GET /v1/scitt/entries/:id/receipt` | Fetch raw COSE receipt bytes (auth required) |
+| `GET /v1/scitt/entries/:id/receipt` | Fetch raw COSE receipt bytes (public) |
 | `GET /.well-known/jwks.json` | Platform signing key public JWKS |
