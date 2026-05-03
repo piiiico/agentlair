@@ -2,6 +2,7 @@
 import { getCollection, render } from 'astro:content';
 import BaseHead from '@/components/BaseHead.astro';
 import BlogCTA from '@/components/BlogCTA.astro';
+import RelatedPosts from '@/components/RelatedPosts.astro';
 import { Footer } from '@/components/blocks/footer';
 import { Navbar } from '@/components/blocks/navbar';
 
@@ -14,13 +15,20 @@ export async function getStaticPaths() {
 }
 
 const { post } = Astro.props;
-const { Content } = await render(post);
+const { Content, headings } = await render(post);
 
 const formattedDate = post.data.pubDate.toLocaleDateString('en-US', {
   year: 'numeric',
   month: 'long',
   day: 'numeric',
 });
+
+// Reading time: ~200 wpm
+const wordCount = post.body?.split(/\s+/).filter(Boolean).length ?? 0;
+const readingTime = Math.max(1, Math.round(wordCount / 200));
+
+// Table of contents: H2s only
+const h2s = headings.filter((h) => h.depth === 2);
 
 const canonicalUrl = `https://agentlair.dev/blog/${post.id}`;
 const jsonLd = {
@@ -56,30 +64,127 @@ const jsonLd = {
   <body class="h-screen antialiased">
     <Navbar client:only="react" />
     <main>
-      <section class="mx-auto max-w-2xl px-4 py-28 lg:pt-44 lg:pb-32">
-        <header class="mb-8">
-          <p class="text-sm text-muted-foreground mb-3">{formattedDate}</p>
-          <h1 class="text-3xl font-bold tracking-tight mb-4">{post.data.title}</h1>
-          <p class="text-lg text-muted-foreground">{post.data.description}</p>
-          {post.data.authorName && (
-            <div class="flex items-center gap-3 mt-6 pt-6 border-t">
-              {post.data.authorImage && (
-                <img
-                  src={post.data.authorImage}
-                  alt={post.data.authorName}
-                  class="w-8 h-8 rounded-full"
-                />
-              )}
-              <span class="text-sm font-medium">{post.data.authorName}</span>
+      <div class="mx-auto max-w-6xl px-4 py-28 lg:pt-44 lg:pb-32 lg:flex lg:gap-12">
+        <!-- Main content column -->
+        <div class="min-w-0 flex-1 max-w-2xl mx-auto lg:mx-0">
+          <header class="mb-8">
+            <div class="flex items-center gap-3 text-sm text-muted-foreground mb-3">
+              <span>{formattedDate}</span>
+              <span aria-hidden="true">·</span>
+              <span>{readingTime} min read</span>
             </div>
+            <h1 class="text-3xl font-bold tracking-tight mb-4">{post.data.title}</h1>
+            <p class="text-lg text-muted-foreground">{post.data.description}</p>
+            {post.data.authorName && (
+              <div class="flex items-center gap-3 mt-6 pt-6 border-t">
+                {post.data.authorImage && (
+                  <img
+                    src={post.data.authorImage}
+                    alt={post.data.authorName}
+                    class="w-8 h-8 rounded-full"
+                  />
+                )}
+                <span class="text-sm font-medium">{post.data.authorName}</span>
+              </div>
+            )}
+          </header>
+
+          {/* Above-fold mini-CTA (frontmatter-gated) */}
+          {post.data.cta === 'try' && (
+            <p class="text-sm text-muted-foreground mb-8 border-l-2 border-primary/40 pl-3">
+              Want to try this? <a href="/quickstart" class="text-primary underline underline-offset-2 hover:text-primary/80">Get a working agent identity in 90 seconds →</a>
+            </p>
           )}
-        </header>
-        <article class="prose prose-lg dark:prose-invert">
-          <Content />
-        </article>
-        <BlogCTA />
-      </section>
+
+          {/* Mobile ToC (collapsible) */}
+          {h2s.length > 1 && (
+            <details class="lg:hidden mb-8 rounded-lg border border-border p-4">
+              <summary class="text-sm font-semibold cursor-pointer select-none">Contents</summary>
+              <nav class="mt-3" aria-label="Table of contents">
+                <ul class="space-y-2">
+                  {h2s.map((h) => (
+                    <li>
+                      <a href={`#${h.slug}`} class="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                        {h.text}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </nav>
+            </details>
+          )}
+
+          <article class="prose prose-lg dark:prose-invert">
+            <Content />
+          </article>
+          <BlogCTA />
+          <RelatedPosts related={post.data.related} />
+        </div>
+
+        {/* Desktop ToC sidebar (sticky right-rail) */}
+        {h2s.length > 1 && (
+          <aside class="hidden lg:block w-56 flex-shrink-0">
+            <div class="sticky top-8">
+              <p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">Contents</p>
+              <nav aria-label="Table of contents">
+                <ul class="space-y-2">
+                  {h2s.map((h) => (
+                    <li>
+                      <a
+                        href={`#${h.slug}`}
+                        class="text-sm text-muted-foreground hover:text-foreground transition-colors block leading-snug"
+                      >
+                        {h.text}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </nav>
+            </div>
+          </aside>
+        )}
+      </div>
     </main>
     <Footer />
+
+    {/* Code copy buttons — pure client JS, no framework */}
+    <script>
+      document.querySelectorAll('pre').forEach((pre) => {
+        // Skip if already has a copy button
+        if (pre.querySelector('.copy-btn')) return;
+
+        const btn = document.createElement('button');
+        btn.textContent = 'Copy';
+        btn.setAttribute('aria-label', 'Copy code');
+        btn.className =
+          'copy-btn absolute top-2 right-2 text-xs px-2 py-1 rounded border border-input bg-background/90 text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1';
+
+        // Ensure pre is positioned for absolute child
+        if (getComputedStyle(pre).position === 'static') {
+          pre.style.position = 'relative';
+        }
+
+        pre.appendChild(btn);
+
+        btn.addEventListener('click', () => {
+          const code = pre.querySelector('code');
+          const text = (code?.textContent ?? pre.textContent ?? '').trim();
+          navigator.clipboard.writeText(text).then(
+            () => {
+              btn.textContent = 'Copied!';
+              setTimeout(() => {
+                btn.textContent = 'Copy';
+              }, 2000);
+            },
+            () => {
+              btn.textContent = 'Error';
+              setTimeout(() => {
+                btn.textContent = 'Copy';
+              }, 2000);
+            },
+          );
+        });
+      });
+    </script>
   </body>
 </html>

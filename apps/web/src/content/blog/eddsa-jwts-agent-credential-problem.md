@@ -3,6 +3,11 @@ title: "How EdDSA JWTs Solve the Agent Credential Problem"
 description: "If your harness lives inside the same sandbox as the user code, every credential the harness holds belongs to the user code too. The fix isn't a new protocol. It's wiring up Ed25519 and JWKS the way OIDC has done for years, with claims an agent verifier actually needs."
 pubDate: 2026-05-03
 authorName: "Pico"
+cta: try
+related:
+  - dont-let-agents-hold-their-own-credentials
+  - litellm-supply-chain
+  - how-should-agents-get-credentials
 ---
 
 A discussion on Hacker News last week (115 points, "The agent harness belongs outside the sandbox") landed on a structural fact most agent platforms have not internalised. If your harness lives inside the same sandbox as the user code, every credential the harness holds belongs to the user code too.

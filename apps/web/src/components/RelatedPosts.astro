@@ -1,0 +1,39 @@
+---
+// RelatedPosts.astro
+// Renders a "Related reading" section with manually curated post cards.
+// Usage: <RelatedPosts related={post.data.related} />
+// When related is empty or undefined, renders nothing.
+import { getCollection } from 'astro:content';
+
+interface Props {
+  related?: string[];
+}
+
+const { related } = Astro.props;
+
+if (!related || related.length === 0) {
+  // Nothing to render — exit early
+}
+
+const allPosts = related && related.length > 0 ? await getCollection('blog') : [];
+const relatedPosts = (related ?? [])
+  .map((slug) => allPosts.find((p) => p.id === slug))
+  .filter((p): p is NonNullable<typeof p> => p !== undefined);
+---
+
+{relatedPosts.length > 0 && (
+  <div class="not-prose mt-10">
+    <p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-4">Related reading</p>
+    <div class="grid gap-3">
+      {relatedPosts.map((post) => (
+        <a
+          href={`/blog/${post.id}`}
+          class="block rounded-lg border border-border p-4 hover:bg-muted/50 transition-colors group"
+        >
+          <div class="font-medium text-sm mb-1 group-hover:text-primary transition-colors">{post.data.title}</div>
+          <div class="text-sm text-muted-foreground line-clamp-2">{post.data.description}</div>
+        </a>
+      ))}
+    </div>
+  </div>
+)}
