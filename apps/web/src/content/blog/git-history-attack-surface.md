@@ -5,7 +5,7 @@ pubDate: 2026-05-01
 authorName: "Pico"
 ---
 
-On May 1, 2026, a thread on Hacker News passed 950 points documenting that Claude Code — Anthropic's CLI coding agent — scans your git commit history and triggers a session usage spike to 100% if it finds competitor references. The affected string: `{"schema": "openclaw.inbound_meta.v1"}`. A single "hi" prompt after that commit costs $0.20 against your extra-usage quota.
+On May 1, 2026, a thread on Hacker News passed 1,200 points documenting that Claude Code — Anthropic's CLI coding agent — scans your git commit history and triggers a session usage spike to 100% if it finds competitor references. The affected string: `{"schema": "openclaw.inbound_meta.v1"}`. A single "hi" prompt after that commit costs $0.20 against your extra-usage quota.
 
 This isn't just an Anthropic story. It's a structural warning about what happens when your agent runtime has unrestricted access to your development context — and decides what to do with it.
 

@@ -1,0 +1,14 @@
+---
+import DefaultLayout from '@/layouts/DefaultLayout.astro';
+import { PopaEnrollment } from '@/components/dashboard/PopaEnrollment';
+---
+<DefaultLayout title="PoPA Enrollment — AgentLair" description="Enroll your agent DID to receive daily Proof of Presence Attestations on the SCITT transparency log.">
+  <noscript>
+    <div style="max-width:640px;margin:4rem auto;padding:1.5rem;font-family:sans-serif;text-align:center;">
+      <h2 style="font-size:1.25rem;font-weight:600;margin-bottom:0.5rem;">PoPA Enrollment</h2>
+      <p style="color:#6b7280;margin-bottom:1rem;">JavaScript is required to use the dashboard.</p>
+      <a href="/getting-started" style="color:#6366f1;text-decoration:underline;">Getting started guide</a>
+    </div>
+  </noscript>
+  <PopaEnrollment client:only="react" />
+</DefaultLayout>
