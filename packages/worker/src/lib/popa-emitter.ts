@@ -254,6 +254,22 @@ export async function emitAttestation(
       )
       .run();
 
+    // 9b. Update subscriber's last_attested_at (PoPA v2). Best-effort:
+    // a stale value still lets the dashboard render correctly because
+    // popa_attestations is the source of truth — this column is a denormalised
+    // hint for cheap "is this enrollment fresh?" lookups (e.g. the eventual
+    // /v1/popa/enrollments admin view, planned for a follow-up).
+    try {
+      await audit
+        .prepare(
+          `UPDATE popa_subscribers SET last_attested_at = ? WHERE agent_did = ?`,
+        )
+        .bind(new Date().toISOString(), agentDid)
+        .run();
+    } catch {
+      // Non-fatal — column may not exist yet on first deploy of v2 migration.
+    }
+
     // 10. Cache invalidate (KEYS namespace doubles as the popa cache)
     try {
       await env.KEYS.delete('popa:' + agentDid);

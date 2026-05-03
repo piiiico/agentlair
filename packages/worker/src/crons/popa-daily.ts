@@ -39,8 +39,10 @@ export async function runPoPADaily(env: Env): Promise<PoPADailySummary> {
 
   let subs: { results?: { agent_did: string }[] };
   try {
+    // PoPA v2: also skip revoked rows. revoked_at IS NULL is forward-compatible
+    // with v1 rows where the column does not yet exist (SQLite returns NULL).
     subs = await env.AUDIT
-      .prepare('SELECT agent_did FROM popa_subscribers WHERE enabled = 1')
+      .prepare('SELECT agent_did FROM popa_subscribers WHERE enabled = 1 AND revoked_at IS NULL')
       .all<{ agent_did: string }>();
   } catch (e) {
     const reason = e instanceof Error ? e.message : String(e);

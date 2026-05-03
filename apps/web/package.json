@@ -1,7 +1,7 @@
 {
   "name": "agentlair-web",
   "type": "module",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "scripts": {
     "dev": "astro dev",
     "build": "astro build",
@@ -9,6 +9,7 @@
     "deploy": "bun run build && bun deploy.ts"
   },
   "dependencies": {
+    "@agentlair/popa": "0.1.0",
     "@astrojs/mdx": "^4.3.7",
     "@astrojs/react": "^4.4.0",
     "@astrojs/sitemap": "^3.6.0",
