@@ -1,0 +1,25 @@
+---
+import DefaultLayout from '@/layouts/DefaultLayout.astro';
+import { VerifyWidget } from '@/components/verify/VerifyWidget';
+
+const title = 'Verify — AgentLair';
+const description =
+  'Paste any DID or AAT and see the full attestation chain — DID resolution, signature, PoPA streak, issuer keys.';
+const canonicalUrl = 'https://agentlair.dev/verify';
+---
+
+<DefaultLayout title={title} description={description}>
+  <link rel="canonical" href={canonicalUrl} slot="head" />
+  <noscript>
+    <div style="max-width:640px;margin:4rem auto;padding:1.5rem;font-family:sans-serif;text-align:center;">
+      <h2 style="font-size:1.25rem;font-weight:600;margin-bottom:0.5rem;">Verify any agent</h2>
+      <p style="color:#6b7280;margin-bottom:1rem;">JavaScript is required — verification runs in your browser using Web Crypto.</p>
+      <p style="color:#6b7280;font-size:0.875rem;">
+        For programmatic checks, hit
+        <code>GET https://agentlair.dev/v1/popa/&lt;did&gt;</code>
+        or use <a href="https://www.npmjs.com/package/@agentlair/popa" style="color:#6366f1;text-decoration:underline;">@agentlair/popa</a>.
+      </p>
+    </div>
+  </noscript>
+  <VerifyWidget client:load />
+</DefaultLayout>
