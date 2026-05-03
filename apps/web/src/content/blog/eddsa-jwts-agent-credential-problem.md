@@ -47,7 +47,7 @@ Scoping is a product decision, not a crypto decision. The crypto only enforces t
 
 AgentLair's AAT (Agent Authentication Token) is this pattern in production. Each PicoClaw container session gets a fresh JWT. Header: `{"alg":"EdDSA","typ":"JWT","kid":"<8-hex>"}`. Signed with Ed25519 via `@noble/curves`. Public key published at `https://agentlair.dev/.well-known/jwks.json`.
 
-The claims include the standard set (`iss`, `sub`, `aud`, `exp`, `iat`, `jti`) plus the agent-specific ones we found we needed: `al_name`, `al_email`, `al_scopes`, `al_audit_url`, and (when the agent has 10+ behavioral observations) `al_trust` carrying a numeric score, level, and trend.
+The claims include the standard set (`iss`, `sub`, `aud`, `exp`, `iat`, `jti`) plus the agent-specific ones we found we needed: `al_name`, `al_email`, `al_scopes`, `al_audit_url`, and (when the agent has 10+ [behavioral observations](/behavioral)) `al_trust` carrying a numeric score, level, and trend.
 
 The signing key is on the host. The container gets `$AGENTLAIR_AAT` and nothing else. If a tool call exfiltrates the token, the worst case is a one-hour replay window against an agent whose trust attestation is now visible to every verifier on the planet.
 
@@ -55,4 +55,4 @@ The JWKS endpoint supports algorithm agility. When ML-DSA (FIPS 204) keys land a
 
 Most of this is RFC-grade primitives in a slightly different envelope. The novel part is the operational shape. The harness boundary stops being a trust boundary, because the credentials inside the sandbox are no longer the credentials of record.
 
-→ [agentlair.dev](https://agentlair.dev). JWKS lives at `/.well-known/jwks.json`. Verifier package: `@agentlair/verify`.
+The verifier package is `@agentlair/verify` ([integration notes in the docs](/docs)). Public keys live at [`/.well-known/jwks.json`](https://agentlair.dev/.well-known/jwks.json). If you want a working AAT in your terminal, [/quickstart](/quickstart) takes about 90 seconds — no signup form, no card.
