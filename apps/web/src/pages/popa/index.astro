@@ -1,0 +1,54 @@
+---
+import BaseHead from '@/components/BaseHead.astro';
+import { Footer } from '@/components/blocks/footer';
+import { Navbar } from '@/components/blocks/navbar';
+import { PopaFreshnessPage } from '@/components/popa/PopaFreshnessPage';
+
+const title = 'PoPA Freshness Dashboard — AgentLair';
+const description =
+  'Verify daily attestation streaks for any DID. Powered by @agentlair/popa — Proof of Persistent Activity.';
+const canonicalUrl = 'https://agentlair.dev/popa/';
+---
+
+<html lang="en">
+  <head>
+    <BaseHead title={title} description={description} />
+    <link rel="canonical" href={canonicalUrl} />
+
+    <!-- Override canonical to the actual DID page via JS once loaded -->
+    <script>
+      const did = window.location.pathname.replace(/^\/popa\//, '').trim();
+      if (did) {
+        const link = document.querySelector('link[rel="canonical"]') as HTMLLinkElement | null;
+        if (link) link.href = `https://agentlair.dev/popa/${encodeURIComponent(did)}`;
+        document.title = `PoPA — ${did}`;
+        const metaTitle = document.querySelector('meta[name="title"]') as HTMLMetaElement | null;
+        if (metaTitle) metaTitle.content = document.title;
+      }
+    </script>
+
+    <!-- Structured data -->
+    <script type="application/ld+json" set:html={JSON.stringify({
+      '@context': 'https://schema.org',
+      '@type': 'WebPage',
+      name: title,
+      description,
+      url: canonicalUrl,
+      isPartOf: {
+        '@type': 'WebSite',
+        name: 'AgentLair',
+        url: 'https://agentlair.dev',
+      },
+    })} />
+  </head>
+  <body class="h-screen antialiased">
+    <Navbar client:only="react" />
+    <main>
+      <div class="mx-auto max-w-2xl px-4 pt-28 lg:pt-44 -mb-12 text-right">
+        <a href="/popa/leaderboard" class="text-xs text-muted-foreground hover:text-foreground">View leaderboard →</a>
+      </div>
+      <PopaFreshnessPage client:only="react" />
+    </main>
+    <Footer />
+  </body>
+</html>

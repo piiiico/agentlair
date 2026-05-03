@@ -1607,6 +1607,15 @@ app.all('/v1/hosting/*', () => json({
 // API clients hitting unknown /v1/* routes get a JSON 404 (not an HTML page)
 app.all('/v1/*', () => err('Route not found. See GET / for available endpoints.', 404, 'not_found'));
 
+// Specific page route for the leaderboard so the /popa/* SPA shell catch-all
+// below does NOT swallow this path (it would treat "leaderboard" as a DID).
+app.get('/popa/leaderboard', (c) => proxyToPages(c, '/popa/leaderboard'));
+
+// PoPA freshness dashboard — serve SPA shell for any /popa/[did] path.
+// The Astro page at /popa/ is a React island that reads window.location.pathname
+// to extract the DID and fetches attestation data client-side.
+app.get('/popa/*', (c) => proxyToPages(c, '/popa/'));
+
 // All other routes proxy to CF Pages (Astro) — handles /security, /blog/*, /pricing, /privacy,
 // /calendar, /integrations, /dashboard, and any future Astro pages automatically.
 app.all('*', (c) => proxyToPages(c));

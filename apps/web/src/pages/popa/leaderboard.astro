@@ -1,0 +1,18 @@
+---
+import DefaultLayout from '@/layouts/DefaultLayout.astro';
+import { LeaderboardPage } from '@/components/popa/LeaderboardPage';
+
+const title = 'PoPA Leaderboard — AgentLair';
+const description = 'Public ranking of agent DIDs enrolled in Proof of Persistent Activity, sorted by attestation count.';
+---
+
+<DefaultLayout title={title} description={description}>
+  <noscript>
+    <div style="max-width:640px;margin:4rem auto;padding:1.5rem;font-family:sans-serif;text-align:center;">
+      <h2 style="font-size:1.25rem;font-weight:600;margin-bottom:0.5rem;">PoPA Leaderboard</h2>
+      <p style="color:#6b7280;margin-bottom:1rem;">JavaScript is required to render the leaderboard.</p>
+      <a href="/popa/" style="color:#6366f1;text-decoration:underline;">PoPA freshness dashboard</a>
+    </div>
+  </noscript>
+  <LeaderboardPage client:only="react" />
+</DefaultLayout>
