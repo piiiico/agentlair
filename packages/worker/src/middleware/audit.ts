@@ -426,3 +426,71 @@ export async function writeMemoryAuditEvent(
     console.error('Memory audit event write failed:', e instanceof Error ? e.message : String(e));
   }
 }
+
+// ─── writeGitCommitAuditEvent — signed audit event for AI git commits ─────────
+// Creates a first-class audit log entry for a git commit made by an AI agent.
+// Called from the SCITT git-receipt endpoint to produce an entry_id that can
+// then be registered with the Transparency Service.
+//
+// Returns the entry_id so the caller can immediately POST it to SCITT.
+
+export async function writeGitCommitAuditEvent(
+  env: import('../types.js').Env,
+  params: {
+    accountId: string;
+    commitHash: string;
+    authorizedBy: string;
+    repoUrl?: string;
+    message?: string;
+  },
+): Promise<string | null> {
+  if (!env.AUDIT || !env.AUDIT_SIGNING_KEY) return null;
+  try {
+    const prevHash = await getPrevHash(env);
+    const now = new Date().toISOString();
+    const entryId = nanoid(20);
+    const details: Record<string, string | boolean> = {
+      commit_hash: params.commitHash,
+      authorized_by: params.authorizedBy,
+    };
+    if (params.repoUrl) details.repo_url = params.repoUrl;
+    if (params.message) details.commit_message = params.message;
+
+    const entryWithoutSignature: Omit<AuditEntry, 'signature'> = {
+      id: entryId,
+      timestamp: now,
+      account_id: params.accountId,
+      actor_type: 'account',
+      actor_id: params.accountId,
+      actor_ip_hash: null,
+      category: 'git',
+      action: 'git.commit',
+      method: 'POST',
+      path: '/v1/scitt/git-commits',
+      resource_type: 'git_commit',
+      resource_id: params.commitHash,
+      status: 201,
+      result: 'success',
+      error_code: null,
+      details,
+      prev_hash: prevHash,
+    };
+    const signature = await signEntry(entryWithoutSignature, env.AUDIT_SIGNING_KEY);
+    const entry: AuditEntry = { ...entryWithoutSignature, signature };
+    lastEntryHash = await sha256hex(JSON.stringify(entry));
+    await env.AUDIT.prepare(
+      `INSERT INTO audit_log (id, timestamp, account_id, actor_type, actor_id, actor_ip_hash, category, action, method, path, resource_type, resource_id, status, result, error_code, details, prev_hash, signature)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(
+      entry.id, entry.timestamp, entry.account_id, entry.actor_type, entry.actor_id,
+      entry.actor_ip_hash, entry.category, entry.action, entry.method, entry.path,
+      entry.resource_type, entry.resource_id, entry.status, entry.result,
+      entry.error_code, entry.details !== null ? JSON.stringify(entry.details) : null,
+      entry.prev_hash, entry.signature,
+    ).run();
+    return entryId;
+  } catch (e) {
+    console.error('Git commit audit event write failed:', e instanceof Error ? e.message : String(e));
+    return null;
+  }
+}

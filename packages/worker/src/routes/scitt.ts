@@ -5,7 +5,8 @@
  * Registration API (SCRAPI) per draft-ietf-scitt-architecture-22 §8.
  *
  * Endpoints:
- *   POST /v1/scitt/entries              — Register a Signed Statement
+ *   POST /v1/scitt/entries              — Register a Signed Statement (from audit entry)
+ *   POST /v1/scitt/git-commits          — Register AI git commit as SCITT receipt
  *   GET  /v1/scitt/entries/:entry_id    — Retrieve Transparent Statement
  *   GET  /v1/scitt/entries/:entry_id/receipt — Retrieve Receipt only
  *
@@ -19,6 +20,7 @@ import { json, err } from '../utils.js';
 import { auditEntryToCAF } from '../caf.js';
 import { cafToSignedStatement } from '../caf-scitt.js';
 import type { AuditEntry } from '../middleware/audit.js';
+import { writeGitCommitAuditEvent } from '../middleware/audit.js';
 
 export const scittRoutes = new Hono<HonoEnv>();
 
@@ -121,6 +123,133 @@ scittRoutes.post('/entries', async (c) => {
     tree_size: result.treeSize,
     root_hash: result.rootHash,
     receipt: result.receipt,
+    status: 'registered',
+  }, 201);
+});
+
+// ─── POST /git-commits ──────────────────────────────────────────────────────
+// Register an AI git commit as a SCITT transparent statement.
+//
+// Use case: a post-commit hook in an AI-assisted repo calls this endpoint with
+// the commit hash, agent DID, and authorization context. The endpoint creates
+// an audit log entry for the commit, registers it with the Transparency Service,
+// and returns a SCITT Receipt. The receipt can be embedded in the commit as a
+// git trailer: "AgentLair-Receipt: <entry_id>"
+//
+// Body: {
+//   commit_hash:   string  — 40-char SHA-1 git commit hash (required)
+//   authorized_by: string  — human or system that authorized the AI change (required)
+//   repo_url?:     string  — git remote URL for public verifiability
+//   message?:      string  — first line of the commit message (optional context)
+// }
+//
+// Response: 201 with entry_id + receipt + receipt_url
+//   entry_id:    string — audit entry ID (use as AgentLair-Receipt trailer value)
+//   receipt:     string — base64-encoded COSE Receipt (Merkle inclusion proof)
+//   receipt_url: string — public URL to fetch the receipt without authentication
+//   leaf_index:  number — position in Merkle tree
+//   tree_size:   number — total leaves at time of registration
+//   root_hash:   string — SHA-256 Merkle root
+
+scittRoutes.post('/git-commits', async (c) => {
+  const account = c.get('account');
+  if (!account) return err('Authentication required.', 401, 'unauthorized');
+
+  if (!c.env.AUDIT || !c.env.AUDIT_SIGNING_KEY) {
+    return err('Audit trail not configured.', 503, 'audit_unavailable');
+  }
+
+  if (!c.env.TRANSPARENCY_SERVICE) {
+    return err('Transparency Service not available.', 503, 'ts_unavailable');
+  }
+
+  // Parse and validate request body
+  let body: { commit_hash: string; authorized_by: string; repo_url?: string; message?: string };
+  try {
+    body = await c.req.json();
+  } catch {
+    return err('Invalid JSON body.', 400, 'invalid_body');
+  }
+
+  if (!body.commit_hash || typeof body.commit_hash !== 'string') {
+    return err('commit_hash is required.', 400, 'missing_commit_hash');
+  }
+  if (!/^[0-9a-f]{40}$/i.test(body.commit_hash)) {
+    return err('commit_hash must be a 40-character hex SHA-1.', 400, 'invalid_commit_hash');
+  }
+  if (!body.authorized_by || typeof body.authorized_by !== 'string') {
+    return err('authorized_by is required.', 400, 'missing_authorized_by');
+  }
+
+  // Create audit log entry for the git commit
+  const entryId = await writeGitCommitAuditEvent(c.env, {
+    accountId: account.id,
+    commitHash: body.commit_hash,
+    authorizedBy: body.authorized_by,
+    repoUrl: body.repo_url,
+    message: body.message,
+  });
+
+  if (!entryId) {
+    return err('Failed to create audit entry.', 500, 'audit_write_error');
+  }
+
+  // Look up the newly created entry
+  const queryResult = await c.env.AUDIT
+    .prepare('SELECT * FROM audit_log WHERE id = ? AND account_id = ? LIMIT 1')
+    .bind(entryId, account.id)
+    .all<AuditEntry>();
+
+  const raw = queryResult.results?.[0];
+  if (!raw) {
+    return err('Audit entry not found after write.', 500, 'audit_read_error');
+  }
+
+  const entry: AuditEntry = {
+    ...raw,
+    details: raw.details
+      ? (typeof raw.details === 'string' ? JSON.parse(raw.details as unknown as string) : raw.details)
+      : null,
+  };
+
+  // Convert to SCITT Signed Statement (CAF → COSE_Sign1)
+  const attestation = await auditEntryToCAF(entry, c.env.AUDIT_SIGNING_KEY);
+  const signedStatement = await cafToSignedStatement(attestation, c.env.AUDIT_SIGNING_KEY);
+
+  // Submit to Transparency Service DO
+  const tsId = c.env.TRANSPARENCY_SERVICE.idFromName('global');
+  const tsStub = c.env.TRANSPARENCY_SERVICE.get(tsId);
+
+  const doResponse = await tsStub.fetch(new Request('https://ts/append', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      signedStatement: arrayToBase64(signedStatement),
+      entryId,
+    }),
+  }));
+
+  if (!doResponse.ok) {
+    const doErr = await doResponse.text();
+    return err(`Transparency Service error: ${doErr}`, 500, 'ts_error');
+  }
+
+  const result = await doResponse.json() as {
+    receipt: string;
+    leafIndex: number;
+    treeSize: number;
+    rootHash: string;
+  };
+
+  return json({
+    entry_id: entryId,
+    commit_hash: body.commit_hash,
+    authorized_by: body.authorized_by,
+    leaf_index: result.leafIndex,
+    tree_size: result.treeSize,
+    root_hash: result.rootHash,
+    receipt: result.receipt,
+    receipt_url: `https://agentlair.dev/v1/scitt/entries/${entryId}/receipt`,
     status: 'registered',
   }, 201);
 });

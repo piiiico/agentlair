@@ -1,0 +1,134 @@
+#!/usr/bin/env bash
+# AgentLair git-receipt: post-commit hook
+#
+# Attaches a verifiable SCITT receipt to AI-assisted commits.
+# Amends the commit with an "AgentLair-Receipt:" trailer containing
+# an entry ID that anyone can verify at agentlair.dev without auth.
+#
+# Install:
+#   cp post-commit .git/hooks/post-commit
+#   chmod +x .git/hooks/post-commit
+#
+# Required env vars:
+#   AGENTLAIR_API_KEY — your AgentLair API key (al_live_...)
+#
+# Optional env vars:
+#   AGENTLAIR_AUTHORIZED_BY — who authorized this AI change (default: git user)
+#   AGENTLAIR_API_BASE       — API base URL (default: https://api.agentlair.dev)
+#
+# The hook is a no-op when:
+#   - AGENTLAIR_API_KEY is not set (non-AI repos work unchanged)
+#   - The commit already has an AgentLair-Receipt trailer (amend safety)
+#   - The API call fails (non-blocking — commit is not rolled back)
+
+set -euo pipefail
+
+# ─── Configuration ───────────────────────────────────────────────────────────
+
+API_KEY="${AGENTLAIR_API_KEY:-}"
+API_BASE="${AGENTLAIR_API_BASE:-https://api.agentlair.dev}"
+
+# Skip if no API key configured — hook is silent for non-AI repos
+if [[ -z "$API_KEY" ]]; then
+  exit 0
+fi
+
+# ─── Gather commit context ───────────────────────────────────────────────────
+
+COMMIT_HASH=$(git rev-parse HEAD)
+COMMIT_MSG=$(git log -1 --format="%s" HEAD)
+REPO_URL=$(git remote get-url origin 2>/dev/null || echo "")
+
+# authorized_by: prefer env var, fall back to git committer identity
+if [[ -n "${AGENTLAIR_AUTHORIZED_BY:-}" ]]; then
+  AUTHORIZED_BY="$AGENTLAIR_AUTHORIZED_BY"
+else
+  GIT_NAME=$(git config user.name 2>/dev/null || echo "")
+  GIT_EMAIL=$(git config user.email 2>/dev/null || echo "")
+  if [[ -n "$GIT_NAME" && -n "$GIT_EMAIL" ]]; then
+    AUTHORIZED_BY="${GIT_NAME} <${GIT_EMAIL}>"
+  elif [[ -n "$GIT_EMAIL" ]]; then
+    AUTHORIZED_BY="$GIT_EMAIL"
+  else
+    AUTHORIZED_BY="unknown"
+  fi
+fi
+
+# Skip if commit already has a receipt (amend safety)
+if git log -1 --format="%B" HEAD | grep -q "^AgentLair-Receipt:"; then
+  exit 0
+fi
+
+# ─── Build JSON payload ──────────────────────────────────────────────────────
+
+# Use python3 for safe JSON encoding (handles special chars in commit message)
+PAYLOAD=$(python3 -c "
+import json, sys
+d = {
+  'commit_hash': sys.argv[1],
+  'authorized_by': sys.argv[2],
+  'message': sys.argv[3],
+}
+if sys.argv[4]:
+  d['repo_url'] = sys.argv[4]
+print(json.dumps(d))
+" "$COMMIT_HASH" "$AUTHORIZED_BY" "$COMMIT_MSG" "$REPO_URL" 2>/dev/null)
+
+if [[ -z "$PAYLOAD" ]]; then
+  # python3 not available — build payload with printf (basic escaping)
+  COMMIT_MSG_ESCAPED=$(printf '%s' "$COMMIT_MSG" | sed 's/\\/\\\\/g; s/"/\\"/g')
+  AUTHORIZED_BY_ESCAPED=$(printf '%s' "$AUTHORIZED_BY" | sed 's/\\/\\\\/g; s/"/\\"/g')
+  PAYLOAD="{\"commit_hash\":\"${COMMIT_HASH}\",\"authorized_by\":\"${AUTHORIZED_BY_ESCAPED}\",\"message\":\"${COMMIT_MSG_ESCAPED}\"}"
+  if [[ -n "$REPO_URL" ]]; then
+    REPO_URL_ESCAPED=$(printf '%s' "$REPO_URL" | sed 's/\\/\\\\/g; s/"/\\"/g')
+    PAYLOAD="{\"commit_hash\":\"${COMMIT_HASH}\",\"authorized_by\":\"${AUTHORIZED_BY_ESCAPED}\",\"message\":\"${COMMIT_MSG_ESCAPED}\",\"repo_url\":\"${REPO_URL_ESCAPED}\"}"
+  fi
+fi
+
+# ─── Submit to AgentLair SCITT ───────────────────────────────────────────────
+
+RESPONSE=$(curl -sf \
+  --max-time 10 \
+  -X POST "${API_BASE}/v1/scitt/git-commits" \
+  -H "Authorization: Bearer ${API_KEY}" \
+  -H "Content-Type: application/json" \
+  -d "$PAYLOAD" 2>/dev/null) || {
+  # API call failed — do not block the commit
+  echo "agentlair-receipt: API call failed (commit unaffected)" >&2
+  exit 0
+}
+
+# Extract entry_id from response
+ENTRY_ID=$(echo "$RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin)['entry_id'])" 2>/dev/null)
+if [[ -z "$ENTRY_ID" ]]; then
+  # Try grep fallback if python3 unavailable
+  ENTRY_ID=$(echo "$RESPONSE" | grep -o '"entry_id":"[^"]*"' | cut -d'"' -f4)
+fi
+
+if [[ -z "$ENTRY_ID" ]]; then
+  echo "agentlair-receipt: could not parse entry_id from response" >&2
+  exit 0
+fi
+
+RECEIPT_URL="https://agentlair.dev/v1/scitt/entries/${ENTRY_ID}/receipt"
+
+# ─── Amend commit with receipt trailer ──────────────────────────────────────
+#
+# We amend the last commit (no staging — just message edit) to append:
+#   AgentLair-Receipt: <entry_id>
+#
+# This is a local operation only. The receipt is public at:
+#   https://agentlair.dev/v1/scitt/entries/<entry_id>/receipt
+
+CURRENT_MSG=$(git log -1 --format="%B" HEAD)
+NEW_MSG="${CURRENT_MSG}
+AgentLair-Receipt: ${ENTRY_ID}"
+
+# Amend without changing author, date, or tree — message only
+git commit --amend --no-edit --only --message "$NEW_MSG" --no-verify 2>/dev/null || {
+  echo "agentlair-receipt: commit amend failed (receipt not embedded, but registered)" >&2
+  echo "agentlair-receipt: verify at ${RECEIPT_URL}" >&2
+  exit 0
+}
+
+echo "agentlair-receipt: ${ENTRY_ID} (verify: ${RECEIPT_URL})"
