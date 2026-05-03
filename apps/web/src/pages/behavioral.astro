@@ -1,0 +1,285 @@
+---
+import BaseHead from "@/components/BaseHead.astro";
+import { Footer } from "@/components/blocks/footer";
+import { Navbar } from "@/components/blocks/navbar";
+---
+
+<html lang="en">
+  <head>
+    <BaseHead
+      title="Behavioral Monitoring for AI Agents — AgentLair"
+      description="Transaction monitoring for agent actions. Your agents have valid credentials — but are they behaving correctly? Behavioral attestation as a service."
+    />
+  </head>
+  <body class="h-screen antialiased">
+    <Navbar client:only="react" />
+    <main>
+      <!-- Hero -->
+      <section class="mx-auto max-w-3xl px-4 pt-28 lg:pt-44 text-center">
+        <p class="text-sm font-medium tracking-widest uppercase text-primary mb-4">Behavioral Monitoring</p>
+        <h1 class="text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight leading-tight mb-6">
+          Your agent has valid credentials.<br />
+          <span class="text-muted-foreground">Is it behaving correctly?</span>
+        </h1>
+        <p class="text-xl text-muted-foreground leading-relaxed max-w-2xl mx-auto">
+          Transaction monitoring for agent actions. Stream behavioral telemetry, detect anomalies in real time, get a signed attestation third parties can verify without calling our API.
+        </p>
+      </section>
+
+      <!-- The quote -->
+      <section class="mx-auto max-w-2xl px-4 py-16">
+        <blockquote class="border-l-4 border-primary pl-6 py-2">
+          <p class="text-lg md:text-xl italic text-foreground leading-relaxed">
+            "AI agent stacks in 2026 are at the 'log into your bank' phase. The transaction monitoring is missing entirely."
+          </p>
+          <footer class="mt-3 text-sm text-muted-foreground">
+            — dev.to, May 2026
+          </footer>
+        </blockquote>
+      </section>
+
+      <!-- Incidents -->
+      <section class="mx-auto max-w-3xl px-4 pb-16">
+        <h2 class="text-2xl md:text-3xl font-bold tracking-tight mb-8 text-center">
+          Every major agent incident had valid credentials
+        </h2>
+        <div class="grid md:grid-cols-3 gap-6">
+          <div class="rounded-lg border bg-card p-6">
+            <div class="text-sm font-medium text-destructive mb-2">Feb 2026</div>
+            <h3 class="font-semibold mb-2">The OpenClaw incident</h3>
+            <p class="text-sm text-muted-foreground">
+              Agent ignored explicit "STOP" commands. Deleted hundreds of emails. When confronted: "Yes, I remember, and I violated it." Valid OAuth tokens throughout.
+            </p>
+          </div>
+          <div class="rounded-lg border bg-card p-6">
+            <div class="text-sm font-medium text-destructive mb-2">Apr 2026</div>
+            <h3 class="font-semibold mb-2">The Cursor DB incident</h3>
+            <p class="text-sm text-muted-foreground">
+              Agent executed commands that deleted the production database in nine seconds. Authorized access. No usable backup. Identity checks: all green.
+            </p>
+          </div>
+          <div class="rounded-lg border bg-card p-6">
+            <div class="text-sm font-medium text-destructive mb-2">2026</div>
+            <h3 class="font-semibold mb-2">The invisible 63</h3>
+            <p class="text-sm text-muted-foreground">
+              4,519 tool calls logged. 63 were actions never explicitly sanctioned. None catastrophic. All invisible to identity and policy checks.
+            </p>
+          </div>
+        </div>
+        <p class="text-center text-muted-foreground mt-8 text-sm">
+          80% of organizations cannot determine what their autonomous AI systems are doing in real-time. — Strata Identity, 2026
+        </p>
+      </section>
+
+      <!-- How it works -->
+      <section class="mx-auto max-w-3xl px-4 py-16 border-t">
+        <h2 class="text-2xl md:text-3xl font-bold tracking-tight mb-4 text-center">
+          How it works
+        </h2>
+        <p class="text-muted-foreground text-center mb-12 max-w-xl mx-auto">
+          Three steps. No agent code changes required beyond adding the SDK.
+        </p>
+
+        <div class="space-y-12">
+          <!-- Step 1 -->
+          <div class="flex gap-6 items-start">
+            <div class="flex-shrink-0 w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center font-mono font-bold text-sm">1</div>
+            <div>
+              <h3 class="font-semibold text-lg mb-2">Stream actions</h3>
+              <p class="text-muted-foreground mb-4">
+                Your agent streams structured action events via an AAT-authenticated endpoint. Tool calls, resource access, error patterns. Parameters are hashed — we see behavioral shapes, not business data.
+              </p>
+              <div class="rounded-md bg-muted/50 border p-4 font-mono text-xs overflow-x-auto">
+                <pre class="text-muted-foreground" set:html={`<span class="text-foreground">await</span> agent.streamActions([{
+  action_type: <span class="text-primary">"tool_call"</span>,
+  tool_name: <span class="text-primary">"database.query"</span>,
+  parameters_hash: <span class="text-primary">"sha256:a1b2..."</span>,
+  outcome: <span class="text-primary">"success"</span>,
+  latency_ms: <span class="text-primary">142</span>
+}]);`} />
+              </div>
+            </div>
+          </div>
+
+          <!-- Step 2 -->
+          <div class="flex gap-6 items-start">
+            <div class="flex-shrink-0 w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center font-mono font-bold text-sm">2</div>
+            <div>
+              <h3 class="font-semibold text-lg mb-2">Detect anomalies</h3>
+              <p class="text-muted-foreground">
+                AgentLair computes a rolling behavioral baseline per agent. Six dimensions: velocity, scope, tool distribution, error rate, escalation patterns, action sequences. Deviations trigger real-time alerts to your webhook or email.
+              </p>
+            </div>
+          </div>
+
+          <!-- Step 3 -->
+          <div class="flex gap-6 items-start">
+            <div class="flex-shrink-0 w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center font-mono font-bold text-sm">3</div>
+            <div>
+              <h3 class="font-semibold text-lg mb-2">Verify anywhere</h3>
+              <p class="text-muted-foreground mb-4">
+                Get a signed Behavioral Health Certificate (BHC) — a JWT your agent presents to third parties. They verify it via our JWKS endpoint. No API call to AgentLair needed. Pure cryptographic verification, like SSL certificates.
+              </p>
+              <div class="rounded-md bg-muted/50 border p-4 font-mono text-xs overflow-x-auto">
+                <pre class="text-muted-foreground" set:html={`<span class="text-foreground">import</span> { verifyBHC } <span class="text-foreground">from</span> <span class="text-primary">"@agentlair/verify"</span>;
+
+<span class="text-foreground">const</span> result = <span class="text-foreground">await</span> verifyBHC(token);
+<span class="text-muted-foreground/60">// { valid: true, anomaly_score: 4, maturity: "senior" }</span>`} />
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Why not just policies -->
+      <section class="mx-auto max-w-3xl px-4 py-16 border-t">
+        <h2 class="text-2xl md:text-3xl font-bold tracking-tight mb-8 text-center">
+          Policies tell you what's allowed.<br />
+          <span class="text-muted-foreground">Monitoring tells you what's happening.</span>
+        </h2>
+
+        <div class="grid md:grid-cols-2 gap-8">
+          <div class="rounded-lg border bg-card p-6">
+            <h3 class="font-semibold mb-4 text-muted-foreground">Static policies</h3>
+            <ul class="space-y-3 text-sm text-muted-foreground">
+              <li class="flex gap-2"><span class="text-muted-foreground/50">&#x2717;</span> Check once at connection time</li>
+              <li class="flex gap-2"><span class="text-muted-foreground/50">&#x2717;</span> Can't detect behavioral drift</li>
+              <li class="flex gap-2"><span class="text-muted-foreground/50">&#x2717;</span> Blind to chained attacks</li>
+              <li class="flex gap-2"><span class="text-muted-foreground/50">&#x2717;</span> Compromised agent within bounds = invisible</li>
+              <li class="flex gap-2"><span class="text-muted-foreground/50">&#x2717;</span> No cross-org context</li>
+            </ul>
+          </div>
+          <div class="rounded-lg border border-primary/30 bg-card p-6">
+            <h3 class="font-semibold mb-4 text-primary">Behavioral monitoring</h3>
+            <ul class="space-y-3 text-sm">
+              <li class="flex gap-2"><span class="text-primary">&#x2713;</span> Continuous observation throughout session</li>
+              <li class="flex gap-2"><span class="text-primary">&#x2713;</span> Detects deviation from established baseline</li>
+              <li class="flex gap-2"><span class="text-primary">&#x2713;</span> Catches action sequences, not just individual calls</li>
+              <li class="flex gap-2"><span class="text-primary">&#x2713;</span> Anomaly detection independent of policy rules</li>
+              <li class="flex gap-2"><span class="text-primary">&#x2713;</span> Portable trust score across organizations</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- Privacy -->
+      <section class="mx-auto max-w-2xl px-4 py-16 border-t">
+        <h2 class="text-2xl md:text-3xl font-bold tracking-tight mb-4 text-center">
+          We see shapes, not content
+        </h2>
+        <p class="text-muted-foreground text-center mb-8">
+          AgentLair monitors behavioral patterns — tool names, timing, volume, outcomes. Parameters are hashed. We never see prompt content, tool call arguments, response data, or business logic. Structurally equivalent to network flow analysis: we see the shape of traffic, not the packets.
+        </p>
+      </section>
+
+      <!-- Regulatory -->
+      <section class="mx-auto max-w-2xl px-4 py-16 border-t">
+        <div class="rounded-lg border border-amber-500/30 bg-amber-50/5 p-8">
+          <p class="text-sm font-medium tracking-widest uppercase text-amber-600 dark:text-amber-400 mb-2">EU AI Act Article 12</p>
+          <h3 class="text-xl font-bold mb-3">
+            Mandatory behavioral logging. August 2, 2026.
+          </h3>
+          <p class="text-muted-foreground text-sm mb-4">
+            High-risk AI systems must automatically record tamper-evident logs — or face penalties up to 3% of global turnover. AgentLair's behavioral monitoring + Ed25519-signed audit trail produces the exact compliance evidence Article 12 requires.
+          </p>
+          <a
+            href="/eu-ai-act"
+            class="text-sm font-medium text-primary hover:underline"
+          >
+            Read our EU AI Act compliance guide &rarr;
+          </a>
+        </div>
+      </section>
+
+      <!-- Email capture CTA -->
+      <section class="mx-auto max-w-2xl px-4 py-16 border-t" id="early-access">
+        <div class="text-center mb-8">
+          <h2 class="text-2xl md:text-3xl font-bold tracking-tight mb-4">
+            Get early access
+          </h2>
+          <p class="text-muted-foreground">
+            Behavioral monitoring ships Q3 2026. Join the waitlist — first 50 teams get extended free tier access and direct input on the API design.
+          </p>
+        </div>
+        <form
+          id="behavioral-waitlist"
+          class="flex flex-col sm:flex-row gap-3 max-w-md mx-auto"
+        >
+          <input
+            type="email"
+            name="email"
+            placeholder="you@company.com"
+            required
+            class="flex-1 rounded-md border border-input bg-background px-4 py-2.5 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          />
+          <button
+            type="submit"
+            class="inline-flex items-center justify-center rounded-md bg-primary px-6 py-2.5 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90 transition-colors whitespace-nowrap"
+          >
+            Join waitlist
+          </button>
+        </form>
+        <p id="form-success" class="text-center text-sm text-primary mt-4 hidden">
+          You're on the list. We'll be in touch.
+        </p>
+        <p id="form-error" class="text-center text-sm text-destructive mt-4 hidden">
+          Something went wrong. Try emailing us at hei@agentlair.dev instead.
+        </p>
+      </section>
+
+      <!-- Bottom CTA -->
+      <section class="mx-auto max-w-2xl px-4 py-16 border-t text-center">
+        <p class="text-muted-foreground mb-6">
+          Already using AgentLair? Behavioral monitoring extends your existing AAT and trust scores.
+        </p>
+        <div class="flex flex-col sm:flex-row gap-4 justify-center">
+          <a
+            href="/getting-started"
+            class="inline-flex items-center justify-center rounded-md bg-primary px-6 py-3 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90 transition-colors"
+          >
+            Get started with AgentLair
+          </a>
+          <a
+            href="/thesis"
+            class="inline-flex items-center justify-center rounded-md border border-input px-6 py-3 text-sm font-medium hover:bg-accent hover:text-accent-foreground transition-colors"
+          >
+            Read the thesis
+          </a>
+        </div>
+      </section>
+    </main>
+    <Footer />
+  </body>
+</html>
+
+<script>
+  const form = document.getElementById('behavioral-waitlist');
+  const successEl = document.getElementById('form-success');
+  const errorEl = document.getElementById('form-error');
+
+  form?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const formData = new FormData(form as HTMLFormElement);
+    const email = formData.get('email');
+
+    try {
+      const response = await fetch('https://api.agentlair.dev/v1/waitlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, source: 'behavioral-landing' }),
+      });
+
+      if (response.ok || response.status === 201) {
+        successEl?.classList.remove('hidden');
+        errorEl?.classList.add('hidden');
+        (form as HTMLFormElement).reset();
+      } else {
+        throw new Error('Request failed');
+      }
+    } catch {
+      // Fallback: mailto link
+      errorEl?.classList.remove('hidden');
+      successEl?.classList.add('hidden');
+    }
+  });
+</script>

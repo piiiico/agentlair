@@ -1,0 +1,297 @@
+---
+import BaseHead from "@/components/BaseHead.astro";
+import { Footer } from "@/components/blocks/footer";
+import { Navbar } from "@/components/blocks/navbar";
+---
+
+<html lang="en">
+  <head>
+    <BaseHead
+      title="Portable Agent Reputation — AgentLair"
+      description="Track record that travels across platforms. Cross-org behavioral reputation for AI agents — built on observed behavior, not ratings."
+    />
+  </head>
+  <body class="h-screen antialiased">
+    <Navbar client:only="react" />
+    <main>
+      <!-- Hero -->
+      <section class="mx-auto max-w-3xl px-4 pt-28 lg:pt-44 text-center">
+        <p class="text-sm font-medium tracking-widest uppercase text-primary mb-4">Portable Reputation</p>
+        <h1 class="text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight leading-tight mb-6">
+          Track record that travels<br />
+          <span class="text-muted-foreground">across platforms.</span>
+        </h1>
+        <p class="text-xl text-muted-foreground leading-relaxed max-w-2xl mx-auto">
+          Cross-org behavioral reputation for AI agents. Built on observed behavior across hundreds of sessions — not self-reported ratings, not blockchain staking, not walled-garden scores.
+        </p>
+      </section>
+
+      <!-- The problem -->
+      <section class="mx-auto max-w-2xl px-4 py-16">
+        <blockquote class="border-l-4 border-primary pl-6 py-2">
+          <p class="text-lg md:text-xl italic text-foreground leading-relaxed">
+            "Every time my agent connects to a new service, it starts from zero. 800 successful sessions mean nothing at the next door."
+          </p>
+        </blockquote>
+      </section>
+
+      <!-- What exists today -->
+      <section class="mx-auto max-w-3xl px-4 pb-16">
+        <h2 class="text-2xl md:text-3xl font-bold tracking-tight mb-8 text-center">
+          Agent reputation today is broken
+        </h2>
+        <div class="grid md:grid-cols-2 gap-6">
+          <div class="rounded-lg border bg-card p-6">
+            <h3 class="font-semibold mb-2">Blockchain-locked</h3>
+            <p class="text-sm text-muted-foreground">
+              ERC-8004 and similar require Ethereum wallets, gas fees, and on-chain transactions. Reputation based on subjective ratings, not observed behavior. Anyone can leave fake reviews.
+            </p>
+          </div>
+          <div class="rounded-lg border bg-card p-6">
+            <h3 class="font-semibold mb-2">Intra-org only</h3>
+            <p class="text-sm text-muted-foreground">
+              Microsoft AGT computes excellent trust scores — inside your tenant. The moment your agent crosses an org boundary, the score disappears.
+            </p>
+          </div>
+          <div class="rounded-lg border bg-card p-6">
+            <h3 class="font-semibold mb-2">Capital-gameable</h3>
+            <p class="text-sm text-muted-foreground">
+              Staking models let agents post collateral to appear trustworthy. A well-funded malicious agent looks identical to a well-funded legitimate one.
+            </p>
+          </div>
+          <div class="rounded-lg border bg-card p-6">
+            <h3 class="font-semibold mb-2">Walled gardens</h3>
+            <p class="text-sm text-muted-foreground">
+              Agent marketplace ratings stay inside the marketplace. Your agent's reputation on Platform A is invisible to Platform B.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- How AgentLair does it differently -->
+      <section class="mx-auto max-w-3xl px-4 py-16 border-t">
+        <h2 class="text-2xl md:text-3xl font-bold tracking-tight mb-4 text-center">
+          Reputation from behavior, not ratings
+        </h2>
+        <p class="text-muted-foreground text-center mb-12 max-w-xl mx-auto">
+          AgentLair observes what your agent actually does across organizations. The result is a cryptographically signed reputation token any third party can verify.
+        </p>
+
+        <div class="space-y-12">
+          <!-- Step 1 -->
+          <div class="flex gap-6 items-start">
+            <div class="flex-shrink-0 w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center font-mono font-bold text-sm">1</div>
+            <div>
+              <h3 class="font-semibold text-lg mb-2">Behavior is observed</h3>
+              <p class="text-muted-foreground">
+                Your agent streams behavioral telemetry to AgentLair during normal operation. Tool calls, timing, patterns, outcomes. Parameters are hashed — we see shapes, not content. This happens automatically with our behavioral monitoring SDK.
+              </p>
+            </div>
+          </div>
+
+          <!-- Step 2 -->
+          <div class="flex gap-6 items-start">
+            <div class="flex-shrink-0 w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center font-mono font-bold text-sm">2</div>
+            <div>
+              <h3 class="font-semibold text-lg mb-2">Evidence aggregates across orgs</h3>
+              <p class="text-muted-foreground">
+                Each organization contributes behavioral evidence. AgentLair aggregates across org boundaries — 14 organizations observing the same agent over 847 sessions produces a reputation that no single org could compute alone.
+              </p>
+            </div>
+          </div>
+
+          <!-- Step 3 -->
+          <div class="flex gap-6 items-start">
+            <div class="flex-shrink-0 w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center font-mono font-bold text-sm">3</div>
+            <div>
+              <h3 class="font-semibold text-lg mb-2">Verify anywhere, no API call</h3>
+              <p class="text-muted-foreground mb-4">
+                Your agent receives a Portable Reputation Token — a signed JWT. Third parties verify it against our JWKS endpoint. Pure cryptographic verification, like checking an SSL certificate. No runtime dependency on AgentLair.
+              </p>
+              <div class="rounded-md bg-muted/50 border p-4 font-mono text-xs overflow-x-auto">
+                <pre class="text-muted-foreground" set:html={`<span class="text-foreground">import</span> { verifyPRT } <span class="text-foreground">from</span> <span class="text-primary">"@agentlair/verify"</span>;
+
+<span class="text-foreground">const</span> rep = <span class="text-foreground">await</span> verifyPRT(token);
+<span class="text-muted-foreground/60">// { valid: true, score: 82, maturity: "senior",
+//   orgs_observed: 14, anomaly_rate: 0.012 }</span>`} />
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- What's in a PRT -->
+      <section class="mx-auto max-w-3xl px-4 py-16 border-t">
+        <h2 class="text-2xl md:text-3xl font-bold tracking-tight mb-4 text-center">
+          What's inside the reputation token
+        </h2>
+        <p class="text-muted-foreground text-center mb-8 max-w-xl mx-auto">
+          A compact JWT with everything a consuming service needs to make a trust decision.
+        </p>
+        <div class="rounded-md bg-muted/50 border p-6 font-mono text-xs overflow-x-auto max-w-2xl mx-auto">
+          <pre class="text-muted-foreground" set:html={`{
+  <span class="text-primary">"score"</span>: 82,             <span class="text-muted-foreground/60">// 0-100 behavioral reputation</span>
+  <span class="text-primary">"confidence"</span>: 0.91,      <span class="text-muted-foreground/60">// statistical confidence</span>
+  <span class="text-primary">"maturity"</span>: <span class="text-primary">"senior"</span>,    <span class="text-muted-foreground/60">// seed → junior → senior → veteran</span>
+  <span class="text-primary">"sessions_observed"</span>: 847,
+  <span class="text-primary">"orgs_observed"</span>: 14,
+  <span class="text-primary">"anomaly_rate"</span>: 0.012,
+  <span class="text-primary">"domains"</span>: {
+    <span class="text-primary">"code_execution"</span>: 89,
+    <span class="text-primary">"data_access"</span>: 78,
+    <span class="text-primary">"external_api"</span>: 85,
+    <span class="text-primary">"financial"</span>: 91
+  }
+}`} />
+        </div>
+      </section>
+
+      <!-- Comparison -->
+      <section class="mx-auto max-w-3xl px-4 py-16 border-t">
+        <h2 class="text-2xl md:text-3xl font-bold tracking-tight mb-8 text-center">
+          Observed behavior compounds.<br />
+          <span class="text-muted-foreground">Ratings and staking don't.</span>
+        </h2>
+
+        <div class="grid md:grid-cols-2 gap-8">
+          <div class="rounded-lg border bg-card p-6">
+            <h3 class="font-semibold mb-4 text-muted-foreground">Rating-based systems</h3>
+            <ul class="space-y-3 text-sm text-muted-foreground">
+              <li class="flex gap-2"><span class="text-muted-foreground/50">&#x2717;</span> Anyone can leave reviews — sybil-vulnerable</li>
+              <li class="flex gap-2"><span class="text-muted-foreground/50">&#x2717;</span> Subjective opinions, not observed facts</li>
+              <li class="flex gap-2"><span class="text-muted-foreground/50">&#x2717;</span> Blockchain required — gas fees, wallet friction</li>
+              <li class="flex gap-2"><span class="text-muted-foreground/50">&#x2717;</span> Gameable with capital or coordination</li>
+              <li class="flex gap-2"><span class="text-muted-foreground/50">&#x2717;</span> No behavioral context — high rating ≠ safe</li>
+            </ul>
+          </div>
+          <div class="rounded-lg border border-primary/30 bg-card p-6">
+            <h3 class="font-semibold mb-4 text-primary">Behavioral reputation</h3>
+            <ul class="space-y-3 text-sm">
+              <li class="flex gap-2"><span class="text-primary">&#x2713;</span> Built from observed agent behavior</li>
+              <li class="flex gap-2"><span class="text-primary">&#x2713;</span> Cross-org aggregation from verified sources</li>
+              <li class="flex gap-2"><span class="text-primary">&#x2713;</span> No blockchain — sub-second, zero gas</li>
+              <li class="flex gap-2"><span class="text-primary">&#x2713;</span> Can't be faked without real compute</li>
+              <li class="flex gap-2"><span class="text-primary">&#x2713;</span> Domain-specific scores — trust is contextual</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- Subjective trust -->
+      <section class="mx-auto max-w-2xl px-4 py-16 border-t">
+        <h2 class="text-2xl md:text-3xl font-bold tracking-tight mb-4 text-center">
+          Your trust, your weights
+        </h2>
+        <p class="text-muted-foreground text-center mb-8">
+          Global scores are a starting point. The subjective trust API lets you weight reputation by the behavioral domains that matter to your use case. A financial platform weights financial behavior at 2x. A code deployment tool weights code execution. Same agent, different trust views — because trust is contextual.
+        </p>
+        <div class="rounded-md bg-muted/50 border p-4 font-mono text-xs overflow-x-auto max-w-lg mx-auto">
+          <pre class="text-muted-foreground" set:html={`GET /v1/reputation/agent_id
+  <span class="text-primary">?weights=financial:2.0,code_execution:0.5</span>
+  <span class="text-primary">&min_confidence=0.8</span>
+
+<span class="text-muted-foreground/60">→ { "score": 88, "confidence": 0.87 }</span>`} />
+        </div>
+      </section>
+
+      <!-- Decay -->
+      <section class="mx-auto max-w-2xl px-4 py-16 border-t">
+        <h2 class="text-2xl md:text-3xl font-bold tracking-tight mb-4 text-center">
+          Reputation decays. By design.
+        </h2>
+        <p class="text-muted-foreground text-center mb-4">
+          An agent last observed 90 days ago is less trustworthy than one observed yesterday. AgentLair applies exponential decay — reputation scores drift toward neutral during inactivity. Recent behavior matters more. Negative signals decay slower than positive ones. The token always reflects current confidence, not historical peak.
+        </p>
+      </section>
+
+      <!-- Email capture CTA -->
+      <section class="mx-auto max-w-2xl px-4 py-16 border-t" id="early-access">
+        <div class="text-center mb-8">
+          <h2 class="text-2xl md:text-3xl font-bold tracking-tight mb-4">
+            Get early access
+          </h2>
+          <p class="text-muted-foreground">
+            Portable reputation ships with behavioral monitoring in Q3 2026. Join the waitlist — your agent's track record should follow it everywhere.
+          </p>
+        </div>
+        <form
+          id="reputation-waitlist"
+          class="flex flex-col sm:flex-row gap-3 max-w-md mx-auto"
+        >
+          <input
+            type="email"
+            name="email"
+            placeholder="you@company.com"
+            required
+            class="flex-1 rounded-md border border-input bg-background px-4 py-2.5 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          />
+          <button
+            type="submit"
+            class="inline-flex items-center justify-center rounded-md bg-primary px-6 py-2.5 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90 transition-colors whitespace-nowrap"
+          >
+            Join waitlist
+          </button>
+        </form>
+        <p id="form-success" class="text-center text-sm text-primary mt-4 hidden">
+          You're on the list. We'll be in touch.
+        </p>
+        <p id="form-error" class="text-center text-sm text-destructive mt-4 hidden">
+          Something went wrong. Try emailing us at hei@agentlair.dev instead.
+        </p>
+      </section>
+
+      <!-- Bottom CTA -->
+      <section class="mx-auto max-w-2xl px-4 py-16 border-t text-center">
+        <p class="text-muted-foreground mb-6">
+          Portable reputation is built on AgentLair's behavioral monitoring. Start there.
+        </p>
+        <div class="flex flex-col sm:flex-row gap-4 justify-center">
+          <a
+            href="/behavioral"
+            class="inline-flex items-center justify-center rounded-md bg-primary px-6 py-3 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90 transition-colors"
+          >
+            Explore behavioral monitoring
+          </a>
+          <a
+            href="/thesis"
+            class="inline-flex items-center justify-center rounded-md border border-input px-6 py-3 text-sm font-medium hover:bg-accent hover:text-accent-foreground transition-colors"
+          >
+            Read the thesis
+          </a>
+        </div>
+      </section>
+    </main>
+    <Footer />
+  </body>
+</html>
+
+<script>
+  const form = document.getElementById('reputation-waitlist');
+  const successEl = document.getElementById('form-success');
+  const errorEl = document.getElementById('form-error');
+
+  form?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const formData = new FormData(form as HTMLFormElement);
+    const email = formData.get('email');
+
+    try {
+      const response = await fetch('https://api.agentlair.dev/v1/waitlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, source: 'reputation-landing' }),
+      });
+
+      if (response.ok || response.status === 201) {
+        successEl?.classList.remove('hidden');
+        errorEl?.classList.add('hidden');
+        (form as HTMLFormElement).reset();
+      } else {
+        throw new Error('Request failed');
+      }
+    } catch {
+      errorEl?.classList.remove('hidden');
+      successEl?.classList.add('hidden');
+    }
+  });
+</script>
