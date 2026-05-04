@@ -58,15 +58,16 @@ Here's the shape, lifted from the AAT we ship today (the [EdDSA JWT design](/blo
   "al_email": "deploy-bot-3@agentlair.dev",
   "al_audit_url": "https://agentlair.dev/agents/deploy-bot-3/audit",
   "al_trust": {
-    "score": 0.78,
-    "level": "established",
+    "score": 78,
+    "level": "senior",
+    "confidence": 0.85,
     "trend": "stable",
-    "n_obs": 412
+    "computed_at": "2026-05-03T11:42:00Z"
   }
 }
 ```
 
-The verifier doesn't have to fetch anything to act on `al_trust`. The score and trend ride in the signed credential. The `n_obs` field is the only line that matters for honesty: a score over four observations is not the same artifact as a score over four hundred.
+The verifier doesn't have to fetch anything to act on `al_trust`. The score, level, and trend ride in the signed credential. The `confidence` field is the only line that matters for honesty: a score with confidence 0.05 is not the same artifact as a score with confidence 0.85, and `computed_at` lets the verifier reject stale snapshots without an extra round-trip.
 
 The audit URL is where the receipts live. Behavioral attestations the verifier can replay when something breaks, issued through the SCITT-style receipt primitive [documented in the integration notes](/docs), so a third party can independently validate the chain.
 
