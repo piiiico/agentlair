@@ -7,7 +7,13 @@ import { Footer } from '@/components/blocks/footer';
 import { Navbar } from '@/components/blocks/navbar';
 
 export async function getStaticPaths() {
-  const posts = await getCollection('blog');
+  // Same pubDate gate as the listing — see apps/web/src/pages/blog/index.astro.
+  // Skipping future-dated posts here means their URL 404s until publish time
+  // and they're omitted from the generated sitemap.
+  const now = new Date();
+  const posts = (await getCollection('blog')).filter(
+    (p) => p.data.pubDate.valueOf() <= now.valueOf(),
+  );
   return posts.map((post) => ({
     params: { slug: post.id },
     props: { post },

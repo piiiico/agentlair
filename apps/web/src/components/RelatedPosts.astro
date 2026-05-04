@@ -15,10 +15,13 @@ if (!related || related.length === 0) {
   // Nothing to render — exit early
 }
 
+const now = new Date();
 const allPosts = related && related.length > 0 ? await getCollection('blog') : [];
 const relatedPosts = (related ?? [])
   .map((slug) => allPosts.find((p) => p.id === slug))
-  .filter((p): p is NonNullable<typeof p> => p !== undefined);
+  // Drop unresolved slugs and posts not yet published — same pubDate gate
+  // applied in apps/web/src/pages/blog/index.astro and [slug].astro.
+  .filter((p): p is NonNullable<typeof p> => p !== undefined && p.data.pubDate.valueOf() <= now.valueOf());
 ---
 
 {relatedPosts.length > 0 && (

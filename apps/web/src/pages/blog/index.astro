@@ -5,9 +5,14 @@ import { Navbar } from '@/components/blocks/navbar';
 import { Footer } from '@/components/blocks/footer';
 import { BlogPosts } from '@/components/blocks/blog-posts';
 
-const posts = (await getCollection('blog')).sort(
-  (a, b) => b.data.pubDate.valueOf() - a.data.pubDate.valueOf()
-);
+// Hide posts whose pubDate is in the future. Future-dated frontmatter
+// (intentional schedule or accidental typo) was leaking into the listing
+// without this filter — see audit 2026-05-04. The slug route applies the
+// same gate in getStaticPaths so direct URLs 404 until the publish date.
+const now = new Date();
+const posts = (await getCollection('blog'))
+  .filter((p) => p.data.pubDate.valueOf() <= now.valueOf())
+  .sort((a, b) => b.data.pubDate.valueOf() - a.data.pubDate.valueOf());
 ---
 
 <html lang="en">
