@@ -2,8 +2,9 @@
  * BCC Route Tests — Bonded Credibility Certificate issuance and retrieval.
  *
  * Covers:
- *   POST /issue — happy path + all validation failure cases
- *   GET  /:id   — found, not found, revoked
+ *   POST /issue    — happy path + all validation failure cases
+ *   GET  /:id      — found, not found, revoked
+ *   GET  /:id/verify — structured verification response (valid, invalid, revoked, 404)
  *
  * Uses a lightweight in-memory D1 mock backed by a Map<string, object>.
  * Signing uses a fixed all-zero Ed25519 private key (valid but not trusted).
@@ -24,7 +25,11 @@ import type { Account } from '../types.js';
  *   INSERT INTO bcc_credentials  → stores the row
  *   SELECT credential_json, revoked_at FROM bcc_credentials WHERE id = ?
  */
-function makeMockD1(rows?: Map<string, Record<string, unknown>>): D1Database {
+interface MockD1 extends D1Database {
+  store: Map<string, Record<string, unknown>>;
+}
+
+function makeMockD1(rows?: Map<string, Record<string, unknown>>): MockD1 {
   const store: Map<string, Record<string, unknown>> = rows ?? new Map();
 
   const makeStmt = (sql: string) => {
@@ -85,7 +90,8 @@ function makeMockD1(rows?: Map<string, Record<string, unknown>>): D1Database {
     dump: async () => new ArrayBuffer(0),
     batch: async () => [],
     exec: async () => ({ count: 0, duration: 0 }),
-  } as unknown as D1Database;
+    store,
+  } as unknown as MockD1;
 }
 
 // ─── Test app builder ─────────────────────────────────────────────────────────
@@ -105,7 +111,7 @@ function makeAccount(id: string): Account {
  */
 function makeTestApp(
   account: Account | null,
-  db: D1Database | null,
+  db: MockD1 | null,
   signingKey: string | null,
 ): { app: Hono<HonoEnv>; env: Record<string, unknown> } {
   const app = new Hono<HonoEnv>();
@@ -517,5 +523,196 @@ describe('round-trip: issue then retrieve', () => {
     expect(getRes.status).toBe(200);
     const retrieved = (await getRes.json()) as Record<string, unknown>;
     expect(retrieved.id).toBe(credUrl);
+  });
+});
+
+// ─── GET /:id/verify tests ────────────────────────────────────────────────────
+
+describe('GET /:id/verify — verification endpoint', () => {
+  test('verify: not found returns 404', async () => {
+    const db = makeMockD1();
+    const { app, env } = makeTestApp(null, db, TEST_SIGNING_KEY);
+
+    const res = await app.fetch(
+      new Request('http://x/bcc_doesnotexist/verify'),
+      env as never,
+    );
+
+    expect(res.status).toBe(404);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.error).toBe('not_found');
+  });
+
+  test('verify: invalid id returns 400', async () => {
+    const db = makeMockD1();
+    const { app, env } = makeTestApp(null, db, TEST_SIGNING_KEY);
+
+    const res = await app.fetch(
+      new Request('http://x/vc_notabcc/verify'),
+      env as never,
+    );
+
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.error).toBe('invalid_id');
+  });
+
+  test('verify: revoked credential returns 410 with valid:false', async () => {
+    const store = new Map<string, Record<string, unknown>>();
+    const sampleCredential = {
+      '@context': ['https://www.w3.org/ns/credentials/v2', 'https://agentlair.dev/contexts/bcc/v1.jsonld'],
+      type: ['VerifiableCredential', 'BondedCredibilityCredential'],
+      id: 'https://agentlair.dev/v1/bcc/bcc_revoked99',
+      issuer: { id: 'did:web:agentlair.dev:agents:acc_test' },
+      validFrom: '2026-05-05T00:00:00.000Z',
+      validUntil: null,
+      credentialSubject: {
+        id: 'did:web:example.com',
+        bcc_profile: 'BCC-Existence',
+        stake_medium: 'existence',
+        stake_amount: null,
+        stake_unit: null,
+        commitment_window_start: '2026-05-05T00:00:00.000Z',
+        commitment_window_end: null,
+        slashing_oracle_uri: null,
+        evidence_anchor: 'self:bcc_revoked99',
+        claim: {},
+        confidence: 0.8,
+      },
+      proof: {
+        type: 'DataIntegrityProof',
+        cryptosuite: 'eddsa-jcs-2022',
+        verificationMethod: 'did:web:agentlair.dev:agents:acc_test#key-1',
+        proofPurpose: 'assertionMethod',
+        created: '2026-05-05T00:00:00.000Z',
+        proofValue: 'zFAKESIGNATURE',
+      },
+    };
+
+    store.set('bcc_revoked99', {
+      credential_json: JSON.stringify(sampleCredential),
+      revoked_at: '2026-05-05T12:00:00.000Z',
+    });
+
+    const db = makeMockD1(store);
+    const { app, env } = makeTestApp(null, db, TEST_SIGNING_KEY);
+
+    const res = await app.fetch(
+      new Request('http://x/bcc_revoked99/verify'),
+      env as never,
+    );
+
+    expect(res.status).toBe(410);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.valid).toBe(false);
+    expect(body.credential_id).toBe('bcc_revoked99');
+  });
+});
+
+// ─── Round-trip: issue then verify ───────────────────────────────────────────
+
+describe('round-trip: issue then verify', () => {
+  test('issued credential verifies as valid:true', async () => {
+    const db = makeMockD1();
+    const { app, env } = makeTestApp(makeAccount('acc_verify'), db, TEST_SIGNING_KEY);
+
+    // Issue
+    const issueRes = await app.fetch(
+      new Request('http://x/issue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subject_did: 'did:web:verify.example.com',
+          claim: { note: 'verify round-trip' },
+          stake_medium: 'existence',
+          confidence: 0.9,
+        }),
+      }),
+      env as never,
+    );
+
+    expect(issueRes.status).toBe(201);
+    const issued = (await issueRes.json()) as Record<string, unknown>;
+    const bccId = (issued.id as string).split('/').at(-1)!;
+    expect(bccId.startsWith('bcc_')).toBe(true);
+
+    // Verify
+    const verifyRes = await app.fetch(
+      new Request(`http://x/${bccId}/verify`),
+      env as never,
+    );
+
+    expect(verifyRes.status).toBe(200);
+    const body = (await verifyRes.json()) as Record<string, unknown>;
+
+    // Structural checks
+    expect(body.credential_id).toBe(bccId);
+    expect(body.valid).toBe(true);
+    expect(body.profile).toBe('BCC-Existence');
+
+    // Stake
+    const stake = body.stake as Record<string, unknown>;
+    expect(stake.medium).toBe('existence');
+    expect(stake.amount).toBeNull();
+    expect(stake.unit).toBeNull();
+
+    // Oracle state for existence profile
+    expect(body.oracle_state).toBe('self_revealing');
+
+    // Evidence chain
+    const chain = body.evidence_chain as Array<Record<string, unknown>>;
+    expect(chain.length).toBe(1);
+    expect(chain[0]!.type).toBe('self_anchor');
+    expect((chain[0]!.ref as string).startsWith('self:bcc_')).toBe(true);
+
+    // Issuer and subject
+    expect(body.issuer).toBe('did:web:agentlair.dev:agents:acc_verify');
+    expect(body.subject).toBe('did:web:verify.example.com');
+
+    // Window
+    const window = body.window as Record<string, unknown>;
+    expect(typeof window.start).toBe('string');
+    expect(window.end).toBeNull();
+  });
+
+  test('credential with tampered proofValue verifies as valid:false', async () => {
+    const db = makeMockD1();
+    const { app, env } = makeTestApp(makeAccount('acc_tamper'), db, TEST_SIGNING_KEY);
+
+    // Issue
+    const issueRes = await app.fetch(
+      new Request('http://x/issue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subject_did: 'did:web:tamper.example.com',
+          claim: { note: 'tamper test' },
+          stake_medium: 'capital',
+          confidence: 1.0,
+        }),
+      }),
+      env as never,
+    );
+
+    expect(issueRes.status).toBe(201);
+    const issued = (await issueRes.json()) as Record<string, unknown>;
+    const bccId = (issued.id as string).split('/').at(-1)!;
+
+    // Tamper: overwrite the stored credential_json with a modified proofValue
+    const store = db.store;
+    const row = store.get(bccId)!;
+    const cred = JSON.parse(row.credential_json as string) as Record<string, unknown>;
+    (cred.proof as Record<string, unknown>).proofValue = 'zTAMPEREDSIGNATUREXXXXXXXX';
+    store.set(bccId, { ...row, credential_json: JSON.stringify(cred) });
+
+    // Verify — should fail
+    const verifyRes = await app.fetch(
+      new Request(`http://x/${bccId}/verify`),
+      env as never,
+    );
+
+    expect(verifyRes.status).toBe(200);
+    const body = (await verifyRes.json()) as Record<string, unknown>;
+    expect(body.valid).toBe(false);
   });
 });

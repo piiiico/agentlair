@@ -4,16 +4,18 @@
  * Two routers exported:
  *
  *   bccPublicRoutes (public)
- *     GET /v1/bcc/:id  → 200 signed BCC VC, 404 not found, 410 revoked
+ *     GET /v1/bcc/:id/verify → structured verification response per bcc-schema-v1.md Verifier API
+ *     GET /v1/bcc/:id        → 200 signed BCC VC, 404 not found, 410 revoked
  *     Mounted BEFORE the global /v1/* auth middleware in index.ts.
  *
  *   bccRoutes (auth-gated)
  *     POST /v1/bcc/issue → 201 signed BCC VC
  *     Mounted AFTER the global /v1/* auth middleware in index.ts.
  *
- * Signing: simplified v1 approximation of eddsa-jcs-2022 (DataIntegrityProof).
- * Uses canonicalJSON() from popa-cose.js (sorted-key JSON serialization —
- * NOT strict RFC 8785 JCS, sufficient for v1 single-issuer verification).
+ * Signing: eddsa-jcs-2022 (DataIntegrityProof) per W3C Data Integrity spec.
+ * Uses canonicalJSON() from popa-cose.js (sorted-key JSON serialization) as
+ * the canonicalization step. Two-hash construction:
+ *   sign(sha256(canonical(proofOptions)) || sha256(canonical(document)))
  * Base58btc encoding is inline (no external lib required in CF Workers).
  */
 
@@ -36,8 +38,9 @@ const VALID_STAKE_MEDIUMS = Object.keys(STAKE_MEDIUM_TO_PROFILE);
 // ─── Base58btc encoder (inline — no external dep) ─────────────────────────────
 // Standard Bitcoin Base58 alphabet as defined in the Multibase spec.
 
+const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+
 function base58btcEncode(bytes: Uint8Array): string {
-  const ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
   let zeros = 0;
   while (zeros < bytes.length && bytes[zeros] === 0) zeros++;
   const digits: number[] = [0];
@@ -53,12 +56,172 @@ function base58btcEncode(bytes: Uint8Array): string {
       carry = Math.floor(carry / 58);
     }
   }
-  return '1'.repeat(zeros) + digits.reverse().map(d => ALPHABET[d]!).join('');
+  return '1'.repeat(zeros) + digits.reverse().map(d => BASE58_ALPHABET[d]!).join('');
+}
+
+function base58btcDecode(s: string): Uint8Array {
+  const ALPHABET_MAP: Record<string, number> = {};
+  for (let i = 0; i < BASE58_ALPHABET.length; i++) ALPHABET_MAP[BASE58_ALPHABET[i]!] = i;
+
+  let zeros = 0;
+  while (zeros < s.length && s[zeros] === '1') zeros++;
+
+  const bytes = new Uint8Array(s.length);
+  let length = 0;
+
+  for (let i = zeros; i < s.length; i++) {
+    const c = s[i]!;
+    if (!(c in ALPHABET_MAP)) throw new Error(`Invalid base58 character: ${c}`);
+    let carry = ALPHABET_MAP[c]!;
+    let j = 0;
+    for (j = 0; j < length || carry > 0; j++) {
+      carry += 58 * (bytes[j] ?? 0);
+      bytes[j] = carry % 256;
+      carry = Math.floor(carry / 256);
+    }
+    length = j;
+  }
+
+  const result = new Uint8Array(zeros + length);
+  for (let i = 0; i < length; i++) {
+    result[zeros + i] = bytes[length - 1 - i]!;
+  }
+  return result;
+}
+
+// ─── SHA-256 helper (async, uses WebCrypto) ───────────────────────────────────
+
+async function sha256bytes(text: string): Promise<Uint8Array> {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return new Uint8Array(buf);
+}
+
+// ─── eddsa-jcs-2022 two-hash signing input construction ──────────────────────
+// Per W3C Data Integrity EdDSA Cryptosuites spec (eddsa-jcs-2022):
+//   hashData = sha256(canonical(proofOptions)) || sha256(canonical(document))
+// where proofOptions = proof block without proofValue,
+// and document = credential without proof block.
+
+async function buildHashData(
+  credentialWithoutProof: Record<string, unknown>,
+  proofOptions: Record<string, unknown>,
+): Promise<Uint8Array> {
+  const proofHashBytes = await sha256bytes(canonicalJSON(proofOptions));
+  const docHashBytes   = await sha256bytes(canonicalJSON(credentialWithoutProof));
+  const hashData = new Uint8Array(64);
+  hashData.set(proofHashBytes, 0);
+  hashData.set(docHashBytes, 32);
+  return hashData;
+}
+
+// ─── oracle_state helper ──────────────────────────────────────────────────────
+
+function inferOracleState(profile: string, validUntil: string | null): string {
+  if (profile === 'BCC-Existence') return 'self_revealing';
+  if (profile === 'BCC-Capital' && validUntil) {
+    if (new Date(validUntil) < new Date()) return 'expired';
+  }
+  return 'active';
+}
+
+// ─── evidence_chain helper ────────────────────────────────────────────────────
+
+function buildEvidenceChain(anchor: string, timestamp: string): Array<{ type: string; ref: string; timestamp: string }> {
+  let type: string;
+  if (anchor.startsWith('scitt:')) {
+    type = 'scitt_entry';
+  } else if (anchor.startsWith('0x')) {
+    type = 'onchain_tx';
+  } else {
+    type = 'self_anchor';
+  }
+  return [{ type, ref: anchor, timestamp }];
 }
 
 // ─── Public retrieval router ──────────────────────────────────────────────────
 
 export const bccPublicRoutes = new Hono<HonoEnv>();
+
+// GET /:id/verify must be registered BEFORE /:id (more specific path)
+bccPublicRoutes.get('/:id/verify', async (c) => {
+  if (!c.env.AUDIT || !c.env.AUDIT_SIGNING_KEY) {
+    return err('BCC verification not configured.', 503, 'audit_unavailable');
+  }
+
+  const id = c.req.param('id');
+  if (!id || !id.startsWith('bcc_')) {
+    return err('Invalid BCC credential id.', 400, 'invalid_id');
+  }
+
+  const row = await c.env.AUDIT
+    .prepare('SELECT credential_json, revoked_at FROM bcc_credentials WHERE id = ?')
+    .bind(id)
+    .first<{ credential_json: string; revoked_at: string | null }>();
+
+  if (!row) return err('BCC credential not found.', 404, 'not_found');
+
+  const credential = JSON.parse(row.credential_json) as Record<string, unknown>;
+  const proof = credential.proof as Record<string, unknown> | undefined;
+  const cs = credential.credentialSubject as Record<string, unknown>;
+
+  let valid = false;
+
+  if (!row.revoked_at && proof?.proofValue) {
+    try {
+      const { proofValue, ...proofOptions } = proof;
+      const { proof: _proof, ...credentialWithoutProof } = credential;
+
+      const privKeyBytes = Uint8Array.from(atob(c.env.AUDIT_SIGNING_KEY), ch => ch.charCodeAt(0));
+      const pubKeyBytes = ed25519.getPublicKey(privKeyBytes);
+
+      const hashData = await buildHashData(
+        credentialWithoutProof as Record<string, unknown>,
+        proofOptions as Record<string, unknown>,
+      );
+
+      // Decode multibase base58btc: strip 'z' prefix
+      const proofValueStr = proofValue as string;
+      if (!proofValueStr.startsWith('z')) throw new Error('Unexpected proofValue prefix');
+      const sigBytes = base58btcDecode(proofValueStr.slice(1));
+
+      valid = ed25519.verify(sigBytes, hashData, pubKeyBytes);
+    } catch {
+      valid = false;
+    }
+  }
+
+  const isRevoked = !!row.revoked_at;
+  const profile = cs.bcc_profile as string;
+  const validUntil = credential.validUntil as string | null;
+
+  const response = {
+    credential_id: id,
+    valid: valid && !isRevoked,
+    profile,
+    stake: {
+      medium: cs.stake_medium as string,
+      amount: cs.stake_amount as number | null,
+      unit: cs.stake_unit as string | null,
+    },
+    oracle_state: inferOracleState(profile, validUntil),
+    evidence_chain: buildEvidenceChain(
+      cs.evidence_anchor as string,
+      credential.validFrom as string,
+    ),
+    issuer: (credential.issuer as Record<string, unknown>)?.id ?? credential.issuer,
+    subject: cs.id as string,
+    window: {
+      start: cs.commitment_window_start as string,
+      end: cs.commitment_window_end as string | null,
+    },
+  };
+
+  if (isRevoked) {
+    return c.json({ ...response, valid: false }, 410);
+  }
+
+  return json(response);
+});
 
 bccPublicRoutes.get('/:id', async (c) => {
   if (!c.env.AUDIT) return err('BCC store not configured.', 503, 'audit_unavailable');
@@ -167,10 +330,10 @@ bccRoutes.post('/issue', async (c) => {
     },
   };
 
-  // ── Sign (simplified v1 approximation of eddsa-jcs-2022) ───────────────────
-  // Proof options (without proofValue) are included in the signed document per
-  // the DataIntegrityProof spec. We canonicalize the full credential+proofOptions
-  // object (minus proofValue) before signing.
+  // ── Sign (eddsa-jcs-2022 DataIntegrityProof) ────────────────────────────────
+  // Two-hash construction per W3C Data Integrity EdDSA Cryptosuites spec:
+  //   hashData = sha256(canonical(proofOptions)) || sha256(canonical(document))
+  // proofOptions = proof block without proofValue; document = credential without proof.
 
   const proofOptions = {
     type: 'DataIntegrityProof',
@@ -180,15 +343,15 @@ bccRoutes.post('/issue', async (c) => {
     created: now,
   };
 
-  // Serialize the document to be signed: credential + proof options (no proofValue)
-  const docToSign = { ...credentialWithoutProof, proof: proofOptions };
-  const canonicalized = canonicalJSON(docToSign);
-  const messageBytes = new TextEncoder().encode(canonicalized);
-
   // Decode the signing key (base64 → 32-byte Ed25519 private key seed)
   const privKeyBytes = Uint8Array.from(atob(c.env.AUDIT_SIGNING_KEY), ch => ch.charCodeAt(0));
 
-  const signature = ed25519.sign(messageBytes, privKeyBytes);
+  const hashData = await buildHashData(
+    credentialWithoutProof as unknown as Record<string, unknown>,
+    proofOptions as unknown as Record<string, unknown>,
+  );
+
+  const signature = ed25519.sign(hashData, privKeyBytes);
 
   // Multibase base58btc encoding: prefix 'z' per Multibase spec
   const proofValue = 'z' + base58btcEncode(signature);
