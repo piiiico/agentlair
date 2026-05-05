@@ -17,7 +17,7 @@ const items = [
     title: "Permanent credentials",
     tagline: "Your secrets shouldn't live in env vars.",
     description:
-      "Zero-knowledge credential storage. Your agent encrypts locally, we store opaque blobs. Versioned, recoverable, edge-deployed. Survives container restarts.",
+      "Zero-knowledge credential storage. Your agent encrypts locally, we store opaque blobs. Versioned, recoverable, edge-deployed. Survives container restarts. Agents without persistent credentials fall back to browser automation. Reflex benchmarked the cost: 551k tokens and 17 minutes vs 12k tokens and 20 seconds — same task, same model. The 45x gap isn't a model problem. It's a credential problem.",
     icon: Shield,
     href: "/vault",
     roadmap: false,
