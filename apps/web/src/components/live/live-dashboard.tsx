@@ -57,6 +57,19 @@ type CorpusStatsResponse = {
   by_week?: { week: string; count: number }[];
 };
 
+type BccIssuance = {
+  id: string;
+  subject_did: string;
+  evidence_type: string;
+  issued_at: string;
+};
+
+type BccListResponse = {
+  items: BccIssuance[];
+  count: number;
+  next_cursor: string | null;
+};
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function relativeTime(iso: string, now: number): string {
@@ -99,6 +112,8 @@ export function LiveDashboard() {
   const [corpusStats, setCorpusStats] = useState<CorpusStatsResponse | null>(null);
   const [lastSuccess, setLastSuccess] = useState<number | null>(null);
   const [errors, setErrors] = useState<{ corpus?: string; dist?: string; agents?: string; cstats?: string }>({});
+  const [bccIssuances, setBccIssuances] = useState<BccIssuance[]>([]);
+  const [errors_bcc, setErrorsBcc] = useState<string | null>(null);
   const newIds = useRef<Set<string>>(new Set());
   const seenIds = useRef<Set<string>>(new Set());
 
@@ -205,6 +220,15 @@ export function LiveDashboard() {
     };
   }, []);
 
+  // One-shot BCC issuances fetch.
+  useEffect(() => {
+    let alive = true;
+    jget<BccListResponse>('/v1/bcc/list?limit=5')
+      .then((data) => { if (alive) setBccIssuances(data.items); })
+      .catch(() => { if (alive) setErrorsBcc('Failed to load BCC issuances.'); });
+    return () => { alive = false; };
+  }, []);
+
   // "Live" pulse: green if any fetch succeeded in last 30s.
   const isLive = lastSuccess !== null && now - lastSuccess < 30000;
 
@@ -305,6 +329,37 @@ export function LiveDashboard() {
             <div className="text-sm text-muted-foreground">Loading distribution…</div>
           ) : (
             <DistributionChart dist={dist} />
+          )}
+        </section>
+
+        {/* Recent BCC issuances */}
+        <section className="rounded-lg border bg-card p-5">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground mb-4">
+            Recent BCC Issuances
+          </h2>
+          {errors_bcc ? (
+            <div className="text-sm text-red-600 dark:text-red-400">{errors_bcc}</div>
+          ) : bccIssuances.length === 0 ? (
+            <div className="text-sm text-muted-foreground">No issuances yet.</div>
+          ) : (
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-muted-foreground">
+                  <th className="text-left pb-2 font-normal">Subject</th>
+                  <th className="text-left pb-2 font-normal">Type</th>
+                  <th className="text-right pb-2 font-normal">Issued</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {bccIssuances.slice(0, 5).map((b) => (
+                  <tr key={b.id}>
+                    <td className="py-1.5 font-mono truncate max-w-[160px]">{shortIssuer(b.subject_did)}</td>
+                    <td className="py-1.5 capitalize">{b.evidence_type}</td>
+                    <td className="py-1.5 text-right text-muted-foreground">{relativeTime(b.issued_at, now)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           )}
         </section>
 

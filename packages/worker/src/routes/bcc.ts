@@ -142,6 +142,80 @@ function buildEvidenceChain(anchor: string, timestamp: string): Array<{ type: st
 
 export const bccPublicRoutes = new Hono<HonoEnv>();
 
+// GET /list must be registered BEFORE /:id (otherwise "list" matches as an id)
+bccPublicRoutes.get('/list', async (c) => {
+  if (!c.env.AUDIT) return err('BCC store not configured.', 503, 'audit_unavailable');
+
+  // ── Parse limit ────────────────────────────────────────────────────────────
+  const limitRaw = c.req.query('limit');
+  let limit = 20;
+  if (limitRaw !== undefined && limitRaw !== '') {
+    const parsed = Number(limitRaw);
+    if (!Number.isInteger(parsed) || isNaN(parsed)) {
+      return err('Invalid limit parameter.', 400, 'invalid_limit');
+    }
+    limit = Math.max(1, Math.min(100, parsed));
+  }
+
+  // ── Parse since cursor ─────────────────────────────────────────────────────
+  const since = c.req.query('since');
+  if (since !== undefined && !since.startsWith('bcc_')) {
+    return err('Invalid cursor.', 400, 'invalid_cursor');
+  }
+
+  // ── Query D1 ───────────────────────────────────────────────────────────────
+  type Row = { rowid: number; id: string; subject_did: string; stake_medium: string; issued_at: string };
+  let rows: Row[];
+
+  if (since) {
+    // Verify cursor exists
+    const cursorRow = await c.env.AUDIT
+      .prepare('SELECT rowid FROM bcc_credentials WHERE id = ?')
+      .bind(since)
+      .first<{ rowid: number }>();
+
+    if (!cursorRow) return err('Cursor not found.', 404, 'cursor_not_found');
+
+    const result = await c.env.AUDIT
+      .prepare(
+        `SELECT rowid, id, subject_did, stake_medium, issued_at
+         FROM bcc_credentials
+         WHERE revoked_at IS NULL AND rowid < ?1
+         ORDER BY rowid DESC
+         LIMIT ?2`,
+      )
+      .bind(cursorRow.rowid, limit)
+      .all<Row>();
+
+    rows = result.results;
+  } else {
+    const result = await c.env.AUDIT
+      .prepare(
+        `SELECT rowid, id, subject_did, stake_medium, issued_at
+         FROM bcc_credentials
+         WHERE revoked_at IS NULL
+         ORDER BY rowid DESC
+         LIMIT ?`,
+      )
+      .bind(limit)
+      .all<Row>();
+
+    rows = result.results;
+  }
+
+  const count = rows.length;
+  const next_cursor = count === limit ? (rows[count - 1]?.id ?? null) : null;
+
+  const items = rows.map(r => ({
+    id: r.id,
+    subject_did: r.subject_did,
+    evidence_type: r.stake_medium,
+    issued_at: r.issued_at,
+  }));
+
+  return json({ items, count, next_cursor });
+});
+
 // GET /:id/verify must be registered BEFORE /:id (more specific path)
 bccPublicRoutes.get('/:id/verify', async (c) => {
   if (!c.env.AUDIT || !c.env.AUDIT_SIGNING_KEY) {

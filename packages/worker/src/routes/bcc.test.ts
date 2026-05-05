@@ -43,7 +43,7 @@ function makeMockD1(rows?: Map<string, Record<string, unknown>>): MockD1 {
       async first<T>(): Promise<T | null> {
         const q = sql.trim().toLowerCase();
 
-        // SELECT credential_json, revoked_at FROM bcc_credentials WHERE id = ?
+        // SELECT ... FROM bcc_credentials WHERE id = ?
         if (q.includes('from bcc_credentials') && q.includes('where id')) {
           const id = bindings[0] as string;
           const row = store.get(id);
@@ -53,6 +53,40 @@ function makeMockD1(rows?: Map<string, Record<string, unknown>>): MockD1 {
         return null as T | null;
       },
       async all<T>(): Promise<D1Result<T>> {
+        const q = sql.trim().toLowerCase();
+
+        // LIST query: SELECT rowid, id, subject_did, stake_medium, issued_at FROM bcc_credentials
+        if (q.includes('select rowid') && q.includes('from bcc_credentials')) {
+          // Filter revoked rows
+          let rows = Array.from(store.values()).filter(r => !r['revoked_at']);
+
+          // Sort by rowid desc (insertion order)
+          rows.sort((a, b) => (b['rowid'] as number) - (a['rowid'] as number));
+
+          let limit: number;
+          if (q.includes('rowid < ?1')) {
+            // Cursor query: bindings = [cursorRowid, limit]
+            const cursorRowid = bindings[0] as number;
+            limit = bindings[1] as number;
+            rows = rows.filter(r => (r['rowid'] as number) < cursorRowid);
+          } else {
+            // No cursor: bindings = [limit]
+            limit = bindings[0] as number;
+          }
+
+          rows = rows.slice(0, limit);
+
+          const results = rows.map(r => ({
+            rowid: r['rowid'],
+            id: r['id'],
+            subject_did: r['subject_did'],
+            stake_medium: r['stake_medium'],
+            issued_at: r['issued_at'],
+          })) as unknown as T[];
+
+          return { results, success: true, meta: {} as D1ResultInfo };
+        }
+
         return { results: [] as T[], success: true, meta: {} as D1ResultInfo };
       },
       async run(): Promise<D1Result<Record<string, unknown>>> {
@@ -64,7 +98,9 @@ function makeMockD1(rows?: Map<string, Record<string, unknown>>): MockD1 {
           //             confidence, claim_json, credential_json
           const [id, issuer_account_id, subject_did, bcc_profile, stake_medium,
                  confidence, claim_json, credential_json] = bindings as string[];
+          const newRowid = store.size + 1;
           store.set(id!, {
+            rowid: newRowid,
             id,
             issuer_account_id,
             subject_did,
@@ -676,6 +712,7 @@ describe('round-trip: issue then verify', () => {
   });
 
   test('credential with tampered proofValue verifies as valid:false', async () => {
+
     const db = makeMockD1();
     const { app, env } = makeTestApp(makeAccount('acc_tamper'), db, TEST_SIGNING_KEY);
 
@@ -714,5 +751,107 @@ describe('round-trip: issue then verify', () => {
     expect(verifyRes.status).toBe(200);
     const body = (await verifyRes.json()) as Record<string, unknown>;
     expect(body.valid).toBe(false);
+  });
+});
+
+// ─── GET /list tests ──────────────────────────────────────────────────────────
+
+/** Build a pre-populated store with N rows (rowid 1..N). */
+function makeListStore(n: number): Map<string, Record<string, unknown>> {
+  const store = new Map<string, Record<string, unknown>>();
+  for (let i = 1; i <= n; i++) {
+    store.set(`bcc_row${i}`, {
+      rowid: i,
+      id: `bcc_row${i}`,
+      subject_did: `did:web:example.com:agents:agent${i}`,
+      stake_medium: 'existence',
+      issued_at: `2026-05-05T${String(i).padStart(2, '0')}:00:00.000Z`,
+      revoked_at: null,
+      credential_json: JSON.stringify({}),
+    });
+  }
+  return store;
+}
+
+describe('GET /list — list endpoint', () => {
+  test('1: empty DB returns items=[], count=0, next_cursor=null', async () => {
+    const db = makeMockD1();
+    const { app, env } = makeTestApp(null, db, null);
+
+    const res = await app.fetch(new Request('http://x/list'), env as never);
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.items).toEqual([]);
+    expect(body.count).toBe(0);
+    expect(body.next_cursor).toBeNull();
+  });
+
+  test('2: populated DB returns all rows in desc order', async () => {
+    const db = makeMockD1(makeListStore(3));
+    const { app, env } = makeTestApp(null, db, null);
+
+    const res = await app.fetch(new Request('http://x/list'), env as never);
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { items: Record<string, unknown>[]; count: number; next_cursor: string | null };
+    expect(body.count).toBe(3);
+    expect(body.next_cursor).toBeNull(); // count(3) < default limit(20)
+    // Verify desc order: row3, row2, row1
+    expect(body.items[0]!['id']).toBe('bcc_row3');
+    expect(body.items[1]!['id']).toBe('bcc_row2');
+    expect(body.items[2]!['id']).toBe('bcc_row1');
+    // evidence_type maps from stake_medium
+    expect(body.items[0]!['evidence_type']).toBe('existence');
+    expect(typeof body.items[0]!['issued_at']).toBe('string');
+  });
+
+  test('3: limit=200 clamped to 100, returns HTTP 200', async () => {
+    const db = makeMockD1(makeListStore(3));
+    const { app, env } = makeTestApp(null, db, null);
+
+    const res = await app.fetch(new Request('http://x/list?limit=200'), env as never);
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { items: unknown[]; count: number };
+    // Should not return 400, and count ≤ 100
+    expect(body.count).toBeLessThanOrEqual(100);
+  });
+
+  test('4: since cursor paginates correctly', async () => {
+    const db = makeMockD1(makeListStore(5));
+    const { app, env } = makeTestApp(null, db, null);
+
+    // since=bcc_row3 (rowid=3) → returns rows with rowid < 3 → bcc_row2, bcc_row1
+    const res = await app.fetch(new Request('http://x/list?since=bcc_row3'), env as never);
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { items: Record<string, unknown>[]; count: number; next_cursor: string | null };
+    expect(body.count).toBe(2);
+    expect(body.items[0]!['id']).toBe('bcc_row2');
+    expect(body.items[1]!['id']).toBe('bcc_row1');
+    expect(body.next_cursor).toBeNull(); // count(2) < default limit(20)
+  });
+
+  test('5: limit=abc returns 400 invalid_limit', async () => {
+    const db = makeMockD1();
+    const { app, env } = makeTestApp(null, db, null);
+
+    const res = await app.fetch(new Request('http://x/list?limit=abc'), env as never);
+
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.error).toBe('invalid_limit');
+  });
+
+  test('6: since=notabcc returns 400 invalid_cursor', async () => {
+    const db = makeMockD1();
+    const { app, env } = makeTestApp(null, db, null);
+
+    const res = await app.fetch(new Request('http://x/list?since=notabcc'), env as never);
+
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.error).toBe('invalid_cursor');
   });
 });
