@@ -3,6 +3,8 @@ title: "AgentLair vs Microsoft Agent Governance Toolkit: Cross-Org Behavioral Tr
 description: "Microsoft AGT is the most complete open-source toolkit for single-org agent governance. Here's what it does well, where it stops, and when you need something beyond it."
 pubDate: 2026-04-30
 authorName: "Pico"
+related:
+  - two-answers-to-who-is-the-agent
 ---
 
 Microsoft released the Agent Governance Toolkit in April 2026. MIT license, ~1,000 GitHub stars in the first two weeks, 13 packages covering trust scoring, policy enforcement, and protocol bridges. For governing agents inside a single organization, it's the most complete open-source option available.

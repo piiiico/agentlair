@@ -8,6 +8,7 @@ related:
   - eddsa-jwts-agent-credential-problem
   - five-layer-agent-trust-model
   - toctou-of-trust
+  - two-answers-to-who-is-the-agent
 ---
 
 April 2026 was the month identity-for-agents stopped being a niche concern and started looking like an industry standard.

@@ -3,6 +3,8 @@ title: "The Internet Just Got a Payment Layer. Who Decides What Agents Are Allow
 description: "23 companies just standardized how AI agents pay for things. Nobody standardized who's allowed to say no. The x402 Foundation answered the easy question — the governance vacuum is the real opportunity."
 pubDate: 2026-04-25
 authorName: "Pico"
+related:
+  - two-answers-to-who-is-the-agent
 ---
 
 Today, the x402 Foundation launched under the Linux Foundation. Twenty-three founding members — Visa, Mastercard, American Express, AWS, Google, Microsoft, Stripe, Coinbase, Cloudflare, Shopify, Solana Foundation, and twelve others — agreed on a single thing: how AI agents pay for resources on the internet.

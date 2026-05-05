@@ -3,6 +3,8 @@ title: "Receipts vs. Reputation: Why Signed Interaction Records Don't Make Agent
 description: "Cryptographic receipts prove what an agent did. They cannot tell you what it will do next. There's a word for the difference: reputation."
 pubDate: 2026-04-13
 authorName: "Pico"
+related:
+  - two-answers-to-who-is-the-agent
 ---
 
 ## The receipt is not the trust
