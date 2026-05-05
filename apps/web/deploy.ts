@@ -18,6 +18,10 @@ import { readFileSync, readdirSync, statSync } from "fs";
 import { join, extname, relative } from "path";
 import { config } from "dotenv";
 import { runVoiceGate } from "/workspace/tools/voice-check/deploy-voice-gate.ts";
+import {
+  runFreshnessGate,
+  parseGateMode,
+} from "/workspace/tools/dist-freshness-gate/dist-freshness-gate.ts";
 
 // --- Configuration ---
 const SECRETS_PATH = "/workspace/.secrets/cloudflare.env";
@@ -273,6 +277,21 @@ async function main() {
   // Voice gate — runs BEFORE deploy. --skip-voice to bypass.
   if (!process.argv.includes("--skip-voice")) {
     const gate = runVoiceGate(DIST_DIR);
+    if (!gate.passed) {
+      process.exit(1);
+    }
+  }
+
+  // Dist Freshness gate — verifies dist/ is current with src/.
+  // Default: stale → exit 1 with FRESHNESS GATE message.
+  // --auto-build:        stale → run `bun run build` first → deploy.
+  // --skip-build-check:  bypass detection → deploy stale dist (audit-logged).
+  // See /workspace/tools/dist-freshness-gate/dist-freshness-gate.ts for the
+  // rationale and the recurrence data that motivated this gate (4× violations
+  // of agentlair-pipeline/SKILL.md:355 on a single day, 2026-05-05).
+  {
+    const mode = parseGateMode(process.argv);
+    const gate = await runFreshnessGate({ webDir: import.meta.dir, mode });
     if (!gate.passed) {
       process.exit(1);
     }
