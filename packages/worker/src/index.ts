@@ -56,6 +56,7 @@ import { demoRoutes } from './routes/demo.js';
 import { scittRoutes, publicScittRoutes } from './routes/scitt.js';
 import { publicStatsRoutes } from './routes/stats.js';
 import { popaRoutes, popaEnrollRoutes, popaAgentRoutes } from './routes/popa.js';
+import { bccRoutes, bccPublicRoutes } from './routes/bcc.js';
 import { runPoPADaily } from './crons/popa-daily.js';
 import { handleCheckout, handleStripeWebhook } from './routes/stripe.js';
 import { EXPLORE_HTML } from './routes/explore.js';
@@ -1101,6 +1102,12 @@ app.route('/v1/popa', popaAgentRoutes);
 // Mounted BEFORE auth middleware and the authenticated scittRoutes.
 app.route('/v1/scitt', publicScittRoutes);
 
+// Public BCC retrieval: GET /v1/bcc/:id — Bonded Credibility Credential lookup.
+// No auth required: external verifiers fetch a signed BCC by credential id.
+// Mounted BEFORE auth middleware so the /:id handler runs unauthenticated.
+// POST /v1/bcc/issue is registered separately on bccRoutes after auth (below).
+app.route('/v1/bcc', bccPublicRoutes);
+
 // Public substrate stats: GET /v1/stats/agents
 // No auth required: aggregate counts and 24h/7d deltas for the live trust dashboard.
 // Mounted BEFORE auth middleware so anonymous browsers can poll it.
@@ -1566,6 +1573,11 @@ app.route('/v1/scitt', scittRoutes);
 // through that public mount on POST (no method match), the /v1/* auth
 // middleware runs, and lands here.
 app.route('/v1/popa', popaEnrollRoutes);
+
+// BCC issuance: POST /v1/bcc/issue — auth-gated. The public bccPublicRoutes
+// mount above handles GET /v1/bcc/:id before auth (POST has no method match
+// there, so Hono falls through to the /v1/* auth middleware → bccRoutes here).
+app.route('/v1/bcc', bccRoutes);
 
 // Session lifecycle routes (PicoClaw agent session tracking)
 app.route('/v1/sessions', sessionRoutes);
