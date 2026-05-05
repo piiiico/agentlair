@@ -11,6 +11,7 @@ import { encryptEmailField } from '../platform-crypto.js';
 import { checkIpRateLimit, getAgentCount, incrementAgentCount, AGENT_LIMITS } from '../middleware/ratelimit.js';
 import { validateLocalPart, isReservedAddress } from '../reserved.js';
 import { SERVICE_PRICES, make402Response, verifyX402Payment, settleX402Payment, trackX402Spend } from '../x402.js';
+import { bumpAgentStats } from './auth.js';
 
 export async function handleRegisterRoute(
   request: Request,
@@ -213,6 +214,8 @@ export async function handleRegisterRoute(
     }
     throw kvErr;
   }
+
+  await bumpAgentStats(env);
 
   // OTP flow: send verification email to operator when recovery_email is present
   let otpEmailSent = false;
