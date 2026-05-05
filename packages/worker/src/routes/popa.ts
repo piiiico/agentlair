@@ -1,20 +1,23 @@
 /**
  * PoPA Routes — Proof-of-Presence metrics API.
  *
- * Two routers exported:
+ * Three routers exported:
  *
  *   popaRoutes (public)
- *     GET /v1/popa/:did   → 200 PoPAMetrics, or 404 no_attestations_found
+ *     GET /v1/popa/leaderboard        → 200 leaderboard
+ *     GET /v1/popa/agent/:did         → 200 self-attestation history
+ *     GET /v1/popa/:did               → 200 PoPAMetrics, or 404 no_attestations_found
  *     Mounted BEFORE the global /v1/* auth middleware in index.ts.
  *
- *   popaEnrollRoutes (auth-gated)
- *     POST /v1/popa/enroll → 200 SubscriberRow, idempotent UPSERT
+ *   popaEnrollRoutes (account-key auth-gated)
+ *     POST   /v1/popa/enroll          → 200 SubscriberRow, idempotent UPSERT
+ *     DELETE /v1/popa/enroll/:did     → 200 revoke enrollment
  *     Mounted AFTER the global /v1/* auth middleware in index.ts.
  *
- * Splitting the routers lets a public GET coexist with an auth-gated POST
- * on the same /v1/popa prefix: Hono falls through public popaRoutes when
- * no method matches, allowing the auth middleware (and then popaEnrollRoutes)
- * to run.
+ *   popaAgentRoutes (AAT auth — agent self-service)
+ *     POST /v1/popa/self-attest       → 201 self-attestation record
+ *     Mounted BEFORE the global /v1/* auth middleware (but after public
+ *     popaRoutes) — the router does its own AAT verification inline.
  *
  * Caching: KV (KEYS namespace) with 24h TTL. The emitter invalidates this
  * key on every successful write (`popa:<did>`).
@@ -22,9 +25,12 @@
 
 import { Hono } from 'hono';
 import type { HonoEnv } from '../types.js';
-import { json, err } from '../utils.js';
+import { json, err, nanoid } from '../utils.js';
 import { computeMetrics, type AttestationRow } from '../lib/popa-aggregator.js';
 import { checkController } from '../lib/popa-controller.js';
+import { getPublicKey, verifyJWT, b64urlEncode } from '../jwt.js';
+import { ed25519 } from '@noble/curves/ed25519.js';
+import { canonicalJSON } from '../lib/popa-cose.js';
 
 export const popaRoutes = new Hono<HonoEnv>();
 
@@ -131,6 +137,96 @@ popaRoutes.get('/leaderboard', async (c) => {
       'X-Powered-By': 'AgentLair',
       'X-Cache': 'MISS',
     },
+  });
+});
+
+/**
+ * GET /v1/popa/agent/:did — agent self-attestation history (public).
+ *
+ * Returns the list of self-attestation records for a DID, ordered newest first.
+ * These are agent-driven liveness proofs (POST /v1/popa/self-attest),
+ * distinct from controller-driven attestations (served by GET /v1/popa/:did).
+ */
+popaRoutes.get('/agent/:did', async (c) => {
+  if (!c.env.AUDIT) return err('PoPA not configured.', 503, 'audit_unavailable');
+
+  const agentDid = c.req.param('did');
+  if (!agentDid) return err('did path parameter is required.', 400, 'missing_did');
+
+  const result = await c.env.AUDIT
+    .prepare(
+      `SELECT id, agent_did, account_id, aat_jti, sequence, window_date, attested_at
+       FROM popa_self_attestations
+       WHERE agent_did = ?
+       ORDER BY sequence DESC
+       LIMIT 365`,
+    )
+    .bind(agentDid)
+    .all<{
+      id: string;
+      agent_did: string;
+      account_id: string;
+      aat_jti: string;
+      sequence: number;
+      window_date: string;
+      attested_at: string;
+    }>();
+
+  const rows = result.results ?? [];
+
+  // Compute simple streak (consecutive days, descending)
+  let streak = 0;
+  let totalAttestations = rows.length;
+  let longestStreak = 0;
+  let currentRun = 0;
+  let prevDate: string | null = null;
+
+  for (const row of rows) {
+    if (prevDate === null) {
+      currentRun = 1;
+    } else {
+      const prev = new Date(prevDate + 'T00:00:00Z');
+      const curr = new Date(row.window_date + 'T00:00:00Z');
+      const diffDays = Math.round((prev.getTime() - curr.getTime()) / 86_400_000);
+      if (diffDays === 1) {
+        currentRun++;
+      } else {
+        longestStreak = Math.max(longestStreak, currentRun);
+        currentRun = 1;
+      }
+    }
+    prevDate = row.window_date;
+    if (streak === 0) streak = currentRun; // current streak = run from most recent
+  }
+  longestStreak = Math.max(longestStreak, currentRun);
+  // After the loop, streak is the current streak (running from the most recent entry).
+  // Re-compute: walk from the top and count consecutive days.
+  streak = 0;
+  prevDate = null;
+  for (const row of rows) {
+    if (prevDate === null) {
+      streak = 1;
+    } else {
+      const prev = new Date(prevDate + 'T00:00:00Z');
+      const curr = new Date(row.window_date + 'T00:00:00Z');
+      const diffDays = Math.round((prev.getTime() - curr.getTime()) / 86_400_000);
+      if (diffDays === 1) {
+        streak++;
+      } else {
+        break; // gap — current streak ends
+      }
+    }
+    prevDate = row.window_date;
+  }
+
+  return json({
+    agent_did: agentDid,
+    total_attestations: totalAttestations,
+    streak_days: streak,
+    longest_streak: longestStreak,
+    last_attested_at: rows[0]?.attested_at ?? null,
+    genesis_at: rows.length > 0 ? rows[rows.length - 1]!.attested_at : null,
+    attestations: rows,
   });
 });
 
@@ -383,4 +479,168 @@ popaEnrollRoutes.delete('/enroll/:did', async (c) => {
       'revoke_failed',
     );
   }
+});
+
+// ─── Agent self-service router (AAT-gated) ────────────────────────────────────
+//
+// Mounted BEFORE the global /v1/* account-key auth middleware so that it
+// handles its own JWT verification inline. The global middleware only handles
+// `al_*` API keys, not AAT JWTs.
+
+/**
+ * POST /v1/popa/self-attest — agent-driven liveness proof.
+ *
+ * Authentication: Bearer <AAT>  (EdDSA JWT issued by POST /v1/tokens/issue)
+ *
+ * The agent presents its non-expired AAT. The server:
+ *   1. Verifies the AAT signature against AUDIT_SIGNING_KEY
+ *   2. Extracts the agent DID (from `did` claim, or derived from `sub`)
+ *   3. Signs a liveness claim JSON using the same Ed25519 key
+ *      (the same key backs the agent's DID — conceptually the agent's key)
+ *   4. Inserts a row into popa_self_attestations (idempotent per UTC day)
+ *   5. Returns the attestation record
+ *
+ * Rate: one attestation per DID per UTC day. Re-attesting the same day
+ * returns 200 with the existing record (idempotent, not an error).
+ */
+export const popaAgentRoutes = new Hono<HonoEnv>();
+
+popaAgentRoutes.post('/self-attest', async (c) => {
+  if (!c.env.AUDIT || !c.env.AUDIT_SIGNING_KEY) {
+    return err('PoPA not configured.', 503, 'audit_unavailable');
+  }
+
+  // ── 1. Extract and verify the AAT ─────────────────────────────────────────
+  const authHeader = c.req.header('Authorization') ?? '';
+  if (!authHeader.startsWith('Bearer ')) {
+    return err('Authorization header with Bearer AAT required.', 401, 'unauthorized');
+  }
+  const token = authHeader.slice(7).trim();
+
+  // AATs start with "eyJ" (base64url-encoded JSON); reject obvious API keys early
+  if (token.startsWith('al_') || !token.includes('.')) {
+    return err('Bearer token must be a JWT (AAT), not an API key.', 401, 'invalid_token_type');
+  }
+
+  const publicKeyBytes = getPublicKey(c.env.AUDIT_SIGNING_KEY);
+  const claims = verifyJWT(token, publicKeyBytes);
+  if (!claims) {
+    return err('AAT signature verification failed.', 401, 'invalid_aat');
+  }
+
+  // Expiry check (verifyJWT doesn't check exp)
+  const nowSecs = Math.floor(Date.now() / 1000);
+  if (claims.exp && nowSecs > claims.exp) {
+    return err('AAT has expired. Issue a new token via POST /v1/tokens/issue.', 401, 'aat_expired');
+  }
+
+  // ── 2. Resolve agent DID ───────────────────────────────────────────────────
+  const agentDid = claims.did ?? `did:web:agentlair.dev:agents:${claims.sub}`;
+  const accountId = claims.sub;
+
+  // ── 3. Current UTC date (window_date) ─────────────────────────────────────
+  const now = new Date();
+  const windowDateIso = now.toISOString().slice(0, 10); // "YYYY-MM-DD"
+
+  // ── 4. Idempotency: check if already attested today ───────────────────────
+  const existing = await c.env.AUDIT
+    .prepare('SELECT id, sequence, attested_at FROM popa_self_attestations WHERE agent_did = ? AND window_date = ?')
+    .bind(agentDid, windowDateIso)
+    .first<{ id: string; sequence: number; attested_at: string }>();
+
+  if (existing) {
+    // Already attested today — idempotent success
+    return json(
+      {
+        id: existing.id,
+        agent_did: agentDid,
+        account_id: accountId,
+        sequence: existing.sequence,
+        window_date: windowDateIso,
+        attested_at: existing.attested_at,
+        already_attested_today: true,
+      },
+      200,
+    );
+  }
+
+  // ── 5. Build and sign the liveness claim ──────────────────────────────────
+  //
+  // The agent's DID is anchored to AgentLair's JWKS — the AUDIT_SIGNING_KEY IS
+  // the agent's key. Signing with it is conceptually "the agent signing with its
+  // own key."
+  const attestedAt = now.toISOString();
+  const prevRow = await c.env.AUDIT
+    .prepare('SELECT sequence FROM popa_self_attestations WHERE agent_did = ? ORDER BY sequence DESC LIMIT 1')
+    .bind(agentDid)
+    .first<{ sequence: number }>();
+  const sequence = (prevRow?.sequence ?? 0) + 1;
+
+  const id = 'psa_' + nanoid(16);
+
+  const livenessPayload = canonicalJSON({
+    '@context': ['https://agentlair.dev/popa/v1'],
+    type: 'AgentLivenessAttestation',
+    id,
+    agent_did: agentDid,
+    account_id: accountId,
+    aat_jti: claims.jti,
+    sequence,
+    window_date: windowDateIso,
+    attested_at: attestedAt,
+    issuer: 'https://agentlair.dev',
+  });
+
+  const privBytes = Uint8Array.from(atob(c.env.AUDIT_SIGNING_KEY), (ch) => ch.charCodeAt(0));
+  const payloadBytes = new TextEncoder().encode(livenessPayload);
+  const sigBytes = ed25519.sign(payloadBytes, privBytes);
+  const sigB64 = b64urlEncode(sigBytes);
+
+  const signedClaim = JSON.stringify({
+    payload: livenessPayload,
+    signature: sigB64,
+    algorithm: 'EdDSA',
+    key_id: 'agentlair.dev/audit',
+  });
+
+  // ── 6. Persist ────────────────────────────────────────────────────────────
+  try {
+    await c.env.AUDIT
+      .prepare(
+        `INSERT INTO popa_self_attestations (id, agent_did, account_id, aat_jti, sequence, window_date, attested_at, signed_claim)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(id, agentDid, accountId, claims.jti, sequence, windowDateIso, attestedAt, signedClaim)
+      .run();
+  } catch (e) {
+    // UNIQUE constraint on aat_jti — replay attempt
+    if (e instanceof Error && e.message.includes('UNIQUE')) {
+      return err('This AAT has already been used for a self-attestation.', 409, 'jti_conflict');
+    }
+    return err(
+      'Failed to store self-attestation: ' + (e instanceof Error ? e.message : 'unknown error'),
+      500,
+      'store_failed',
+    );
+  }
+
+  // ── 7. Invalidate KV cache for this DID ──────────────────────────────────
+  try {
+    await c.env.KEYS.delete('popa:' + agentDid);
+  } catch {
+    /* non-fatal */
+  }
+
+  return json(
+    {
+      id,
+      agent_did: agentDid,
+      account_id: accountId,
+      sequence,
+      window_date: windowDateIso,
+      attested_at: attestedAt,
+      already_attested_today: false,
+    },
+    201,
+  );
 });

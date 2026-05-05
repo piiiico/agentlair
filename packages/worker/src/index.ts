@@ -55,7 +55,8 @@ import { idpRoutes, revokeRoutes, buildOIDCDiscovery } from './idp/index.js';
 import { demoRoutes } from './routes/demo.js';
 import { scittRoutes, publicScittRoutes } from './routes/scitt.js';
 import { publicStatsRoutes } from './routes/stats.js';
-import { popaRoutes, popaEnrollRoutes } from './routes/popa.js';
+import { popaRoutes, popaEnrollRoutes, popaAgentRoutes } from './routes/popa.js';
+import { bccRoutes, bccPublicRoutes } from './routes/bcc.js';
 import { runPoPADaily } from './crons/popa-daily.js';
 import { handleCheckout, handleStripeWebhook } from './routes/stripe.js';
 import { EXPLORE_HTML } from './routes/explore.js';
@@ -1091,10 +1092,20 @@ app.route('/v1/audit', publicAuditRoutes);
 // Mounted BEFORE auth middleware so the /:did handler runs unauthenticated.
 app.route('/v1/popa', popaRoutes);
 
+// Agent self-service PoPA: POST /v1/popa/self-attest — AAT-gated (not account key).
+// Mounted BEFORE the global auth middleware so the handler does its own JWT
+// verification (global middleware only handles al_* API keys, not AAT JWTs).
+app.route('/v1/popa', popaAgentRoutes);
+
 // Public SCITT corpus: GET /v1/scitt/corpus, /v1/scitt/corpus/stats, /v1/scitt/corpus.atom
 // No auth required: public verifiable feed of all issued receipts.
 // Mounted BEFORE auth middleware and the authenticated scittRoutes.
 app.route('/v1/scitt', publicScittRoutes);
+
+// Public BCC retrieval: GET /v1/bcc/:id
+// No auth required: verifiers read issued BCC credentials by id.
+// Mounted BEFORE auth middleware so unauthenticated reads work.
+app.route('/v1/bcc', bccPublicRoutes);
 
 // Public substrate stats: GET /v1/stats/agents
 // No auth required: aggregate counts and 24h/7d deltas for the live trust dashboard.
@@ -1561,6 +1572,10 @@ app.route('/v1/scitt', scittRoutes);
 // through that public mount on POST (no method match), the /v1/* auth
 // middleware runs, and lands here.
 app.route('/v1/popa', popaEnrollRoutes);
+
+// BCC issuance: POST /v1/bcc/issue — auth-gated. The public bccPublicRoutes
+// mount above handles GET /v1/bcc/:id before auth. POST falls through to here.
+app.route('/v1/bcc', bccRoutes);
 
 // Session lifecycle routes (PicoClaw agent session tracking)
 app.route('/v1/sessions', sessionRoutes);
