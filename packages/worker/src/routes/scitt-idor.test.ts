@@ -72,11 +72,19 @@ function makeMockD1(config: MockD1Config): D1Database {
           return (row ?? null) as T | null;
         }
 
-        // audit_log lookup WITH account_id guard
-        if (q.includes('from audit_log') && q.includes('account_id')) {
+        // audit_log lookup — ALWAYS filter by entry_id (bindings[0]);
+        // additionally filter by account_id (bindings[1]) only when two bindings
+        // are present (WHERE id = ? AND account_id = ?).
+        // Branching on q.includes('account_id') creates a false-confidence trap:
+        // a regression that removes the AND clause from SQL silently returns []
+        // regardless of bindings, making the IDOR guard look effective when it
+        // has been bypassed at the SQL level.
+        if (q.includes('from audit_log')) {
           const entryId = bindings[0] as string;
-          const accountId = bindings[1] as string;
-          const row = auditLog.find((r) => r.id === entryId && r.account_id === accountId);
+          const row = auditLog.find(
+            (r) => r.id === entryId &&
+              (bindings.length < 2 || r.account_id === (bindings[1] as string))
+          );
           return (row ?? null) as T | null;
         }
 
@@ -90,11 +98,15 @@ function makeMockD1(config: MockD1Config): D1Database {
       async all<T>(): Promise<D1Result<T>> {
         const q = sql.trim().toLowerCase();
 
-        // audit_log lookup WITH account_id guard (used by POST /entries, GET /entries/:id)
-        if (q.includes('from audit_log') && q.includes('account_id')) {
+        // audit_log lookup — same two-binding semantics as first() above.
+        // ALWAYS filter by entry_id (bindings[0]); filter by account_id (bindings[1])
+        // only when bindings.length === 2.
+        if (q.includes('from audit_log')) {
           const entryId = bindings[0] as string;
-          const accountId = bindings[1] as string;
-          const rows = auditLog.filter((r) => r.id === entryId && r.account_id === accountId);
+          const rows = auditLog.filter(
+            (r) => r.id === entryId &&
+              (bindings.length < 2 || r.account_id === (bindings[1] as string))
+          );
           return { results: rows as T[], success: true, meta: {} as D1ResultInfo };
         }
 
@@ -194,7 +206,10 @@ describe('GET /entries/:entry_id — IDOR protection', () => {
     expect(res.status).toBe(404);
 
     const body = await res.json() as Record<string, unknown>;
-    expect(body.error).toBeDefined();
+    // Specific code distinguishes IDOR-blocked (entry_not_found) from receipt-missing (not_registered).
+    // If the SQL WHERE clause is broken and returns Alice's entry, the route proceeds to
+    // the receipt lookup, which returns null → 'not_registered'. This assertion catches that.
+    expect(body.error).toBe('entry_not_found');
   });
 
   test('unauthenticated request returns 401', async () => {
@@ -263,14 +278,28 @@ describe('POST /entries — IDOR protection', () => {
 
   test("Bob submitting Alice's entry_id returns 404 (IDOR: entry not found for account)", async () => {
     // Bob authenticates but submits Alice's entry_id.
-    // The route queries WHERE id = ? AND account_id = 'acc_bob' — no row found.
+    // The route queries WHERE id = ? AND account_id = 'acc_bob' — no row found → 404.
+    // We provide a TRANSPARENCY_SERVICE stub so the route reaches the IDOR check
+    // (without it the route returns 503 at the service-availability check — wrong).
     const d1 = makeMockD1({ auditLog: [aliceAuditEntry, bobAuditEntry] });
     const app = makeTestApp(makeAccount('acc_bob'), d1);
 
+    // Track whether the Durable Object was actually called.
+    // IDOR guard must fire BEFORE any DO interaction.
+    let doFetchCallCount = 0;
+    const transparencyServiceStub = {
+      idFromName: () => ({}),
+      get: () => ({
+        fetch: async (_req: Request) => {
+          doFetchCallCount++;
+          return new Response('{}', { status: 200 });
+        },
+      }),
+    };
+
     const env = {
       ...makeEnv(d1),
-      // Add a stub TRANSPARENCY_SERVICE so the route gets past the availability check
-      // (we want to reach the IDOR gate, not fail at service availability)
+      TRANSPARENCY_SERVICE: transparencyServiceStub,
     };
 
     const res = await app.request('/entries', {
@@ -279,10 +308,16 @@ describe('POST /entries — IDOR protection', () => {
       body: JSON.stringify({ entry_id: ENTRY_ID_ALICE }),
     }, env);
 
-    // 503 (TRANSPARENCY_SERVICE not bound) or 404 (IDOR) — either way NOT 200.
-    // The important assertion: it is NOT 200 (not successful cross-account registration).
-    expect(res.status).not.toBe(200);
-    expect(res.status).not.toBe(201);
+    // Must be 404 (IDOR-blocked), not 503 (service unavailable) or 200/201 (success).
+    expect(res.status).toBe(404);
+
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.error).toBe('entry_not_found');
+
+    // Critically: the Durable Object must NOT have been called.
+    // If doFetchCallCount > 0, the route bypassed the IDOR guard and called the
+    // Transparency Service before checking ownership — a security regression.
+    expect(doFetchCallCount).toBe(0);
   });
 });
 
