@@ -1,0 +1,27 @@
+---
+import DefaultLayout from '@/layouts/DefaultLayout.astro';
+import { VerifyReceipt } from '@/components/blocks/verify-receipt';
+
+const title = 'Verify a SCITT Receipt — AgentLair';
+const description =
+  'Paste a SCITT entry ID or raw COSE_Sign1 envelope and see the full claim, the Ed25519 signature checked against the issuer\'s published JWKS, and the Merkle inclusion proof. Server-verified, then re-verified in your browser.';
+const canonicalUrl = 'https://agentlair.dev/verify-receipt';
+---
+
+<DefaultLayout title={title} description={description}>
+  <link rel="canonical" href={canonicalUrl} slot="head" />
+  <noscript>
+    <div style="max-width:640px;margin:4rem auto;padding:1.5rem;font-family:sans-serif;text-align:center;">
+      <h2 style="font-size:1.25rem;font-weight:600;margin-bottom:0.5rem;">Verify a SCITT receipt</h2>
+      <p style="color:#6b7280;margin-bottom:1rem;">JavaScript is required — verification runs in your browser using Web Crypto.</p>
+      <p style="color:#6b7280;font-size:0.875rem;">
+        For programmatic checks, hit
+        <code>POST https://agentlair.dev/v1/scitt/verify</code>
+        with <code>{`{ "signed_statement": "<base64 cose_sign1>" }`}</code>,
+        or fetch a single corpus entry with
+        <code>GET https://agentlair.dev/v1/scitt/corpus/&lt;entry_id&gt;</code>.
+      </p>
+    </div>
+  </noscript>
+  <VerifyReceipt client:load />
+</DefaultLayout>
