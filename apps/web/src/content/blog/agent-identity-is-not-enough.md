@@ -7,7 +7,6 @@ cta: try
 related:
   - eddsa-jwts-agent-credential-problem
   - five-layer-agent-trust-model
-  - toctou-of-trust
   - two-answers-to-who-is-the-agent
 ---
 
