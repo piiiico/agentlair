@@ -407,9 +407,11 @@ publicScittRoutes.get('/entries/:entry_id/receipt', async (c) => {
     return err('No receipt for this entry.', 404, 'no_receipt');
   }
 
-  // Return raw COSE bytes
+  // Return raw COSE bytes.
+  // Cast to BodyInit: strict DOM types reject Uint8Array<ArrayBufferLike>, but
+  // Workers runtime accepts it (no SharedArrayBuffer in Workers).
   const receiptBytes = base64ToArray(receipt.receipt_cbor);
-  return new Response(receiptBytes, {
+  return new Response(receiptBytes as BodyInit, {
     status: 200,
     headers: {
       'Content-Type': 'application/scitt-receipt+cose',

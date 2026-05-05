@@ -142,3 +142,56 @@ describe('EIP-712 address derivation', () => {
     expect(hash.length).toBe(32);
   });
 });
+
+// ─── @noble/curves v2 Signature Recovery (regression test for sig.r/.s/.recovery fix) ──
+// Pre-existing TS errors in gateway.ts:371-373 (sig.r/.s/.recovery missing on Uint8Array)
+// were because @noble/curves v2 sign() now returns raw bytes, not a Signature object.
+// The fix uses { format: 'recovered' } + Signature.fromBytes(_, 'recovered') to recover
+// the {r, s, recovery} object form. This test exercises that exact pattern end-to-end.
+
+describe('@noble/curves v2 secp256k1 signing (gateway EIP-712 path)', () => {
+  test('format: recovered + fromBytes yields valid recoverable signature', () => {
+    // Hardhat test account #0
+    const privKey = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
+    const privKeyBytes = Uint8Array.from(
+      privKey.replace(/^0x/i, '').match(/.{2}/g)!.map(b => parseInt(b, 16))
+    );
+
+    // Arbitrary 32-byte digest (mimics EIP-712 final digest — already keccak256'd)
+    const digest = keccak_256(new TextEncoder().encode('eip712-test-digest'));
+    expect(digest.length).toBe(32);
+
+    // Mirror the gateway signing pattern exactly.
+    // prehash:false is critical — digest is already hashed; v2 default is prehash:true.
+    const sigBytes = secp256k1.sign(digest, privKeyBytes, {
+      lowS: true,
+      prehash: false,
+      format: 'recovered',
+    });
+    expect(sigBytes.length).toBe(65); // 32 (r) + 32 (s) + 1 (recovery)
+
+    const sig = secp256k1.Signature.fromBytes(sigBytes, 'recovered');
+    expect(typeof sig.r).toBe('bigint');
+    expect(typeof sig.s).toBe('bigint');
+    expect(sig.recovery === 0 || sig.recovery === 1).toBe(true);
+
+    // Build EIP-712 r||s||v signature exactly like signTransferAuthorization does
+    const r = sig.r.toString(16).padStart(64, '0');
+    const s = sig.s.toString(16).padStart(64, '0');
+    const v = (27 + sig.recovery!).toString(16).padStart(2, '0');
+    const signature = '0x' + r + s + v;
+    expect(signature.length).toBe(2 + 130); // '0x' + 65 bytes hex
+
+    // Recover the public key from the signature and confirm it matches the
+    // original key — proves the signature is valid for an Ethereum verifier.
+    const recoveredPoint = sig.recoverPublicKey(digest);
+    const recoveredPubKey = recoveredPoint.toBytes(false); // uncompressed: 65 bytes
+    const expectedPubKey = secp256k1.getPublicKey(privKeyBytes, false);
+    expect(Array.from(recoveredPubKey)).toEqual(Array.from(expectedPubKey));
+
+    // Address parity: recovered key → same Ethereum address (Hardhat #0)
+    const recoveredAddr = '0x' + Array.from(keccak_256(recoveredPubKey.slice(1)).slice(12))
+      .map(b => b.toString(16).padStart(2, '0')).join('');
+    expect(recoveredAddr.toLowerCase()).toBe('0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266');
+  });
+});

@@ -363,14 +363,28 @@ function signTransferAuthorization(
   const prefix = new Uint8Array([0x19, 0x01]);
   const digest = keccak256Bytes(concat(prefix, DOMAIN_SEPARATOR, structHash));
 
-  // Sign with secp256k1
+  // Sign with secp256k1.
+  // @noble/curves v2 changed two relevant defaults vs. v1:
+  //   1. sign() now returns raw bytes, not a {r, s, recovery} object.
+  //      Use format: 'recovered' (65 bytes: r||s||recovery) + Signature.fromBytes
+  //      to get the object form needed for EIP-712 (r||s||v) serialization.
+  //   2. prehash defaults to TRUE in v2 (was false in v1). Our `digest` is the
+  //      already-computed EIP-712 keccak256 digest — pass prehash: false so
+  //      the library does not sha256 it again. Without this, the signature
+  //      would be over sha256(digest), invalid for Ethereum verification.
   const privKey = privateKeyHex.replace(/^0x/i, '');
   const privKeyBytes = Uint8Array.from(privKey.match(/.{2}/g)!.map(b => parseInt(b, 16)));
-  const sig = secp256k1.sign(digest, privKeyBytes, { lowS: true });
+  const sigBytes = secp256k1.sign(digest, privKeyBytes, {
+    lowS: true,
+    prehash: false,
+    format: 'recovered',
+  });
+  const sig = secp256k1.Signature.fromBytes(sigBytes, 'recovered');
 
   const r = sig.r.toString(16).padStart(64, '0');
   const s = sig.s.toString(16).padStart(64, '0');
-  const v = (27 + sig.recovery).toString(16).padStart(2, '0');
+  // recovery is guaranteed present because we requested 'recovered' format above.
+  const v = (27 + sig.recovery!).toString(16).padStart(2, '0');
   const signature = '0x' + r + s + v;
 
   return { ...auth, signature };

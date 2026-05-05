@@ -50,7 +50,10 @@ const TAG_COSE_SIGN1 = 18;
  * Compute SHA-256 hash (returns raw bytes).
  */
 async function sha256(data: Uint8Array): Promise<Uint8Array> {
-  const buf = await crypto.subtle.digest('SHA-256', data);
+  // Cast to BufferSource: strict DOM types require Uint8Array<ArrayBuffer>,
+  // but @noble/curves and Workers runtime use the broader Uint8Array<ArrayBufferLike>.
+  // Workers runtime accepts both — the cast is safe (no SharedArrayBuffer in Workers).
+  const buf = await crypto.subtle.digest('SHA-256', data as BufferSource);
   return new Uint8Array(buf);
 }
 
@@ -197,15 +200,16 @@ interface AppendResponse {
  *   GET  /receipt/:entryId — return a stored receipt
  */
 export class TransparencyService {
-  private state: DurableObjectState;
+  // Note: DurableObjectState parameter is required by the DO interface but not
+  // retained — this DO uses pure in-memory state (treeSize, nodeHashes) plus D1
+  // for persistence. No state.storage usage; no WebSocket Hibernation.
   private env: { AUDIT: D1Database; AUDIT_SIGNING_KEY: string };
 
   private treeSize: number = 0;
   private nodeHashes: Map<string, Uint8Array> = new Map();
   private initialized: boolean = false;
 
-  constructor(state: DurableObjectState, env: { AUDIT: D1Database; AUDIT_SIGNING_KEY: string }) {
-    this.state = state;
+  constructor(_state: DurableObjectState, env: { AUDIT: D1Database; AUDIT_SIGNING_KEY: string }) {
     this.env = env;
   }
 
