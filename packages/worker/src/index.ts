@@ -54,6 +54,7 @@ import { specRoutes } from './routes/spec.js';
 import { idpRoutes, revokeRoutes, buildOIDCDiscovery } from './idp/index.js';
 import { demoRoutes } from './routes/demo.js';
 import { scittRoutes, publicScittRoutes } from './routes/scitt.js';
+import { publicStatsRoutes } from './routes/stats.js';
 import { popaRoutes, popaEnrollRoutes } from './routes/popa.js';
 import { runPoPADaily } from './crons/popa-daily.js';
 import { handleCheckout, handleStripeWebhook } from './routes/stripe.js';
@@ -1094,6 +1095,11 @@ app.route('/v1/popa', popaRoutes);
 // No auth required: public verifiable feed of all issued receipts.
 // Mounted BEFORE auth middleware and the authenticated scittRoutes.
 app.route('/v1/scitt', publicScittRoutes);
+
+// Public substrate stats: GET /v1/stats/agents
+// No auth required: aggregate counts and 24h/7d deltas for the live trust dashboard.
+// Mounted BEFORE auth middleware so anonymous browsers can poll it.
+app.route('/v1/stats', publicStatsRoutes);
 
 // ── Waitlist: lead capture for paid tiers (no auth required) ────────────────
 // Captures email + company before Stripe checkout is live.

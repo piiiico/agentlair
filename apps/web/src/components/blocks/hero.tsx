@@ -74,6 +74,18 @@ export const Hero = () => {
               </a>
             </Button>
           </div>
+          <p className="mt-4 text-sm text-muted-foreground">
+            <a href="/verify" className="underline underline-offset-2 hover:text-foreground">
+              Verify any agent →
+            </a>{" "}
+            Paste a DID or AAT to see the full attestation chain.
+          </p>
+          <p className="mt-2 text-sm text-muted-foreground">
+            <a href="/live" className="underline underline-offset-2 hover:text-foreground">
+              Watch the substrate live →
+            </a>{" "}
+            Real-time SCITT receipts, trust histogram, signed by AgentLair.
+          </p>
         </div>
 
         {/* Right side - Features */}

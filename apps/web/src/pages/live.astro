@@ -1,0 +1,26 @@
+---
+import DefaultLayout from '@/layouts/DefaultLayout.astro';
+import { LiveDashboard } from '@/components/live/live-dashboard';
+
+const title = 'Live Trust Substrate — AgentLair';
+const description =
+  'Watch SCITT receipts arrive in real time. Trust score histogram, agent count, substrate health — every value pulled from public verifiable APIs at agentlair.dev.';
+const canonicalUrl = 'https://agentlair.dev/live';
+---
+
+<DefaultLayout title={title} description={description}>
+  <link rel="canonical" href={canonicalUrl} slot="head" />
+  <noscript>
+    <div style="max-width:640px;margin:4rem auto;padding:1.5rem;font-family:sans-serif;text-align:center;">
+      <h2 style="font-size:1.25rem;font-weight:600;margin-bottom:0.5rem;">Live Trust Substrate</h2>
+      <p style="color:#6b7280;margin-bottom:1rem;">JavaScript is required to poll the live SCITT corpus.</p>
+      <p style="color:#6b7280;font-size:0.875rem;">
+        Programmatic access:
+        <code>GET https://agentlair.dev/v1/scitt/corpus?order=desc&amp;limit=50</code>,
+        <code>GET https://agentlair.dev/v1/trust/distribution</code>,
+        <code>GET https://agentlair.dev/v1/stats/agents</code>.
+      </p>
+    </div>
+  </noscript>
+  <LiveDashboard client:load />
+</DefaultLayout>

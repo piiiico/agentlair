@@ -442,32 +442,48 @@ publicScittRoutes.get('/corpus', async (c) => {
 
   const url = new URL(c.req.url);
   const afterParam = url.searchParams.get('after');
-  const after = afterParam !== null ? parseInt(afterParam, 10) : -1;
   const limitParam = parseInt(url.searchParams.get('limit') || '50', 10);
   const limit = Math.min(Math.max(1, isNaN(limitParam) ? 50 : limitParam), 100);
 
+  // Order: 'asc' (default, chronological pagination) or 'desc' (newest-first feed)
+  const orderParam = url.searchParams.get('order');
+  if (orderParam !== null && orderParam !== 'asc' && orderParam !== 'desc') {
+    return err('Invalid order: must be "asc" or "desc".', 400, 'invalid_order');
+  }
+  const order: 'asc' | 'desc' = orderParam === 'desc' ? 'desc' : 'asc';
+
+  // Cursor semantics depend on order:
+  //   asc:  after = exclusive lower bound (return leaf_index > after); default -1 (start)
+  //   desc: after = exclusive upper bound (return leaf_index < after); default Number.MAX_SAFE_INTEGER (top)
+  const after = afterParam !== null ? parseInt(afterParam, 10) : (order === 'desc' ? Number.MAX_SAFE_INTEGER : -1);
   if (afterParam !== null && (isNaN(after) || after < 0)) {
     return err('Invalid cursor: after must be a non-negative integer.', 400, 'invalid_cursor');
   }
 
   try {
-    const results = await c.env.AUDIT.prepare(`
-      SELECT
-        r.entry_id,
-        r.leaf_index,
-        r.tree_size,
-        r.root_hash,
-        r.created_at,
-        a.account_id,
-        a.category,
-        a.action,
-        a.signature
-      FROM scitt_receipts r
-      JOIN audit_log a ON a.id = r.entry_id
-      WHERE r.leaf_index > ?
-      ORDER BY r.leaf_index ASC
-      LIMIT ?
-    `)
+    const sql = order === 'desc'
+      ? `
+        SELECT
+          r.entry_id, r.leaf_index, r.tree_size, r.root_hash, r.created_at,
+          a.account_id, a.category, a.action, a.signature
+        FROM scitt_receipts r
+        JOIN audit_log a ON a.id = r.entry_id
+        WHERE r.leaf_index < ?
+        ORDER BY r.leaf_index DESC
+        LIMIT ?
+      `
+      : `
+        SELECT
+          r.entry_id, r.leaf_index, r.tree_size, r.root_hash, r.created_at,
+          a.account_id, a.category, a.action, a.signature
+        FROM scitt_receipts r
+        JOIN audit_log a ON a.id = r.entry_id
+        WHERE r.leaf_index > ?
+        ORDER BY r.leaf_index ASC
+        LIMIT ?
+      `;
+
+    const results = await c.env.AUDIT.prepare(sql)
       .bind(after, limit)
       .all<{
         entry_id: string;
@@ -500,6 +516,7 @@ publicScittRoutes.get('/corpus', async (c) => {
       items,
       next_cursor,
       count: items.length,
+      order,
     });
   } catch (e) {
     console.error('SCITT corpus query failed:', e instanceof Error ? e.message : String(e));

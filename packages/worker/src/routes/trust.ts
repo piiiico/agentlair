@@ -227,6 +227,99 @@ publicTrustRoutes.get('/score', async (c) => {
   }
 });
 
+// ─── GET /v1/trust/distribution ─────────────────────────────────────────────────
+//
+// Aggregate histogram of computed trust scores across all agents in the
+// trust_profiles table. Public — no auth, no x402. Pure aggregate counts:
+// no per-agent IDs, scores, or other identifiers leave the worker.
+//
+// Designed for the public live trust dashboard at agentlair.dev/live.
+//
+// MUST be registered BEFORE the `/:agentId` route below — otherwise
+// "distribution" is captured as an agent ID and validated as `acc_<...>`,
+// returning 400 invalid_agent_id.
+//
+// Response shape:
+//   {
+//     buckets: [
+//       { range: "0-19",   count: 0 },
+//       { range: "20-39",  count: 0 },
+//       { range: "40-59",  count: 2 },
+//       { range: "60-79",  count: 5 },
+//       { range: "80-100", count: 1 }
+//     ],
+//     total_agents_scored: 8,
+//     avg_score: 65,                // null if no agents scored
+//     computed_at: "2026-05-05T09:33:00Z"
+//   }
+//
+// Graceful: if AUDIT not bound or trust_profiles table missing, returns empty
+// buckets (all zeros) with avg_score=null. Does NOT 503 — the dashboard must
+// still render so users see the substrate is reachable.
+
+publicTrustRoutes.get('/distribution', async (c) => {
+  const computed_at = new Date().toISOString();
+  const empty = {
+    buckets: [
+      { range: '0-19', count: 0 },
+      { range: '20-39', count: 0 },
+      { range: '40-59', count: 0 },
+      { range: '60-79', count: 0 },
+      { range: '80-100', count: 0 },
+    ],
+    total_agents_scored: 0,
+    avg_score: null as number | null,
+    computed_at,
+  };
+
+  if (!c.env.AUDIT) {
+    return json(empty);
+  }
+
+  try {
+    const bucketRows = await c.env.AUDIT.prepare(`
+      SELECT
+        CASE
+          WHEN score < 20 THEN '0-19'
+          WHEN score < 40 THEN '20-39'
+          WHEN score < 60 THEN '40-59'
+          WHEN score < 80 THEN '60-79'
+          ELSE '80-100'
+        END AS bucket,
+        COUNT(*) AS count
+      FROM trust_profiles
+      GROUP BY bucket
+    `).all<{ bucket: string; count: number }>();
+
+    const totals = await c.env.AUDIT.prepare(`
+      SELECT COUNT(*) AS n, AVG(score) AS avg_score FROM trust_profiles
+    `).first<{ n: number; avg_score: number | null }>();
+
+    const ranges = ['0-19', '20-39', '40-59', '60-79', '80-100'] as const;
+    const counts = new Map<string, number>();
+    for (const row of bucketRows.results || []) {
+      counts.set(row.bucket, row.count);
+    }
+
+    return json({
+      buckets: ranges.map((range) => ({ range, count: counts.get(range) ?? 0 })),
+      total_agents_scored: totals?.n ?? 0,
+      avg_score:
+        totals?.avg_score !== null && totals?.avg_score !== undefined
+          ? Math.round(totals.avg_score)
+          : null,
+      computed_at,
+    });
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg.includes('no such table') || msg.includes('SQLITE_ERROR')) {
+      return json(empty);
+    }
+    console.error('Trust distribution query failed:', msg);
+    return json(empty);
+  }
+});
+
 publicTrustRoutes.get('/:agentId', async (c) => {
   // Try optional authentication — if API key present, use it (no payment required)
   const account = await authenticateAny(c.req.raw, c.env);
