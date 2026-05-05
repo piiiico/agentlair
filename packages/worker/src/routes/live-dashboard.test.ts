@@ -133,43 +133,32 @@ function makeTrustD1(rows: TrustProfileRow[], throwError?: string): D1Database {
 
 // ─── KV mock for stats/agents ─────────────────────────────────────────────────
 
-function makeAgentsKV(accounts: { id: string; created_at: string }[]): KVNamespace {
-  const indexEntries = accounts.map((a) => ({ name: `account:${a.id}`, hash: 'h_' + a.id }));
-  const accountsByHash = new Map<string, { id: string; created_at: string }>();
-  for (let i = 0; i < accounts.length; i++) {
-    accountsByHash.set('h_' + accounts[i]!.id, accounts[i]!);
-  }
-
+/**
+ * Lightweight KV mock for the counter-based stats endpoint.
+ * The counters object is mutated in place so put-back persistence is testable.
+ * list() returns keys matching the prefix — supports the lazy-init fallback path.
+ */
+function makeStatsCounterKV(counters: Record<string, string | undefined>): KVNamespace {
   return {
-    async list(opts?: { prefix?: string; limit?: number }) {
+    async get(key: string): Promise<string | null> {
+      return counters[key] ?? null;
+    },
+    async put(key: string, value: string): Promise<void> {
+      counters[key] = value;
+    },
+    async list(opts?: { prefix?: string; limit?: number; cursor?: string }) {
       const prefix = opts?.prefix ?? '';
       const limit = opts?.limit ?? 1000;
-      const matched = indexEntries
-        .filter((k) => k.name.startsWith(prefix))
+      const matched = Object.keys(counters)
+        .filter((k) => k.startsWith(prefix))
         .slice(0, limit)
-        .map((k) => ({ name: k.name }));
+        .map((k) => ({ name: k }));
       return {
         keys: matched,
-        list_complete: matched.length < limit + 1,
+        list_complete: matched.length < limit,
         cacheStatus: null,
       };
     },
-    async get(key: string, type?: string): Promise<unknown> {
-      if (key.startsWith('account:')) {
-        const id = key.slice('account:'.length);
-        const idx = indexEntries.find((k) => k.name === key);
-        return idx ? idx.hash : null;
-      }
-      if (key.startsWith('key:')) {
-        const hash = key.slice('key:'.length);
-        const acct = accountsByHash.get(hash);
-        if (!acct) return null;
-        if (type === 'json') return acct;
-        return JSON.stringify(acct);
-      }
-      return null;
-    },
-    async put() {},
     async delete() {},
     async getWithMetadata() {
       return { value: null, metadata: null };
@@ -327,37 +316,55 @@ describe('GET /v1/trust/distribution', () => {
 // ─── Tests: GET /v1/stats/agents ─────────────────────────────────────────────
 
 describe('GET /v1/stats/agents', () => {
-  const now = Date.now();
-  const day = 24 * 60 * 60 * 1000;
-  const accounts = [
-    { id: 'old', created_at: new Date(now - 30 * day).toISOString() },
-    { id: 'week', created_at: new Date(now - 3 * day).toISOString() },  // within 7d
-    { id: 'today', created_at: new Date(now - 2 * 60 * 60 * 1000).toISOString() },  // within 24h
-    { id: 'older', created_at: new Date(now - 60 * day).toISOString() },
-  ];
+  test('reads counters and returns total + 24h/7d deltas', async () => {
+    const now = new Date();
+    const hourKey2h = 'stats:hourly:' + new Date(now.getTime() - 2 * 60 * 60 * 1000).toISOString().slice(0, 13);
+    const dayKeyNow = 'stats:daily:' + now.toISOString().slice(0, 10);
+    const dayKey3d  = 'stats:daily:' + new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
-  test('returns total + 24h/7d deltas', async () => {
-    const { app, env } = makeApp({ KEYS: makeAgentsKV(accounts) });
+    const counters: Record<string, string | undefined> = {
+      'stats:total': '4',
+      [hourKey2h]: '1',   // within last 24h → last_24h += 1
+      [dayKeyNow]: '1',   // within last 7d  → last_7d  += 1
+      [dayKey3d]:  '1',   // within last 7d  → last_7d  += 1
+    };
+
+    const { app, env } = makeApp({ KEYS: makeStatsCounterKV(counters) });
     const res = await app.fetch(new Request('http://x/v1/stats/agents'), env as never);
     expect(res.status).toBe(200);
-    const body = (await res.json()) as {
-      total: number;
-      last_24h: number;
-      last_7d: number;
-    };
+    const body = (await res.json()) as { total: number; last_24h: number; last_7d: number };
     expect(body.total).toBe(4);
     expect(body.last_24h).toBe(1);
     expect(body.last_7d).toBe(2);
   });
 
-  test('zero accounts returns zeros', async () => {
-    const { app, env } = makeApp({ KEYS: makeAgentsKV([]) });
+  test('zero counters and zero accounts returns zeros', async () => {
+    // No stats:total → fallback runs, list returns 0 account: keys → total=0
+    const counters: Record<string, string | undefined> = {};
+    const { app, env } = makeApp({ KEYS: makeStatsCounterKV(counters) });
     const res = await app.fetch(new Request('http://x/v1/stats/agents'), env as never);
     expect(res.status).toBe(200);
     const body = (await res.json()) as { total: number; last_24h: number; last_7d: number };
     expect(body.total).toBe(0);
     expect(body.last_24h).toBe(0);
     expect(body.last_7d).toBe(0);
+  });
+
+  test('missing stats:total falls back to paginated list count and persists', async () => {
+    // No stats:total, but 4 account: keys seeded
+    const counters: Record<string, string | undefined> = {
+      'account:acc1': 'h1',
+      'account:acc2': 'h2',
+      'account:acc3': 'h3',
+      'account:acc4': 'h4',
+    };
+    const { app, env } = makeApp({ KEYS: makeStatsCounterKV(counters) });
+    const res = await app.fetch(new Request('http://x/v1/stats/agents'), env as never);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { total: number };
+    expect(body.total).toBe(4);
+    // Verify the lazy-init put-back persisted the total
+    expect(counters['stats:total']).toBe('4');
   });
 
   test('missing KEYS binding degrades to error stat (not 5xx)', async () => {

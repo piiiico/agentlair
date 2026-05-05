@@ -28,6 +28,46 @@ export function stripEphemeral(account: Account): Account {
   return copy;
 }
 
+/**
+ * Increment the public stats counters tracked for /v1/stats/agents.
+ *
+ * Counters live in KV:
+ *   - stats:total                    — running total (no TTL)
+ *   - stats:hourly:YYYY-MM-DDTHH      — per-hour bucket (26h TTL)
+ *   - stats:daily:YYYY-MM-DD          — per-day bucket (8d TTL)
+ *
+ * Best-effort: a counter-write failure must NOT fail registration. The stats
+ * endpoint tolerates missing/null counters and returns 0 — accuracy
+ * regenerates as soon as new registrations land.
+ *
+ * Race note: KV has no atomic increment. Concurrent writes can lose updates
+ * (~1% drift at high concurrency; negligible at current ~10 reg/day rate).
+ */
+export async function bumpAgentStats(env: Env): Promise<void> {
+  try {
+    const now = new Date();
+    const hourKey = 'stats:hourly:' + now.toISOString().slice(0, 13); // "2026-05-05T14"
+    const dayKey  = 'stats:daily:'  + now.toISOString().slice(0, 10); // "2026-05-05"
+
+    const [totalRaw, hourRaw, dayRaw] = await Promise.all([
+      env.KEYS.get('stats:total'),
+      env.KEYS.get(hourKey),
+      env.KEYS.get(dayKey),
+    ]);
+    const total = (parseInt(totalRaw ?? '0', 10) || 0) + 1;
+    const hour  = (parseInt(hourRaw  ?? '0', 10) || 0) + 1;
+    const day   = (parseInt(dayRaw   ?? '0', 10) || 0) + 1;
+
+    await Promise.all([
+      env.KEYS.put('stats:total', String(total)),
+      env.KEYS.put(hourKey, String(hour), { expirationTtl: 26 * 60 * 60 }),     // 26h
+      env.KEYS.put(dayKey,  String(day),  { expirationTtl: 8 * 24 * 60 * 60 }), // 8d
+    ]);
+  } catch (e) {
+    console.error('bumpAgentStats failed:', e instanceof Error ? e.message : String(e));
+  }
+}
+
 export async function handleAuthRoutes(
   request: Request,
   env: Env,
@@ -166,6 +206,8 @@ export async function handleAuthRoutes(
         throw kvErr;
       }
 
+      await bumpAgentStats(env);
+
       return json({
         api_key: keyValue,
         key_prefix: keyPrefix,
@@ -212,6 +254,7 @@ export async function handleAuthRoutes(
       const acc = { id: accountId, key_prefix: keyPrefix, name: typeof body.name === 'string' ? body.name : 'default', tier: 'free', email: typeof body.email === 'string' ? body.email : null, created_at: now, stacks: [] as string[] };
       await env.KEYS.put('key:' + keyHash, JSON.stringify(acc));
       await env.KEYS.put('account:' + accountId, keyHash);
+      await bumpAgentStats(env);
       return json({ key: keyValue, account_id: accountId, created_at: now, note: 'Save this key — not shown again.' }, 201);
     }
 
@@ -347,6 +390,8 @@ export async function handleAuthRoutes(
         }
         throw kvErr; // re-throw non-KV errors to global handler
       }
+
+      await bumpAgentStats(env);
 
       return json({
         api_key: keyValue,
