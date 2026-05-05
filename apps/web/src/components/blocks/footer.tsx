@@ -9,6 +9,7 @@ export function Footer() {
     { name: "Pricing", href: "/#pricing" },
     { name: "Docs", href: "/docs" },
     { name: "FAQ", href: "/#faq" },
+    { name: "Verify Receipt", href: "/verify-receipt" },
   ];
 
   const social = [
