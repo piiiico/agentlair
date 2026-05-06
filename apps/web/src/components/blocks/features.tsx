@@ -137,6 +137,25 @@ export const Features = () => {
           })}
         </div>
 
+        {/* Accountability Layer */}
+        <div className="mt-20 lg:mt-28">
+          <div className="relative flex items-center justify-center">
+            <DashedLine className="text-muted-foreground" />
+            <span className="bg-muted text-muted-foreground absolute px-3 font-mono text-sm font-medium tracking-wide max-md:hidden">
+              ACCOUNTABILITY LAYER
+            </span>
+          </div>
+
+          <div className="mt-10 mx-auto max-w-3xl lg:mt-16">
+            <h2 className="text-2xl tracking-tight md:text-3xl lg:text-4xl">
+              Cloudflare + Stripe solved the transaction layer. AgentLair solves the accountability layer.
+            </h2>
+            <p className="mt-6 text-muted-foreground leading-relaxed">
+              Cloudflare and Stripe just demonstrated agents that create accounts, register domains, and deploy infrastructure autonomously — no human in the dashboard. Stripe caps what the agent can spend. HN asked the follow-on question Stripe can't answer: who is accountable when the agent registers a trademarked domain, exposes a user credential, or exceeds its mandate in ways that never touch the credit card? Transaction authorization handles financial risk. Accountability handles everything else — and in an agent-mediated world, everything else is most of it. AgentLair closes that gap. Every agent operating through AgentLair carries a cryptographic identity tethered to a named human owner. Every action is signed, chained, and attributable. Stripe hands the agent a spending limit. AgentLair hands the human a chain of custody.
+            </p>
+          </div>
+        </div>
+
         {/* Competitive Positioning */}
         <div className="mt-20 lg:mt-28">
           <div className="relative flex items-center justify-center">
