@@ -1,0 +1,25 @@
+---
+import DefaultLayout from '@/layouts/DefaultLayout.astro';
+import { VerifySkill } from '@/components/blocks/verify-skill';
+
+const title = 'Verify a Skill Provenance Attestation — AgentLair';
+const description =
+  'Paste a SKILL.sig token and upload your skill files to verify the Ed25519 signature and digest. Confirms the skill was published by its claimed author without modification.';
+const canonicalUrl = 'https://agentlair.dev/verify-skill';
+---
+
+<DefaultLayout title={title} description={description}>
+  <link rel="canonical" href={canonicalUrl} slot="head" />
+  <noscript>
+    <div style="max-width:640px;margin:4rem auto;padding:1.5rem;font-family:sans-serif;text-align:center;">
+      <h2 style="font-size:1.25rem;font-weight:600;margin-bottom:0.5rem;">Verify a skill provenance attestation</h2>
+      <p style="color:#6b7280;margin-bottom:1rem;">JavaScript is required — verification uses Web Crypto in your browser.</p>
+      <p style="color:#6b7280;font-size:0.875rem;">
+        For programmatic checks, hit
+        <code>POST https://agentlair.dev/v1/verify-skill</code>
+        with <code>{"{ \"skill_sig\": \"...\", \"files\": [...] }"}</code>.
+      </p>
+    </div>
+  </noscript>
+  <VerifySkill client:load />
+</DefaultLayout>

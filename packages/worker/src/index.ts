@@ -57,6 +57,7 @@ import { scittRoutes, publicScittRoutes } from './routes/scitt.js';
 import { publicStatsRoutes } from './routes/stats.js';
 import { popaRoutes, popaEnrollRoutes, popaAgentRoutes } from './routes/popa.js';
 import { bccRoutes, bccPublicRoutes } from './routes/bcc.js';
+import { skillProvenanceRoutes } from './routes/skill-provenance.js';
 import { runPoPADaily } from './crons/popa-daily.js';
 import { handleCheckout, handleStripeWebhook } from './routes/stripe.js';
 import { EXPLORE_HTML } from './routes/explore.js';
@@ -1143,6 +1144,11 @@ app.route('/v1/bcc', bccPublicRoutes);
 // No auth required: aggregate counts and 24h/7d deltas for the live trust dashboard.
 // Mounted BEFORE auth middleware so anonymous browsers can poll it.
 app.route('/v1/stats', publicStatsRoutes);
+
+// Public SPA verifier: POST /v1/verify-skill
+// No auth required: anyone can verify a Skill Provenance Attestation JWT.
+// Mounted BEFORE auth middleware so anonymous callers can verify skills.
+app.route('/v1', skillProvenanceRoutes);
 
 // ── Waitlist: lead capture for paid tiers (no auth required) ────────────────
 // Captures email + company before Stripe checkout is live.
