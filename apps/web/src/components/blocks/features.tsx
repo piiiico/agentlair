@@ -153,6 +153,36 @@ export const Features = () => {
             <p className="mt-6 text-muted-foreground leading-relaxed">
               Cloudflare and Stripe just demonstrated agents that create accounts, register domains, and deploy infrastructure autonomously — no human in the dashboard. Stripe caps what the agent can spend. HN asked the follow-on question Stripe can't answer: who is accountable when the agent registers a trademarked domain, exposes a user credential, or exceeds its mandate in ways that never touch the credit card? Transaction authorization handles financial risk. Accountability handles everything else — and in an agent-mediated world, everything else is most of it. AgentLair closes that gap. Every agent operating through AgentLair carries a cryptographic identity tethered to a named human owner. Every action is signed, chained, and attributable. Stripe hands the agent a spending limit. AgentLair hands the human a chain of custody.
             </p>
+
+            {/* Distinction table */}
+            <div className="mt-10 overflow-hidden rounded-2xl border">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/50">
+                    <th className="px-5 py-3 text-left font-mono text-xs font-semibold tracking-widest text-muted-foreground">LAYER</th>
+                    <th className="px-5 py-3 text-left font-mono text-xs font-semibold tracking-widest text-muted-foreground">SOLVED BY</th>
+                    <th className="px-5 py-3 text-left font-mono text-xs font-semibold tracking-widest text-muted-foreground">WHAT IT HANDLES</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="border-b">
+                    <td className="px-5 py-4 font-medium">Transaction</td>
+                    <td className="px-5 py-4 text-muted-foreground">Stripe</td>
+                    <td className="px-5 py-4 text-muted-foreground">Did the agent have financial authorization? Was the spend within limits?</td>
+                  </tr>
+                  <tr className="border-b">
+                    <td className="px-5 py-4 font-medium">Execution</td>
+                    <td className="px-5 py-4 text-muted-foreground">Cloudflare</td>
+                    <td className="px-5 py-4 text-muted-foreground">Did the agent successfully provision the infrastructure?</td>
+                  </tr>
+                  <tr className="bg-primary/5">
+                    <td className="px-5 py-4 font-bold text-foreground">Accountability</td>
+                    <td className="px-5 py-4 font-bold text-foreground">AgentLair</td>
+                    <td className="px-5 py-4 font-bold text-foreground">Who is legally and cryptographically responsible for every action taken, financial or not?</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
 
