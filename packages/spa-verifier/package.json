@@ -1,0 +1,63 @@
+{
+  "name": "@agentlair/spa-verifier",
+  "version": "0.1.0",
+  "description": "Verify Skill Provenance Attestations (SPA) for AI agent skill directories. Drop-in tamper-evidence for any registry, runner, or installer. Zero-deps, Web Crypto, Ed25519/JWS.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./core": {
+      "import": "./dist/core.js",
+      "types": "./dist/core.d.ts"
+    }
+  },
+  "bin": {
+    "spa-verify": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "bun run build"
+  },
+  "keywords": [
+    "agentlair",
+    "spa",
+    "skill-provenance",
+    "skill-provenance-attestation",
+    "attestation",
+    "ed25519",
+    "jws",
+    "jwt",
+    "agent-skills",
+    "ai-agent",
+    "tamper-evidence",
+    "supply-chain"
+  ],
+  "author": "AgentLair",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/piiiico/agentlair",
+    "directory": "packages/spa-verifier"
+  },
+  "homepage": "https://agentlair.dev/blog/skill-provenance-attestation/",
+  "bugs": "https://github.com/piiiico/agentlair/issues",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.9.3"
+  }
+}
