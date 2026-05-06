@@ -71,7 +71,7 @@ export function WaitlistModal({
     <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Join the {tier} waitlist</DialogTitle>
+          <DialogTitle>Coming soon for {tier}</DialogTitle>
           <DialogDescription>
             Checkout is coming soon. Leave your email and we'll reach out first.
           </DialogDescription>
@@ -133,7 +133,7 @@ export function WaitlistModal({
                 Cancel
               </Button>
               <Button type="submit" disabled={state === "submitting"}>
-                {state === "submitting" ? "Submitting…" : "Join Waitlist"}
+                {state === "submitting" ? "Submitting…" : "Notify Me"}
               </Button>
             </div>
           </form>

@@ -418,13 +418,43 @@ app.get('/explore', (_c) => {
     },
   });
 });
+// Known social media unfurlers and link-preview bots.
+// These send Accept: */* (no text/html) but need HTML for OG previews.
+const UNFURLER_UA_PATTERNS = [
+  /Twitterbot/i,
+  /facebookexternalhit/i,
+  /Slackbot/i,
+  /LinkedInBot/i,
+  /Discordbot/i,
+  /TelegramBot/i,
+  /WhatsApp/i,
+  /Pinterest/i,
+  /Googlebot/i,
+  /bingbot/i,
+  /DuckDuckBot/i,
+  /YandexBot/i,
+  /applebot/i,
+];
+
+function isUnfurler(ua: string): boolean {
+  return UNFURLER_UA_PATTERNS.some((p) => p.test(ua));
+}
+
 app.get('/', async (c) => {
   const acceptHeader = c.req.raw.headers.get('Accept') || '';
-  // Accept: text/html always wins — serve landing page regardless of agent signals.
-  // This allows curl -H 'Accept: text/html' to work for developer testing.
+  const ua = c.req.raw.headers.get('User-Agent') || '';
+
+  // Accept: text/html always wins
   if (acceptHeader.includes('text/html')) {
     return proxyToPages(c, '/');
   }
+
+  // Social media unfurlers / link-preview crawlers — serve HTML so share previews work.
+  // These bots send Accept: */* (no text/html) and won't match agent detection patterns.
+  if (isUnfurler(ua)) {
+    return proxyToPages(c, '/');
+  }
+
   // Agent-first content negotiation: agents get the manifest
   const detection = detectAgent(c.req.raw.headers);
   if (detection.isAgent && (detection.confidence === 'high' || detection.confidence === 'medium')) {
@@ -439,6 +469,7 @@ app.get('/', async (c) => {
       },
     });
   }
+
   // No Accept header or JSON-only: API discovery
   return json(API_DISCOVERY);
 });
