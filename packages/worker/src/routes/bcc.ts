@@ -24,6 +24,7 @@ import { ed25519 } from '@noble/curves/ed25519.js';
 import type { HonoEnv } from '../types.js';
 import { json, err, nanoid } from '../utils.js';
 import { canonicalJSON } from '../lib/popa-cose.js';
+import { parseStyle, svgResponse, renderBadgeSVG, renderErrorBadge } from './badge.js';
 
 // ─── Stake-medium → BCC profile mapping ──────────────────────────────────────
 
@@ -138,6 +139,61 @@ function buildEvidenceChain(anchor: string, timestamp: string): Array<{ type: st
   return [{ type, ref: anchor, timestamp }];
 }
 
+// ─── BCC verification status helper ──────────────────────────────────────────
+
+type BccVerifyStatus = 'verified' | 'expired' | 'revoked' | 'unknown' | 'unavailable';
+
+const BCC_ID_RE = /^bcc_[A-Za-z0-9_-]{1,64}$/;
+
+async function computeBccVerifyStatus(
+  env: HonoEnv['Bindings'],
+  id: string,
+): Promise<BccVerifyStatus> {
+  if (!env.AUDIT || !env.AUDIT_SIGNING_KEY) return 'unavailable';
+
+  const row = await env.AUDIT
+    .prepare('SELECT credential_json, revoked_at FROM bcc_credentials WHERE id = ?')
+    .bind(id)
+    .first<{ credential_json: string; revoked_at: string | null }>();
+
+  if (!row) return 'unknown';
+  if (row.revoked_at) return 'revoked';
+
+  const credential = JSON.parse(row.credential_json) as Record<string, unknown>;
+  const proof = credential.proof as Record<string, unknown> | undefined;
+
+  if (!proof?.proofValue) return 'revoked';
+
+  try {
+    const { proofValue, ...proofOptions } = proof;
+    const { proof: _proof, ...credentialWithoutProof } = credential;
+
+    const privKeyBytes = Uint8Array.from(atob(env.AUDIT_SIGNING_KEY), ch => ch.charCodeAt(0));
+    const pubKeyBytes = ed25519.getPublicKey(privKeyBytes);
+
+    const hashData = await buildHashData(
+      credentialWithoutProof as Record<string, unknown>,
+      proofOptions as Record<string, unknown>,
+    );
+
+    const proofValueStr = proofValue as string;
+    if (!proofValueStr.startsWith('z')) return 'revoked';
+    const sigBytes = base58btcDecode(proofValueStr.slice(1));
+
+    const valid = ed25519.verify(sigBytes, hashData, pubKeyBytes);
+    if (!valid) return 'revoked';
+  } catch {
+    return 'revoked';
+  }
+
+  // Signature is valid — check window expiry
+  const cs = credential.credentialSubject as Record<string, unknown>;
+  const windowEnd = cs.commitment_window_end as string | null;
+  if (windowEnd && new Date(windowEnd).getTime() < Date.now()) return 'expired';
+
+  return 'verified';
+}
+
 // ─── Public retrieval router ──────────────────────────────────────────────────
 
 export const bccPublicRoutes = new Hono<HonoEnv>();
@@ -235,36 +291,11 @@ bccPublicRoutes.get('/:id/verify', async (c) => {
   if (!row) return err('BCC credential not found.', 404, 'not_found');
 
   const credential = JSON.parse(row.credential_json) as Record<string, unknown>;
-  const proof = credential.proof as Record<string, unknown> | undefined;
   const cs = credential.credentialSubject as Record<string, unknown>;
 
-  let valid = false;
-
-  if (!row.revoked_at && proof?.proofValue) {
-    try {
-      const { proofValue, ...proofOptions } = proof;
-      const { proof: _proof, ...credentialWithoutProof } = credential;
-
-      const privKeyBytes = Uint8Array.from(atob(c.env.AUDIT_SIGNING_KEY), ch => ch.charCodeAt(0));
-      const pubKeyBytes = ed25519.getPublicKey(privKeyBytes);
-
-      const hashData = await buildHashData(
-        credentialWithoutProof as Record<string, unknown>,
-        proofOptions as Record<string, unknown>,
-      );
-
-      // Decode multibase base58btc: strip 'z' prefix
-      const proofValueStr = proofValue as string;
-      if (!proofValueStr.startsWith('z')) throw new Error('Unexpected proofValue prefix');
-      const sigBytes = base58btcDecode(proofValueStr.slice(1));
-
-      valid = ed25519.verify(sigBytes, hashData, pubKeyBytes);
-    } catch {
-      valid = false;
-    }
-  }
-
+  const status = await computeBccVerifyStatus(c.env, id);
   const isRevoked = !!row.revoked_at;
+  const valid = status === 'verified' || status === 'expired';
   const profile = cs.bcc_profile as string;
   const validUntil = credential.validUntil as string | null;
 
@@ -296,6 +327,58 @@ bccPublicRoutes.get('/:id/verify', async (c) => {
 
   return json(response);
 });
+
+// ─── Badge endpoints — registered BEFORE /:id to avoid swallowing ────────────
+
+const BADGE_CACHE_HEADERS = {
+  'Cache-Control': 'public, max-age=300, s-maxage=300',
+  'X-Content-Type-Options': 'nosniff',
+  'Access-Control-Allow-Origin': '*',
+};
+
+function badgeSvgResponse(svg: string): Response {
+  const res = svgResponse(svg);
+  // svgResponse already sets the correct headers — return as-is
+  return res;
+}
+
+async function handleBccBadgeRequest(c: any): Promise<Response> {
+  const rawId = c.req.param('id') || '';
+
+  const style = parseStyle(c.req.query('style'));
+  const compact = c.req.query('compact') === 'true';
+  const customLabel = c.req.query('label');
+  const label = customLabel || (compact ? 'AL-BCC' : 'BCC');
+
+  // Validate id format
+  if (!BCC_ID_RE.test(rawId)) {
+    return badgeSvgResponse(renderErrorBadge(label, 'invalid id', style));
+  }
+
+  const status = await computeBccVerifyStatus(c.env, rawId);
+
+  let value: string;
+  let color: string;
+
+  switch (status) {
+    case 'verified':
+      value = 'verified'; color = '#4caf50'; break;
+    case 'expired':
+      value = 'expired'; color = '#ff9800'; break;
+    case 'revoked':
+      value = 'revoked'; color = '#f44336'; break;
+    case 'unavailable':
+      value = 'unavailable'; color = '#9e9e9e'; break;
+    case 'unknown':
+    default:
+      value = 'unknown'; color = '#9e9e9e'; break;
+  }
+
+  return badgeSvgResponse(renderBadgeSVG(label, value, color, style));
+}
+
+bccPublicRoutes.get('/:id/badge.svg', handleBccBadgeRequest);
+bccPublicRoutes.get('/:id/badge', handleBccBadgeRequest);
 
 bccPublicRoutes.get('/:id', async (c) => {
   if (!c.env.AUDIT) return err('BCC store not configured.', 503, 'audit_unavailable');

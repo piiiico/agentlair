@@ -1,0 +1,71 @@
+---
+layout: ../../layouts/BasicLayout.astro
+title: "BCC Badge — AgentLair"
+description: "Embed a per-credential verification badge in any README, doc page, or social card. The badge resolves through agentlair.dev on every render — no client-side JavaScript, no opt-in tracking."
+---
+
+# BCC Badge
+
+Every Bonded Credibility Certificate issued through AgentLair has a public SVG badge at `/v1/bcc/:id/badge.svg`. Embed it in a GitHub README or any HTML page with a single `<img>` tag. The badge resolves through agentlair.dev on each render and reflects the current credential status — verified, expired, or revoked.
+
+---
+
+## Endpoint
+
+```
+GET https://agentlair.dev/v1/bcc/:id/badge.svg
+```
+
+`:id` matches `/^bcc_[A-Za-z0-9_-]+$/`. The `/badge` path (without `.svg`) returns the same content.
+
+---
+
+## Embed examples
+
+**Markdown**
+```markdown
+![BCC](https://agentlair.dev/v1/bcc/<id>/badge.svg)
+```
+
+**HTML**
+```html
+<img src="https://agentlair.dev/v1/bcc/<id>/badge.svg" alt="BCC" />
+```
+
+**JSX**
+```jsx
+<img src="https://agentlair.dev/v1/bcc/<id>/badge.svg" alt="BCC" />
+```
+
+---
+
+## Query parameters
+
+| Parameter | Values | Default |
+|---|---|---|
+| `style` | `flat`, `flat-square`, `for-the-badge` | `flat` |
+| `label` | Any string — overrides the left-side label | `BCC` |
+| `compact` | `true` — uses short label `AL-BCC` | — |
+
+---
+
+## Status colors
+
+| Status | Color | Meaning |
+|---|---|---|
+| verified | green `#4caf50` | Signature valid, window active |
+| expired | amber `#ff9800` | Signature valid, commitment window past |
+| revoked | red `#f44336` | Revoked or signature invalid |
+| unknown | gray `#9e9e9e` | Credential not found |
+
+---
+
+## Caching
+
+AgentLair sets `Cache-Control: public, max-age=300, s-maxage=300` (5 minutes). GitHub's camo proxy caches independently.
+
+---
+
+## Live example
+
+<img src="https://agentlair.dev/v1/bcc/bcc_e64iJpEE6ZnUAklMDzdN/badge.svg" alt="BCC" />

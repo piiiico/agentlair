@@ -58,7 +58,7 @@ function getBadgeConfig(profile: TrustProfile): BadgeConfig {
 // Approximate character widths for Verdana 11px (shields.io convention).
 // More accurate than monospace assumption. Based on shields.io's own width table.
 
-const CHAR_WIDTHS: Record<string, number> = {
+export const CHAR_WIDTHS: Record<string, number> = {
   ' ': 3.3, '!': 3.65, '"': 4.55, '#': 7.5, '$': 5.95, '%': 8.0, '&': 7.3,
   "'": 2.75, '(': 3.65, ')': 3.65, '*': 5.0, '+': 7.5, ',': 3.3, '-': 3.65,
   '.': 3.3, '/': 4.55, '0': 5.95, '1': 5.95, '2': 5.95, '3': 5.95,
@@ -75,7 +75,7 @@ const CHAR_WIDTHS: Record<string, number> = {
   'v': 5.45, 'w': 7.6, 'x': 5.45, 'y': 5.45, 'z': 4.95,
 };
 
-function textWidth(text: string): number {
+export function textWidth(text: string): number {
   let w = 0;
   for (const ch of text) {
     w += CHAR_WIDTHS[ch] ?? 6.0;
@@ -85,9 +85,9 @@ function textWidth(text: string): number {
 
 // ─── SVG Rendering ──────────────────────────────────────────────────────────
 
-type BadgeStyle = 'flat' | 'flat-square' | 'for-the-badge';
+export type BadgeStyle = 'flat' | 'flat-square' | 'for-the-badge';
 
-function renderBadgeSVG(
+export function renderBadgeSVG(
   label: string,
   value: string,
   valueColor: string,
@@ -145,19 +145,19 @@ function renderBadgeSVG(
 </svg>`;
 }
 
-function escapeXml(s: string): string {
+export function escapeXml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 // ─── Error Badge ─────────────────────────────────────────────────────────────
 
-function renderErrorBadge(label: string, message: string, style: BadgeStyle): string {
+export function renderErrorBadge(label: string, message: string, style: BadgeStyle): string {
   return renderBadgeSVG(label, message, '#9e9e9e', style);
 }
 
 // ─── Route Handlers ──────────────────────────────────────────────────────────
 
-function parseStyle(raw: string | undefined): BadgeStyle {
+export function parseStyle(raw: string | undefined): BadgeStyle {
   if (raw === 'flat-square' || raw === 'flat_square') return 'flat-square';
   if (raw === 'for-the-badge' || raw === 'for_the_badge') return 'for-the-badge';
   return 'flat';
@@ -239,7 +239,7 @@ async function handleBadgeRequest(c: any): Promise<Response> {
   }
 }
 
-function svgResponse(svg: string): Response {
+export function svgResponse(svg: string): Response {
   return new Response(svg, {
     status: 200,
     headers: {

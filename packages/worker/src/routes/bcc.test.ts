@@ -15,6 +15,8 @@ import { Hono } from 'hono';
 import { bccRoutes, bccPublicRoutes } from './bcc.js';
 import type { HonoEnv } from '../types.js';
 import type { Account } from '../types.js';
+import { ed25519 } from '@noble/curves/ed25519.js';
+import { canonicalJSON } from '../lib/popa-cose.js';
 
 // ─── Mock D1 ──────────────────────────────────────────────────────────────────
 
@@ -853,5 +855,327 @@ describe('GET /list — list endpoint', () => {
     expect(res.status).toBe(400);
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.error).toBe('invalid_cursor');
+  });
+});
+
+// ─── Inline helpers for expired-credential test ───────────────────────────────
+// Mirrors the signing logic in bcc.ts — used only to build pre-signed test fixtures.
+
+const BASE58_ALPHABET_T = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+
+function base58btcEncodeT(bytes: Uint8Array): string {
+  let zeros = 0;
+  while (zeros < bytes.length && bytes[zeros] === 0) zeros++;
+  const digits: number[] = [0];
+  for (let i = zeros; i < bytes.length; i++) {
+    let carry = bytes[i]!;
+    for (let j = 0; j < digits.length; j++) {
+      carry += (digits[j]!) << 8;
+      digits[j] = carry % 58;
+      carry = Math.floor(carry / 58);
+    }
+    while (carry > 0) {
+      digits.push(carry % 58);
+      carry = Math.floor(carry / 58);
+    }
+  }
+  return '1'.repeat(zeros) + digits.reverse().map(d => BASE58_ALPHABET_T[d]!).join('');
+}
+
+async function buildHashDataT(
+  credentialWithoutProof: Record<string, unknown>,
+  proofOptions: Record<string, unknown>,
+): Promise<Uint8Array> {
+  const sha256 = async (text: string): Promise<Uint8Array> => {
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+    return new Uint8Array(buf);
+  };
+  const proofHash = await sha256(canonicalJSON(proofOptions));
+  const docHash = await sha256(canonicalJSON(credentialWithoutProof));
+  const hashData = new Uint8Array(64);
+  hashData.set(proofHash, 0);
+  hashData.set(docHash, 32);
+  return hashData;
+}
+
+// ─── GET /:id/badge — BCC badge endpoint ─────────────────────────────────────
+
+describe('GET /:id/badge — BCC badge endpoint', () => {
+  test('1: verified credential → green badge (fill=#4caf50, text verified)', async () => {
+    const db = makeMockD1();
+    const { app, env } = makeTestApp(makeAccount('acc_badge'), db, TEST_SIGNING_KEY);
+
+    // Issue a BCC
+    const issueRes = await app.fetch(
+      new Request('http://x/issue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subject_did: 'did:web:badge.example.com',
+          claim: { note: 'badge test' },
+          stake_medium: 'existence',
+          confidence: 0.9,
+        }),
+      }),
+      env as never,
+    );
+    expect(issueRes.status).toBe(201);
+    const issued = (await issueRes.json()) as Record<string, unknown>;
+    const bccId = (issued.id as string).split('/').at(-1)!;
+
+    // Fetch badge.svg
+    const res = await app.fetch(
+      new Request(`http://x/${bccId}/badge.svg`),
+      env as never,
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Content-Type')).toBe('image/svg+xml');
+    const svg = await res.text();
+    expect(svg.includes('fill="#4caf50"')).toBe(true);
+    expect(svg.includes('verified')).toBe(true);
+
+    // Cache-Control assertion (satisfies test 9 requirement)
+    expect(res.headers.get('Cache-Control')).toMatch(/^public, max-age=300/);
+  });
+
+  test('2: revoked credential → red badge (fill=#f44336, text revoked)', async () => {
+    const store = new Map<string, Record<string, unknown>>();
+    store.set('bcc_revoked_badge1', {
+      credential_json: JSON.stringify({
+        '@context': ['https://www.w3.org/ns/credentials/v2'],
+        type: ['VerifiableCredential', 'BondedCredibilityCredential'],
+        id: 'https://agentlair.dev/v1/bcc/bcc_revoked_badge1',
+        credentialSubject: { id: 'did:web:example.com' },
+        proof: { type: 'DataIntegrityProof', proofValue: 'zFAKE' },
+      }),
+      revoked_at: '2026-05-01T00:00:00.000Z',
+    });
+
+    const db = makeMockD1(store);
+    const { app, env } = makeTestApp(null, db, TEST_SIGNING_KEY);
+
+    const res = await app.fetch(
+      new Request('http://x/bcc_revoked_badge1/badge.svg'),
+      env as never,
+    );
+
+    expect(res.status).toBe(200);
+    const svg = await res.text();
+    expect(svg.includes('fill="#f44336"')).toBe(true);
+    expect(svg.includes('revoked')).toBe(true);
+  });
+
+  test('3: tampered proofValue → red badge (fill=#f44336, text revoked)', async () => {
+    const db = makeMockD1();
+    const { app, env } = makeTestApp(makeAccount('acc_tamper2'), db, TEST_SIGNING_KEY);
+
+    // Issue
+    const issueRes = await app.fetch(
+      new Request('http://x/issue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subject_did: 'did:web:tamper2.example.com',
+          claim: { note: 'tamper badge test' },
+          stake_medium: 'capital',
+          confidence: 1.0,
+        }),
+      }),
+      env as never,
+    );
+    expect(issueRes.status).toBe(201);
+    const issued = (await issueRes.json()) as Record<string, unknown>;
+    const bccId = (issued.id as string).split('/').at(-1)!;
+
+    // Tamper the stored credential
+    const row = db.store.get(bccId)!;
+    const cred = JSON.parse(row.credential_json as string) as Record<string, unknown>;
+    (cred.proof as Record<string, unknown>).proofValue = 'zTAMPEREDBADGETEST';
+    db.store.set(bccId, { ...row, credential_json: JSON.stringify(cred) });
+
+    const res = await app.fetch(
+      new Request(`http://x/${bccId}/badge.svg`),
+      env as never,
+    );
+
+    expect(res.status).toBe(200);
+    const svg = await res.text();
+    expect(svg.includes('fill="#f44336"')).toBe(true);
+    expect(svg.includes('revoked')).toBe(true);
+  });
+
+  test('4: expired window → amber badge (fill=#ff9800, text expired)', async () => {
+    const db = makeMockD1();
+    const { app, env } = makeTestApp(makeAccount('acc_expired'), db, TEST_SIGNING_KEY);
+
+    const credentialId = 'bcc_expiredtest1234';
+    const now = new Date().toISOString();
+    // 1 hour in the past
+    const pastTime = new Date(Date.now() - 3_600_000).toISOString();
+    const issuerDid = 'did:web:agentlair.dev:agents:acc_expired';
+
+    const credentialWithoutProof = {
+      '@context': [
+        'https://www.w3.org/ns/credentials/v2',
+        'https://agentlair.dev/contexts/bcc/v1.jsonld',
+      ],
+      type: ['VerifiableCredential', 'BondedCredibilityCredential'],
+      id: `https://agentlair.dev/v1/bcc/${credentialId}`,
+      issuer: { id: issuerDid },
+      validFrom: now,
+      validUntil: null,
+      credentialSubject: {
+        id: 'did:web:expired.example.com',
+        bcc_profile: 'BCC-Capital',
+        stake_medium: 'capital',
+        stake_amount: null,
+        stake_unit: null,
+        commitment_window_start: now,
+        commitment_window_end: pastTime,
+        slashing_oracle_uri: null,
+        evidence_anchor: `self:${credentialId}`,
+        claim: { note: 'expired badge test' },
+        confidence: 0.9,
+      },
+    };
+
+    const proofOptions = {
+      type: 'DataIntegrityProof',
+      cryptosuite: 'eddsa-jcs-2022',
+      verificationMethod: `${issuerDid}#key-1`,
+      proofPurpose: 'assertionMethod',
+      created: now,
+    };
+
+    const privKeyBytes = Uint8Array.from(atob(TEST_SIGNING_KEY), ch => ch.charCodeAt(0));
+    const hashData = await buildHashDataT(
+      credentialWithoutProof as Record<string, unknown>,
+      proofOptions as Record<string, unknown>,
+    );
+    const signature = ed25519.sign(hashData, privKeyBytes);
+    const proofValue = 'z' + base58btcEncodeT(signature);
+
+    const credential = { ...credentialWithoutProof, proof: { ...proofOptions, proofValue } };
+
+    db.store.set(credentialId, {
+      rowid: 99,
+      id: credentialId,
+      credential_json: JSON.stringify(credential),
+      revoked_at: null,
+      issued_at: now,
+    });
+
+    const res = await app.fetch(
+      new Request(`http://x/${credentialId}/badge.svg`),
+      env as never,
+    );
+
+    expect(res.status).toBe(200);
+    const svg = await res.text();
+    expect(svg.includes('fill="#ff9800"')).toBe(true);
+    expect(svg.includes('expired')).toBe(true);
+  });
+
+  test('5: id not found → gray badge (fill=#9e9e9e, text unknown)', async () => {
+    const db = makeMockD1();
+    const { app, env } = makeTestApp(null, db, TEST_SIGNING_KEY);
+
+    const res = await app.fetch(
+      new Request('http://x/bcc_doesnotexistbadge/badge.svg'),
+      env as never,
+    );
+
+    expect(res.status).toBe(200);
+    const svg = await res.text();
+    expect(svg.includes('fill="#9e9e9e"')).toBe(true);
+    expect(svg.includes('unknown')).toBe(true);
+  });
+
+  test('6: invalid id format → gray badge with "invalid id" (HTTP 200, SVG)', async () => {
+    const db = makeMockD1();
+    const { app, env } = makeTestApp(null, db, TEST_SIGNING_KEY);
+
+    const res = await app.fetch(
+      new Request('http://x/notabcc/badge.svg'),
+      env as never,
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Content-Type')).toBe('image/svg+xml');
+    const svg = await res.text();
+    expect(svg.includes('fill="#9e9e9e"')).toBe(true);
+    expect(svg.includes('invalid id')).toBe(true);
+  });
+
+  test('7: style=flat-square → rx="0"; style=flat → rx="3"', async () => {
+    const db = makeMockD1();
+    const { app, env } = makeTestApp(makeAccount('acc_style'), db, TEST_SIGNING_KEY);
+
+    // Issue
+    const issueRes = await app.fetch(
+      new Request('http://x/issue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subject_did: 'did:web:style.example.com',
+          claim: { note: 'style test' },
+          stake_medium: 'existence',
+          confidence: 0.8,
+        }),
+      }),
+      env as never,
+    );
+    expect(issueRes.status).toBe(201);
+    const issued = (await issueRes.json()) as Record<string, unknown>;
+    const bccId = (issued.id as string).split('/').at(-1)!;
+
+    // flat-square → rx="0"
+    const squareRes = await app.fetch(
+      new Request(`http://x/${bccId}/badge.svg?style=flat-square`),
+      env as never,
+    );
+    const squareSvg = await squareRes.text();
+    expect(squareSvg.includes('rx="0"')).toBe(true);
+
+    // flat (default) → rx="3"
+    const flatRes = await app.fetch(
+      new Request(`http://x/${bccId}/badge.svg?style=flat`),
+      env as never,
+    );
+    const flatSvg = await flatRes.text();
+    expect(flatSvg.includes('rx="3"')).toBe(true);
+  });
+
+  test('8: compact=true → label "AL-BCC" appears in SVG', async () => {
+    const db = makeMockD1();
+    const { app, env } = makeTestApp(makeAccount('acc_compact'), db, TEST_SIGNING_KEY);
+
+    // Issue
+    const issueRes = await app.fetch(
+      new Request('http://x/issue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subject_did: 'did:web:compact.example.com',
+          claim: { note: 'compact test' },
+          stake_medium: 'existence',
+          confidence: 0.7,
+        }),
+      }),
+      env as never,
+    );
+    expect(issueRes.status).toBe(201);
+    const issued = (await issueRes.json()) as Record<string, unknown>;
+    const bccId = (issued.id as string).split('/').at(-1)!;
+
+    const res = await app.fetch(
+      new Request(`http://x/${bccId}/badge.svg?compact=true`),
+      env as never,
+    );
+
+    expect(res.status).toBe(200);
+    const svg = await res.text();
+    expect(svg.includes('>AL-BCC<')).toBe(true);
   });
 });
