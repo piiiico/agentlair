@@ -132,9 +132,39 @@ signingKeyRoutes.post('/signing-keys', async (c) => {
 
   // Validate public_key
   const publicKeyB64 = body.public_key;
-  if (!publicKeyB64 || typeof publicKeyB64 !== 'string') {
-    return err('public_key is required (base64url-encoded 32-byte Ed25519 public key)', 400, 'missing_public_key');
+
+  // Absence
+  if (publicKeyB64 === undefined || publicKeyB64 === null || publicKeyB64 === '') {
+    return err(
+      'public_key is required (base64url-encoded 32-byte Ed25519 public key)',
+      400,
+      'missing_public_key',
+    );
   }
+
+  // Wrong shape
+  if (typeof publicKeyB64 !== 'string') {
+    const got = Array.isArray(publicKeyB64) ? 'array' : typeof publicKeyB64;
+    let hint: string;
+    if (got === 'object') {
+      const looksLikeJwk =
+        publicKeyB64 !== null &&
+        typeof publicKeyB64 === 'object' &&
+        ('x' in (publicKeyB64 as object) || 'kty' in (publicKeyB64 as object));
+      hint = looksLikeJwk
+        ? 'public_key must be a base64url string (the `x` field of an Ed25519 JWK), not the JWK object itself. Example: extract `jwk.x` and POST `{public_key: jwk.x}`.'
+        : 'public_key must be a base64url-encoded 32-byte Ed25519 public key (string), not an object.';
+    } else {
+      hint = `public_key must be a base64url-encoded 32-byte Ed25519 public key (string), got ${got}.`;
+    }
+    return err(
+      `public_key has wrong type (expected base64url string, got ${got})`,
+      400,
+      'wrong_public_key_shape',
+      hint,
+    );
+  }
+  // Existing length/charset validation continues unchanged using `invalid_public_key`.
 
   // Decode and validate length
   let publicKeyBytes: Uint8Array;

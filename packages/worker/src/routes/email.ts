@@ -177,8 +177,43 @@ export async function handleEmailRoutes(
     }
 
     if (public_key !== undefined) {
-      if (typeof public_key !== 'string' || public_key.length < 10) {
-        return err('public_key must be a base64url-encoded X25519 public key (32 bytes)', 400, 'invalid_public_key');
+      if (public_key === null || public_key === '') {
+        // Optional field provided as null/empty — treat as wrong-shape for the convention,
+        // because explicitly setting it to null/empty is different from omitting it.
+        return err(
+          'public_key must be a base64url-encoded X25519 public key (32 bytes)',
+          400,
+          'wrong_public_key_shape',
+          'public_key is optional — omit it from the body to skip e2e setup. To enable e2e, send a base64url-encoded X25519 public key as a string.',
+        );
+      }
+      if (typeof public_key !== 'string') {
+        const got = Array.isArray(public_key) ? 'array' : typeof public_key;
+        let hint: string;
+        if (got === 'object') {
+          const looksLikeJwk =
+            public_key !== null &&
+            typeof public_key === 'object' &&
+            ('x' in (public_key as object) || 'kty' in (public_key as object));
+          hint = looksLikeJwk
+            ? 'public_key must be a base64url string (the `x` field of an X25519 JWK), not the JWK object itself. Example: extract `jwk.x` and POST `{public_key: jwk.x}`.'
+            : 'public_key must be a base64url-encoded X25519 public key (32 bytes, string).';
+        } else {
+          hint = `public_key must be a base64url-encoded X25519 public key (32 bytes, string), got ${got}.`;
+        }
+        return err(
+          `public_key has wrong type (expected base64url string, got ${got})`,
+          400,
+          'wrong_public_key_shape',
+          hint,
+        );
+      }
+      if (public_key.length < 10) {
+        return err(
+          'public_key must be a base64url-encoded X25519 public key (32 bytes)',
+          400,
+          'invalid_public_key',
+        );
       }
     }
 

@@ -9,9 +9,11 @@
  */
 
 import { describe, test, expect } from 'bun:test';
+import { Hono } from 'hono';
 import { ed25519 } from '@noble/curves/ed25519.js';
 import { b64urlEncode, b64urlDecode } from './jwt';
-import { computeSigningKeyId, computeJwkThumbprint, getSigningKeyByThumbprint, type SigningKeyRecord } from './routes/signing-keys';
+import { computeSigningKeyId, computeJwkThumbprint, getSigningKeyByThumbprint, signingKeyRoutes, type SigningKeyRecord } from './routes/signing-keys';
+import type { HonoEnv } from './types.js';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -199,5 +201,72 @@ describe('base64url round-trip (for signing key public keys)', () => {
     const encoded = b64urlEncode(pubKey);
     expect(encoded).not.toContain('+');
     expect(encoded).not.toContain('/');
+  });
+});
+
+// ─── POST /v1/agents/signing-keys — input validation ─────────────────────────
+
+function makeApp(account: { id: string; name?: string; email?: string }) {
+  const app = new Hono<HonoEnv>();
+  app.use('*', async (c, next) => {
+    c.set('account', account as never);
+    return next();
+  });
+  app.route('/v1/agents', signingKeyRoutes);
+  return app;
+}
+
+describe('POST /v1/agents/signing-keys — input validation', () => {
+  test('missing public_key → 400 missing_public_key', async () => {
+    const app = makeApp({ id: 'acc_test' });
+    const res = await app.request('/v1/agents/signing-keys', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe('missing_public_key');
+  });
+
+  test('public_key as JWK object → 400 wrong_public_key_shape with x-field hint', async () => {
+    const app = makeApp({ id: 'acc_test' });
+    const res = await app.request('/v1/agents/signing-keys', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        public_key: { kty: 'OKP', crv: 'Ed25519', x: 'someBase64Url' },
+      }),
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe('wrong_public_key_shape');
+    expect(body.hint).toContain('x');
+    expect(body.hint).toContain('jwk.x');
+  });
+
+  test('public_key as number → 400 wrong_public_key_shape', async () => {
+    const app = makeApp({ id: 'acc_test' });
+    const res = await app.request('/v1/agents/signing-keys', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ public_key: 42 }),
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe('wrong_public_key_shape');
+    expect(body.hint).toContain('number');
+  });
+
+  test('public_key as null → 400 missing_public_key (preserved)', async () => {
+    const app = makeApp({ id: 'acc_test' });
+    const res = await app.request('/v1/agents/signing-keys', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ public_key: null }),
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe('missing_public_key');
   });
 });

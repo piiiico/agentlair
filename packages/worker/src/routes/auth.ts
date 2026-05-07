@@ -826,8 +826,36 @@ export async function handleAuthRoutes(
     const new_public_key = body.new_public_key;
 
     if (!master_seed) return err('master_seed required in body', 400, 'missing_master_seed');
-    if (!new_public_key) return err('new_public_key required in body', 400, 'missing_public_key');
-    if (typeof new_public_key !== 'string' || new_public_key.length < 10) {
+    // Absence
+    if (new_public_key === undefined || new_public_key === null || new_public_key === '') {
+      return err('new_public_key required in body', 400, 'missing_public_key');
+    }
+
+    // Wrong shape
+    if (typeof new_public_key !== 'string') {
+      const got = Array.isArray(new_public_key) ? 'array' : typeof new_public_key;
+      let hint: string;
+      if (got === 'object') {
+        const looksLikeJwk =
+          new_public_key !== null &&
+          typeof new_public_key === 'object' &&
+          ('x' in (new_public_key as object) || 'kty' in (new_public_key as object));
+        hint = looksLikeJwk
+          ? 'new_public_key must be a base64url string (the `x` field of a JWK), not the JWK object itself. Example: extract `jwk.x` and POST `{new_public_key: jwk.x}`.'
+          : 'new_public_key must be a base64-or-hex-encoded public key (string), not an object.';
+      } else {
+        hint = `new_public_key must be a base64-or-hex-encoded public key (string), got ${got}.`;
+      }
+      return err(
+        `new_public_key has wrong type (expected string, got ${got})`,
+        400,
+        'wrong_public_key_shape',
+        hint,
+      );
+    }
+
+    // Wrong value (length)
+    if (new_public_key.length < 10) {
       return err('new_public_key must be a non-empty string (base64 or hex encoded public key)', 400, 'invalid_public_key');
     }
 

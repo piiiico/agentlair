@@ -51,8 +51,10 @@ export function json(data: unknown, status?: number, extraHeaders?: Record<strin
   });
 }
 
-export function err(message: string, status?: number, code?: string): Response {
-  return json({ error: code || 'error', message }, status || 400);
+export function err(message: string, status?: number, code?: string, hint?: string): Response {
+  const body: Record<string, unknown> = { error: code || 'error', message };
+  if (hint !== undefined) body.hint = hint;
+  return json(body, status || 400);
 }
 
 // ─── Budget period math ───────────────────────────────────────────────────────
