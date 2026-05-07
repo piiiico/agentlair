@@ -4,6 +4,7 @@
 // Ref: https://github.com/coinbase/x402/blob/main/specs/x402-specification-v2.md
 
 import type { Env, X402VerifyResult, X402SettleResult } from './types.js';
+import { verifyAATFromX402Extensions, type X402PaymentPayload } from './x402-identity.js';
 
 export const X402_CONFIG = {
   network: 'eip155:8453',
@@ -484,10 +485,11 @@ export function make402Response(service: ServicePaymentConfig, extra?: Record<st
 
 // ─── x402 Payment Types ──────────────────────────────────────────────────────
 
-interface PaymentPayload {
-  payload?: unknown;
-  [key: string]: unknown;
-}
+// Re-export X402PaymentPayload for callers that need the typed shape.
+export type { X402PaymentPayload } from './x402-identity.js';
+
+// Local alias with backward-compat signature (payload?: unknown still present).
+type PaymentPayload = X402PaymentPayload;
 
 interface FacilitatorVerifyResponse {
   isValid: boolean;
@@ -565,7 +567,13 @@ export async function verifyX402Payment(
         console.log(`x402: verification succeeded via fallback facilitator ${facilitatorUrl}`);
       }
 
-      return { valid: true, payer: result.payer, rawPayload: paymentPayload, facilitatorUrl };
+      // Opportunistically extract AgentLair identity from extensions (non-blocking).
+      // Identity extraction failure never fails payment verification.
+      const identity = await verifyAATFromX402Extensions(paymentPayload, {
+        resourceUrl: requirements.resource,
+      }).catch(() => null);
+
+      return { valid: true, payer: result.payer, rawPayload: paymentPayload, facilitatorUrl, identity };
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : String(e);
       lastError = message;

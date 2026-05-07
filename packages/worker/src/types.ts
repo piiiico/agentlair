@@ -129,6 +129,8 @@ export interface X402VerifyResult {
   rawPayload?: unknown;
   /** Which facilitator URL was used for successful verification (for settle to use the same). */
   facilitatorUrl?: string;
+  /** AgentLair AAT claims extracted from extensions, if present and valid. Null = no identity. */
+  identity?: import('./jwt.js').AATClaims | null;
 }
 
 export interface X402SettleResult {
