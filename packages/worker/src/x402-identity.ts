@@ -27,6 +27,7 @@ import { ed25519 } from '@noble/curves/ed25519.js';
 
 export const IDENTITY_EXTENSION_KEY = 'agentlair.dev/identity';
 export const DEFAULT_AGENTLAIR_JWKS_URI = 'https://agentlair.dev/.well-known/jwks.json';
+export const EXPECTED_ISSUER = 'https://agentlair.dev';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -95,9 +96,11 @@ interface JWK {
 /**
  * Verify the AgentLair AAT embedded in x402 PaymentPayload.extensions.
  *
- * Fetches JWKS from the URI embedded in the extension (or provided override).
- * Signature verification is offline — no phone-home to AgentLair beyond
- * the initial JWKS fetch (cacheable, 5-minute TTL in CF Workers).
+ * Fetches JWKS from the server-pinned AgentLair JWKS URI (or opts.jwksUri
+ * override for testing). NOTE: ext.jwks_uri from the payload extension is
+ * intentionally IGNORED — trusting a client-supplied JWKS URI allows attacker
+ * to host their own JWKS at evil.com, sign forged AATs, and pass verification.
+ * Only opts.jwksUri (test override) and DEFAULT_AGENTLAIR_JWKS_URI are used.
  *
  * In Cloudflare Workers, add `cf: { cacheTtl: 300 }` to the fetch options
  * to cache the JWKS response and avoid a network round-trip per request.
@@ -106,8 +109,10 @@ interface JWK {
  * identity. Call sites can choose whether to require or just enrich identity.
  *
  * @param payload          Decoded x402 PaymentPayload
- * @param opts.jwksUri     Override JWKS URI (e.g. for testing with local mock)
- * @param opts.resourceUrl Expected aud claim (the URL being accessed)
+ * @param opts.jwksUri     Override JWKS URI (for testing with mock JWKS only)
+ * @param opts.resourceUrl Expected aud claim (the URL being accessed). When
+ *                         provided, audience binding is mandatory — aud mismatch
+ *                         returns null regardless of ext.aud_bound.
  * @returns AATClaims if valid, null if missing / invalid / expired / aud-mismatch
  */
 export async function verifyAATFromX402Extensions(
@@ -118,7 +123,10 @@ export async function verifyAATFromX402Extensions(
   const ext = payload.extensions?.[IDENTITY_EXTENSION_KEY] as AATIdentityExtension | undefined;
   if (!ext?.aat) return null;
 
-  const jwksUri = opts?.jwksUri ?? ext.jwks_uri ?? DEFAULT_AGENTLAIR_JWKS_URI;
+  // JWKS URI is server-pinned. ext.jwks_uri is informational only; ignoring it
+  // prevents attacker-hosted JWKS from being used to verify forged AATs.
+  // opts.jwksUri remains for testing only (mock JWKS).
+  const jwksUri = opts?.jwksUri ?? DEFAULT_AGENTLAIR_JWKS_URI;
 
   // Fetch JWKS
   // In CF Workers production: add cf: { cacheTtl: 300 } to avoid per-request network cost
@@ -143,6 +151,8 @@ export async function verifyAATFromX402Extensions(
   } catch {
     return null;
   }
+
+  if (header.alg !== 'EdDSA') return null;
 
   // Locate matching JWK by kid + crv
   const jwk = jwks.keys.find((k) => k.kid === header.kid && k.crv === 'Ed25519');
@@ -176,14 +186,17 @@ export async function verifyAATFromX402Extensions(
     return null;
   }
 
+  // Validate issuer
+  if (claims.iss !== EXPECTED_ISSUER) return null;
+
   // Check expiration
   const now = Math.floor(Date.now() / 1000);
   if (claims.exp < now) return null;
 
-  // Audience binding: AAT.aud must match the resource URL
-  if (ext.aud_bound && opts?.resourceUrl) {
-    if (claims.aud !== opts.resourceUrl) return null;
-  }
+  // Audience binding is mandatory whenever resourceUrl is provided.
+  // AATClaims.aud is a required string, so this is an unconditional check
+  // that prevents AAT replay across audiences.
+  if (opts?.resourceUrl && claims.aud !== opts.resourceUrl) return null;
 
   return claims;
 }
