@@ -986,13 +986,20 @@ app.get('/agent/:name', (c) => {
 
 // Web Bot Auth: Agent key directory by JWK thumbprint (RFC 8037).
 // GET /agents/:thumbprint — returns the public JWK for Signature-Agent header resolution.
-// Distinguishable from agent names: thumbprints are exactly 43 base64url chars (include uppercase);
-// agent names are lowercase a-z0-9 + hyphens only. Falls through if not a registered thumbprint.
+// Param routing logic:
+//   - 43-char base64url (uppercase + underscore allowed) → thumbprint lookup (this handler)
+//   - Valid agent handle (lowercase a-z0-9 + hyphens only) → fall through to /agents/:name
+//   - Neither (e.g. uppercase/underscore but wrong length, or invalid chars for both) → 400
 app.get('/agents/:thumbprint', async (c, next) => {
   const thumbprint = c.req.param('thumbprint');
-  // RFC 8037 thumbprint = base64url(SHA-256(canonical JWK)) = always 43 chars, base64url charset
-  if (!thumbprint || !/^[A-Za-z0-9_-]{43}$/.test(thumbprint)) {
-    return next();
+  const THUMBPRINT_RE = /^[A-Za-z0-9_-]{43}$/;
+  const HANDLE_RE = /^[a-z0-9][a-z0-9-]{0,61}[a-z0-9]$|^[a-z0-9]$/;
+  // RFC 8037 thumbprint = base64url(SHA-256(canonical JWK)) = always exactly 43 chars
+  if (!thumbprint || !THUMBPRINT_RE.test(thumbprint)) {
+    if (HANDLE_RE.test(thumbprint || '')) {
+      return next(); // Valid agent handle — fall through to /agents/:name
+    }
+    return c.json({ error: 'invalid_thumbprint', message: 'Thumbprint must be a 43-character base64url RFC 8037 SHA-256 hash. The kid field from JWKS is not the thumbprint.' }, 400);
   }
   const record = await getSigningKeyByThumbprint(c.env, thumbprint);
   if (!record) {
