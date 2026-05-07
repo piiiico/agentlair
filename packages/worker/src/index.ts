@@ -1156,11 +1156,6 @@ app.route('/v1/agents', memoryTrustRoutes);
 // Demo endpoint: public trust profile explorer (no auth, IP rate limited)
 app.route('/v1/demo', demoRoutes);
 
-// Public audit endpoint: GET /v1/audit/:jti — per-token metadata for al_audit_url in AATs.
-// No auth required: external services verify tokens without needing an AgentLair account.
-// Mounted BEFORE auth middleware so the /:jti handler runs unauthenticated.
-app.route('/v1/audit', publicAuditRoutes);
-
 // Public PoPA endpoint: GET /v1/popa/:did — Proof-of-Presence streak metrics.
 // No auth required: external verifiers read attestation chains by DID.
 // Mounted BEFORE auth middleware so the /:did handler runs unauthenticated.
@@ -1388,6 +1383,13 @@ app.use('/v1/*', async (c: Context<HonoEnv>, next: Next): Promise<void | Respons
 
   // Credential approval page — public (validated via operator_email binding)
   if (c.req.path === '/v1/credentials/approve') {
+    await next();
+    return;
+  }
+
+  // Public audit JTI endpoint — external verifiers check AAT metadata without needing an account.
+  // Only bypass for JTI format (aat_[A-Za-z0-9]{16}); literal paths like /log fall through to auditRoutes.
+  if (c.req.method === 'GET' && /^\/v1\/audit\/aat_[A-Za-z0-9]{16}$/.test(c.req.path)) {
     await next();
     return;
   }
@@ -1648,6 +1650,11 @@ app.route('/v1/agents', signingKeyRoutes);
 // Also mount at /v1 so /v1/attestations resolves correctly (separate from /v1/audit/attestations)
 app.route('/v1/audit', auditRoutes);
 app.route('/v1', auditRoutes);
+
+// Public audit JTI endpoint: GET /v1/audit/:jti — per-token metadata for al_audit_url in AATs.
+// Mounted AFTER auditRoutes so specific paths (/log, /verification-key, /attestations) match first.
+// Auth middleware bypasses this route for the JTI format (aat_[A-Za-z0-9]{16}) — see section 5.
+app.route('/v1/audit', publicAuditRoutes);
 
 // SCITT Transparency Service routes: POST /v1/scitt/entries, GET /v1/scitt/entries/:id, GET /v1/scitt/entries/:id/receipt
 app.route('/v1/scitt', scittRoutes);
