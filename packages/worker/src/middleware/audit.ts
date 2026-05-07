@@ -23,7 +23,7 @@ export interface AuditEntry {
   id: string;
   timestamp: string;
   account_id: string;
-  actor_type: 'account' | 'pod' | 'system';
+  actor_type: 'account' | 'pod' | 'system' | 'agent';
   actor_id: string;
   actor_ip_hash: string | null;
   category: string;
@@ -39,6 +39,19 @@ export interface AuditEntry {
   prev_hash: string;
   signature: string;
 }
+
+// ─── Explicit attestation constants ──────────────────────────────────────────
+// Used by routes/audit.ts POST /v1/audit/log handler for validation.
+
+export const ALLOWED_POST_CATEGORIES = new Set([
+  // New L3 categories (agent self-attestation)
+  'task', 'tool_call', 'observation', 'reasoning', 'output',
+  // Existing ambient categories — agents may explicitly attest these too
+  'system', 'auth', 'email', 'vault', 'pod', 'calendar', 'memory', 'session', 'budget', 'git', 'webhook',
+]);
+
+// action: 1–128 chars, lowercase letters/digits/underscores, dot-separated, starts with a letter
+export const ACTION_REGEX = /^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$/;
 
 // ─── Module-level hash chain state (per-isolate) ─────────────────────────────
 
@@ -491,6 +504,78 @@ export async function writeGitCommitAuditEvent(
     return entryId;
   } catch (e) {
     console.error('Git commit audit event write failed:', e instanceof Error ? e.message : String(e));
+    return null;
+  }
+}
+
+// ─── writeExplicitAuditEvent — L3 explicit self-attestation by an agent ───────
+// Called by POST /v1/audit/log. Route handler validates input; this function
+// builds, signs, and persists the entry — same pattern as writeBudgetAuditEvent.
+//
+// Returns {id, timestamp, signature, prev_hash} (the 201 response body fields).
+
+export async function writeExplicitAuditEvent(
+  env: import('../types.js').Env,
+  params: {
+    accountId: string;
+    actorId: string;
+    category: string;
+    action: string;
+    resourceType?: string | null;
+    resourceId?: string | null;
+    status: number;
+    result: 'success' | 'failure' | 'denied';
+    details?: Record<string, unknown> | null;
+    ipHash?: string | null;
+  },
+): Promise<{ id: string; timestamp: string; signature: string; prev_hash: string } | null> {
+  if (!env.AUDIT || !env.AUDIT_SIGNING_KEY) return null;
+  try {
+    const prevHash = await getPrevHash(env);
+    const now = new Date().toISOString();
+    const entryId = nanoid(20);
+
+    const entryWithoutSignature: Omit<AuditEntry, 'signature'> = {
+      id: entryId,
+      timestamp: now,
+      account_id: params.accountId,
+      actor_type: 'agent',
+      actor_id: params.actorId,
+      actor_ip_hash: params.ipHash ?? null,
+      category: params.category,
+      action: params.action,
+      method: 'POST',
+      path: '/v1/audit/log',
+      resource_type: params.resourceType ?? null,
+      resource_id: params.resourceId ?? null,
+      status: params.status,
+      result: params.result,
+      error_code: null,
+      // Stored as-is in the entry; D1 bind step serialises to JSON string
+      details: params.details as Record<string, string | number | boolean> | null,
+      prev_hash: prevHash,
+    };
+
+    const signature = await signEntry(entryWithoutSignature, env.AUDIT_SIGNING_KEY);
+    const entry: AuditEntry = { ...entryWithoutSignature, signature };
+
+    // Update per-isolate hash chain BEFORE writing (consistent with other helpers)
+    lastEntryHash = await sha256hex(JSON.stringify(entry));
+
+    await env.AUDIT.prepare(
+      `INSERT INTO audit_log (id, timestamp, account_id, actor_type, actor_id, actor_ip_hash, category, action, method, path, resource_type, resource_id, status, result, error_code, details, prev_hash, signature)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).bind(
+      entry.id, entry.timestamp, entry.account_id, entry.actor_type, entry.actor_id,
+      entry.actor_ip_hash, entry.category, entry.action, entry.method, entry.path,
+      entry.resource_type, entry.resource_id, entry.status, entry.result,
+      entry.error_code, entry.details !== null ? JSON.stringify(entry.details) : null,
+      entry.prev_hash, entry.signature,
+    ).run();
+
+    return { id: entry.id, timestamp: entry.timestamp, signature: entry.signature, prev_hash: entry.prev_hash };
+  } catch (e) {
+    console.error('Explicit audit event write failed:', e instanceof Error ? e.message : String(e));
     return null;
   }
 }

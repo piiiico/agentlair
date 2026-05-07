@@ -9,9 +9,14 @@
 
 import { Hono } from 'hono';
 import type { HonoEnv } from '../types.js';
-import { json, err } from '../utils.js';
+import { json, err, sha256hex } from '../utils.js';
 import { ed25519 } from '@noble/curves/ed25519.js';
 import type { AuditEntry } from '../middleware/audit.js';
+import {
+  writeExplicitAuditEvent,
+  ALLOWED_POST_CATEGORIES,
+  ACTION_REGEX,
+} from '../middleware/audit.js';
 import { auditEntryToCAF } from '../caf.js';
 import { cafToSignedStatement } from '../caf-scitt.js';
 import { verifyX402Payment, settleX402Payment, trackX402Spend, make402Response, SERVICE_PRICES } from '../x402.js';
@@ -83,6 +88,115 @@ auditRoutes.get('/log', async (c) => {
     console.error('Audit log query failed:', e instanceof Error ? e.message : String(e));
     return err('Failed to query audit log.', 500, 'audit_query_error');
   }
+});
+
+// ─── POST /audit/log ─────────────────────────────────────────────────────────
+// Explicit agent self-attestation — L3 behavioral audit write surface.
+// Agents POST a structured event; server signs and appends to the hash chain.
+// Auth: existing /v1/* API-key/session gate (inherited, no new gate here).
+// Rate-limit: inherits /v1/* checkRateLimit — no dedicated counter (spec §3).
+
+auditRoutes.post('/log', async (c) => {
+  const account = c.get('account');
+  if (!account) return err('Authentication required.', 401, 'unauthorized');
+
+  if (!c.env.AUDIT) {
+    return err('Audit trail not enabled for this instance.', 503, 'audit_unavailable');
+  }
+  if (!c.env.AUDIT_SIGNING_KEY) {
+    return err('Audit signing key not configured.', 503, 'audit_unavailable');
+  }
+
+  // Parse body
+  let body: Record<string, unknown>;
+  try {
+    body = await c.req.json();
+  } catch {
+    return err('Invalid JSON body.', 400, 'invalid_body');
+  }
+
+  const { category, action, resource_type, resource_id, status, result, details } = body as {
+    category?: unknown;
+    action?: unknown;
+    resource_type?: unknown;
+    resource_id?: unknown;
+    status?: unknown;
+    result?: unknown;
+    details?: unknown;
+  };
+
+  // Validate category
+  if (!category) return err('Missing required field: category.', 400, 'missing_category');
+  if (typeof category !== 'string' || !ALLOWED_POST_CATEGORIES.has(category)) {
+    return err(
+      'Invalid category.',
+      400,
+      'invalid_category',
+      `Allowed values: ${[...ALLOWED_POST_CATEGORIES].join(', ')}`,
+    );
+  }
+
+  // Validate action
+  if (!action) return err('Missing required field: action.', 400, 'missing_action');
+  if (
+    typeof action !== 'string' ||
+    action.length < 1 ||
+    action.length > 128 ||
+    !ACTION_REGEX.test(action)
+  ) {
+    return err(
+      'Invalid action.',
+      400,
+      'invalid_action',
+      'action must be 1–128 chars, lowercase letters/digits/underscores separated by dots, starting with a letter (e.g. "task.complete")',
+    );
+  }
+
+  // Validate details size (≤ 4 KB when JSON-serialised)
+  if (details !== undefined && details !== null) {
+    const detailsStr = JSON.stringify(details);
+    if (detailsStr.length > 4096) {
+      return err(
+        'Details payload too large.',
+        413,
+        'details_too_large',
+        'details must be ≤ 4 KB (4096 bytes when JSON-serialized)',
+      );
+    }
+  }
+
+  // Resolve optional fields
+  const resolvedStatus = typeof status === 'number' ? status : 200;
+  const VALID_RESULTS = new Set(['success', 'failure', 'denied']);
+  const resolvedResult: 'success' | 'failure' | 'denied' =
+    typeof result === 'string' && VALID_RESULTS.has(result)
+      ? (result as 'success' | 'failure' | 'denied')
+      : 'success';
+
+  // Compute IP hash (privacy-preserving, daily salt)
+  const ip = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || 'unknown';
+  const dailySalt = new Date().toISOString().split('T')[0];
+  const ipHash = await sha256hex(ip + dailySalt);
+
+  // Write to hash chain
+  const eventResult = await writeExplicitAuditEvent(c.env, {
+    accountId: account.id,
+    actorId: account.id, // spec §2: actor_id = account.id (AAT-bearer auth is future work)
+    category,
+    action,
+    resourceType: typeof resource_type === 'string' ? resource_type : null,
+    resourceId: typeof resource_id === 'string' ? resource_id : null,
+    status: resolvedStatus,
+    result: resolvedResult,
+    details: (details != null ? details : null) as Record<string, unknown> | null,
+    ipHash,
+  });
+
+  if (!eventResult) {
+    return err('Failed to write audit event.', 500, 'audit_write_error');
+  }
+
+  return json(eventResult, 201);
 });
 
 // ─── GET /attestations ───────────────────────────────────────────────────────

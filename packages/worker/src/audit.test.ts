@@ -7,12 +7,16 @@
  * - Action derivation (method + path → action)
  * - Result mapping (status code → result)
  * - Hash chain (prev_hash logic)
+ * - POST /v1/audit/log — explicit L3 self-attestation endpoint
  */
 
 import { describe, test, expect } from 'bun:test';
+import { Hono } from 'hono';
 import { ed25519 } from '@noble/curves/ed25519.js';
-import { getCategory, getAction, getResult, signEntry } from './middleware/audit';
+import { getCategory, getAction, getResult, signEntry, writeExplicitAuditEvent } from './middleware/audit';
 import type { AuditEntry } from './middleware/audit';
+import { auditRoutes } from './routes/audit';
+import type { HonoEnv } from './types';
 
 // ─── Helper: generate a test Ed25519 keypair ─────────────────────────────────
 
@@ -297,5 +301,234 @@ describe('hash chain', () => {
     const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(entry)));
     const hashHex = Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
     expect(hashHex.length).toBe(64);
+  });
+});
+
+// ─── POST /v1/audit/log — explicit L3 self-attestation ────────────────────────
+
+// ── Mock helpers ───────────────────────────────────────────────────────────────
+
+/** Build a test Ed25519 key as base64. Returns {privateKeyB64, publicKeyBytes}. */
+function makeTestSigningKey() {
+  const privateKeyBytes = crypto.getRandomValues(new Uint8Array(32));
+  const publicKeyBytes = ed25519.getPublicKey(privateKeyBytes);
+  const privateKeyB64 = btoa(String.fromCharCode(...privateKeyBytes));
+  return { privateKeyB64, publicKeyBytes };
+}
+
+/** Mock D1Database that stores INSERT rows in-memory. */
+function makeMockD1() {
+  const rows: Record<string, unknown>[] = [];
+  return {
+    rows,
+    prepare(sql: string) {
+      const COLS = ['id', 'timestamp', 'account_id', 'actor_type', 'actor_id', 'actor_ip_hash',
+        'category', 'action', 'method', 'path', 'resource_type', 'resource_id',
+        'status', 'result', 'error_code', 'details', 'prev_hash', 'signature'];
+      // Chain: prepare → bind → run / prepare → first / prepare → all
+      const self = {
+        bind: (...params: unknown[]) => ({
+          run: async () => {
+            if (sql.includes('INSERT INTO audit_log')) {
+              const entry: Record<string, unknown> = {};
+              COLS.forEach((col, i) => { entry[col] = params[i]; });
+              rows.push(entry);
+            }
+          },
+          first: async <T>() => null as T | null,
+          all: async <T>() => ({ results: rows.slice() as T[] }),
+        }),
+        // Called by getPrevHash: prepare(sql).first<AuditEntry>()
+        first: async <T>() => (rows.length > 0 ? rows[rows.length - 1] as T : null as T | null),
+        all: async <T>() => ({ results: rows.slice() as T[] }),
+      };
+      return self;
+    },
+  } as unknown as D1Database;
+}
+
+/** Build a minimal Hono test app — injects account and mounts auditRoutes. */
+function makeAuditApp(account: { id: string } | null) {
+  const app = new Hono<HonoEnv>();
+  app.use('*', async (c, next) => {
+    c.set('account', account as never);
+    return next();
+  });
+  app.route('/', auditRoutes);
+  return app;
+}
+
+/** sha256hex helper for test assertions. */
+async function sha256hex(text: string): Promise<string> {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// ── Tests ──────────────────────────────────────────────────────────────────────
+
+describe('POST /v1/audit/log — input validation (HTTP)', () => {
+  const { privateKeyB64 } = makeTestSigningKey();
+  const mockEnv = { AUDIT: makeMockD1(), AUDIT_SIGNING_KEY: privateKeyB64 };
+  const app = makeAuditApp({ id: 'acc_test' });
+
+  test('missing auth → 401 unauthorized', async () => {
+    const noAuthApp = makeAuditApp(null);
+    const res = await noAuthApp.request('/log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ category: 'task', action: 'task.complete' }),
+    }, mockEnv as never);
+    expect(res.status).toBe(401);
+    const body = await res.json() as { error: string };
+    expect(body.error).toBe('unauthorized');
+  });
+
+  test('bad category → 400 invalid_category', async () => {
+    const res = await app.request('/log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ category: 'invalid_xyz', action: 'task.complete' }),
+    }, mockEnv as never);
+    expect(res.status).toBe(400);
+    const body = await res.json() as { error: string; hint?: string };
+    expect(body.error).toBe('invalid_category');
+    expect(body.hint).toBeDefined();
+  });
+
+  test('missing action → 400 missing_action', async () => {
+    const res = await app.request('/log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ category: 'task' }),
+    }, mockEnv as never);
+    expect(res.status).toBe(400);
+    const body = await res.json() as { error: string };
+    expect(body.error).toBe('missing_action');
+  });
+
+  test('action with invalid format (uppercase) → 400 invalid_action', async () => {
+    const res = await app.request('/log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ category: 'task', action: 'Task.Complete' }),
+    }, mockEnv as never);
+    expect(res.status).toBe(400);
+    const body = await res.json() as { error: string };
+    expect(body.error).toBe('invalid_action');
+  });
+
+  test('oversize details (>4KB) → 413 details_too_large', async () => {
+    const bigDetails = { data: 'x'.repeat(4097) };
+    const res = await app.request('/log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ category: 'task', action: 'task.complete', details: bigDetails }),
+    }, mockEnv as never);
+    expect(res.status).toBe(413);
+    const body = await res.json() as { error: string };
+    expect(body.error).toBe('details_too_large');
+  });
+
+  test('happy path — 201 with id, timestamp, signature, prev_hash', async () => {
+    const res = await app.request('/log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ category: 'task', action: 'task.complete', details: { src: 'test' } }),
+    }, mockEnv as never);
+    expect(res.status).toBe(201);
+    const body = await res.json() as { id: string; timestamp: string; signature: string; prev_hash: string };
+    expect(typeof body.id).toBe('string');
+    expect(body.id.length).toBeGreaterThan(0);
+    expect(typeof body.timestamp).toBe('string');
+    expect(typeof body.signature).toBe('string');
+    expect(typeof body.prev_hash).toBe('string');
+    expect(body.prev_hash.length).toBe(64);
+  });
+});
+
+describe('POST /v1/audit/log — signature + hash chain (function-level)', () => {
+  test('signature is verifiable with derived public key', async () => {
+    const { privateKeyB64, publicKeyBytes } = makeTestSigningKey();
+    const mockD1 = makeMockD1();
+    const mockEnv = { AUDIT: mockD1, AUDIT_SIGNING_KEY: privateKeyB64 } as never;
+
+    const result = await writeExplicitAuditEvent(mockEnv, {
+      accountId: 'acc_sig_test',
+      actorId: 'acc_sig_test',
+      category: 'task',
+      action: 'task.complete',
+      status: 200,
+      result: 'success',
+      details: { note: 'sig-verify-test' },
+    });
+
+    expect(result).not.toBeNull();
+    if (!result) return;
+
+    // The signature covers JSON.stringify(entryWithoutSignature).
+    // To verify: reconstruct entry without signature from stored D1 row.
+    const storedRows = (mockD1 as unknown as { rows: Record<string, unknown>[] }).rows;
+    expect(storedRows.length).toBe(1);
+    const stored = storedRows[0];
+
+    // Rebuild the entry-without-signature (details is stored as JSON string; parse back)
+    const entryWithoutSig = {
+      id: stored.id,
+      timestamp: stored.timestamp,
+      account_id: stored.account_id,
+      actor_type: stored.actor_type,
+      actor_id: stored.actor_id,
+      actor_ip_hash: stored.actor_ip_hash,
+      category: stored.category,
+      action: stored.action,
+      method: stored.method,
+      path: stored.path,
+      resource_type: stored.resource_type,
+      resource_id: stored.resource_id,
+      status: stored.status,
+      result: stored.result,
+      error_code: stored.error_code,
+      details: stored.details ? JSON.parse(stored.details as string) : null,
+      prev_hash: stored.prev_hash,
+    };
+
+    const messageBytes = new TextEncoder().encode(JSON.stringify(entryWithoutSig));
+    const sigBytes = Uint8Array.from(atob(result.signature), ch => ch.charCodeAt(0));
+    const valid = ed25519.verify(sigBytes, messageBytes, publicKeyBytes);
+    expect(valid).toBe(true);
+  });
+
+  test('hash-chain integrity across 3 sequential attestations', async () => {
+    const { privateKeyB64 } = makeTestSigningKey();
+    // Fresh D1 for this test to ensure clean row ordering
+    const mockD1 = makeMockD1();
+    const storedRows = (mockD1 as unknown as { rows: Record<string, unknown>[] }).rows;
+    const mockEnv = { AUDIT: mockD1, AUDIT_SIGNING_KEY: privateKeyB64 } as never;
+
+    for (let i = 0; i < 3; i++) {
+      await writeExplicitAuditEvent(mockEnv, {
+        accountId: 'acc_chain_test',
+        actorId: 'acc_chain_test',
+        category: 'observation',
+        action: `observation.step`,
+        status: 200,
+        result: 'success',
+        details: { step: i },
+      });
+    }
+
+    expect(storedRows.length).toBe(3);
+
+    // For rows 1 and 2, verify prev_hash = sha256(JSON.stringify(full_entry[i-1]))
+    for (let i = 1; i < 3; i++) {
+      const prev = storedRows[i - 1];
+      // Reconstruct the entry as it was hashed (details as parsed object, not string)
+      const prevEntry = {
+        ...prev,
+        details: prev.details ? JSON.parse(prev.details as string) : null,
+      };
+      const expectedPrevHash = await sha256hex(JSON.stringify(prevEntry));
+      expect(storedRows[i].prev_hash).toBe(expectedPrevHash);
+    }
   });
 });
