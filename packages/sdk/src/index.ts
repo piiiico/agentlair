@@ -101,6 +101,8 @@ export type {
   TrustDimension,
   TrustScoreResult,
   TrustBadgeStyle,
+  // Web Bot Auth
+  SignRequestOptions,
   // Errors
   AgentLairErrorBody,
 } from './types.js';

@@ -66,6 +66,33 @@ export async function getSigningKey(env: Env, keyid: string): Promise<SigningKey
   return JSON.parse(raw) as SigningKeyRecord;
 }
 
+/**
+ * Compute RFC 8037 JWK Thumbprint for an Ed25519 public key.
+ * Canonical JSON: {"crv":"Ed25519","kty":"OKP","x":"<base64url>"}  (members in lexicographic order)
+ * Thumbprint = base64url(SHA-256(UTF-8(canonical_json))) — always 43 chars
+ */
+export async function computeJwkThumbprint(publicKeyBytes: Uint8Array): Promise<string> {
+  const x = b64urlEncode(publicKeyBytes);
+  // RFC 7638 §3.2: members in lexicographic order, no extra whitespace
+  const canonical = `{"crv":"Ed25519","kty":"OKP","x":"${x}"}`;
+  const buf = ArrayBuffer.prototype.slice.call(
+    new TextEncoder().encode(canonical).buffer,
+  ) as ArrayBuffer;
+  const hash = await crypto.subtle.digest('SHA-256', buf);
+  return b64urlEncode(new Uint8Array(hash));
+}
+
+/**
+ * Look up a signing key by its RFC 8037 JWK thumbprint.
+ * Returns null if not found.
+ */
+export async function getSigningKeyByThumbprint(env: Env, thumbprint: string): Promise<SigningKeyRecord | null> {
+  const raw = await env.KEYS.get('signing-key-thumbprint:' + thumbprint);
+  if (!raw) return null;
+  const { keyid } = JSON.parse(raw) as { keyid: string };
+  return getSigningKey(env, keyid);
+}
+
 // ─── Route handlers ───────────────────────────────────────────────────────────
 
 export const signingKeyRoutes = new Hono<HonoEnv>();
@@ -127,6 +154,9 @@ signingKeyRoutes.post('/signing-keys', async (c) => {
 
   // Compute keyid
   const keyid = await computeSigningKeyId(publicKeyBytes);
+
+  // Compute RFC 8037 JWK thumbprint for Web Bot Auth key directory
+  const thumbprint = await computeJwkThumbprint(publicKeyBytes);
 
   // Check if this key is already registered (idempotency)
   const existingRaw = await c.env.KEYS.get('signing-key:' + keyid);
@@ -192,6 +222,7 @@ signingKeyRoutes.post('/signing-keys', async (c) => {
       'signing-key-by-account:' + account.id,
       JSON.stringify({ keyid }),
     );
+    await c.env.KEYS.put('signing-key-thumbprint:' + thumbprint, JSON.stringify({ keyid }));
   } catch (kvErr: unknown) {
     const msg = kvErr instanceof Error ? kvErr.message : '';
     if (msg.includes('free usage limit') || msg.includes('KV') || msg.includes('quota')) {
@@ -202,10 +233,12 @@ signingKeyRoutes.post('/signing-keys', async (c) => {
 
   return json({
     keyid,
+    thumbprint,
     algorithm: 'ed25519',
     registered_at: now,
     ...(label !== undefined && { label }),
     status: 'active',
+    signature_agent_url: `https://agentlair.dev/agents/${thumbprint}`,
   }, 201);
 });
 
@@ -239,6 +272,8 @@ signingKeyRoutes.get('/signing-keys', async (c) => {
     status: record.status,
     lookup_url: `https://agentlair.dev/.well-known/agent-keys/${record.keyid}`,
     jwks_url: `https://agentlair.dev/.well-known/agent-keys/${record.keyid}/jwks.json`,
+    // Computed on the fly for existing keys that may not have thumbprint stored
+    signature_agent_url: `https://agentlair.dev/agents/${await computeJwkThumbprint(b64urlDecode(record.public_key))}`,
   });
 });
 

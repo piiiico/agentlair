@@ -84,6 +84,27 @@ import type {
 
 const DEFAULT_BASE_URL = 'https://agentlair.dev';
 
+// ─── Crypto helpers (internal) ───────────────────────────────────────────────
+
+function b64url(bytes: Uint8Array): string {
+  return btoa(String.fromCharCode(...bytes))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=/g, '');
+}
+
+/**
+ * Compute RFC 8037 JWK Thumbprint for an Ed25519 public key.
+ * Result: base64url(SHA-256({"crv":"Ed25519","kty":"OKP","x":"<base64url>"}))
+ * Always 43 chars.
+ */
+async function computeJwkThumbprint(publicKeyBytes: Uint8Array): Promise<string> {
+  const x = b64url(publicKeyBytes);
+  const canonical = `{"crv":"Ed25519","kty":"OKP","x":"${x}"}`;
+  const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical));
+  return b64url(new Uint8Array(hash));
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /**
@@ -879,6 +900,97 @@ export class AgentLair {
       );
     }
     return data;
+  }
+
+  // ─── Static: signRequest (RFC 9421 Web Bot Auth) ───────────────────────────
+
+  /**
+   * Sign an HTTP request with RFC 9421 HTTP Message Signatures for Web Bot Auth compliance.
+   *
+   * Adds three headers to the request:
+   * - `Signature-Input` — signing parameters (keyid, created, expires, covered components)
+   * - `Signature` — the Ed25519 signature over the message signature base
+   * - `Signature-Agent` — URL pointing to the agent's key in the AgentLair directory
+   *
+   * Compatible with Google Cloud Fraud Defense and any Web Bot Auth-aware origin.
+   *
+   * @example
+   * const { privateKey, publicKey } = agentKeypair;
+   *
+   * const signedRequest = await AgentLair.signRequest(
+   *   new Request('https://api.example.com/resource'),
+   *   { privateKey, publicKey },
+   * );
+   *
+   * const response = await fetch(signedRequest);
+   *
+   * @see https://agentlair.dev/docs/web-bot-auth
+   * @see https://www.rfc-editor.org/rfc/rfc9421 (HTTP Message Signatures)
+   * @see https://datatracker.ietf.org/doc/draft-meunier-web-bot-auth/ (Web Bot Auth)
+   */
+  static async signRequest(
+    request: Request,
+    options: import('./types.js').SignRequestOptions,
+  ): Promise<Request> {
+    const { privateKey, publicKey, signatureAgentBaseUrl, expiresIn = 300, label = 'sig1' } = options;
+
+    // 1. Compute keyid (RFC 8037 JWK thumbprint) — used as the stable, verifiable key reference
+    const keyid = options.keyid ?? await computeJwkThumbprint(publicKey);
+
+    // 2. Build signature parameters
+    const created = Math.floor(Date.now() / 1000);
+    const expires = created + expiresIn;
+    const sigParams =
+      `("@authority" "@target-uri");created=${created};expires=${expires};keyid="${keyid}";tag="web-bot-auth"`;
+
+    // 3. Extract covered components per RFC 9421 §2
+    const url = new URL(request.url);
+    const authority = url.host; // host[:port], no scheme
+    const targetUri = request.url; // absolute URI
+
+    // 4. Build signature base per RFC 9421 §2.5
+    //    Format: "<component-id>": value\n (line feed, not CRLF)
+    //    Final line: "@signature-params": <sig-params>
+    const signatureBase = [
+      `"@authority": ${authority}`,
+      `"@target-uri": ${targetUri}`,
+      `"@signature-params": ${sigParams}`,
+    ].join('\n');
+
+    // 5. Sign with Ed25519 via SubtleCrypto
+    //    Note: 'raw' Ed25519 private key import requires Node 18+ or Bun
+    //    Normalize to ArrayBuffer to satisfy strict SubtleCrypto typings
+    const privateKeyBuf = privateKey.buffer.slice(
+      privateKey.byteOffset,
+      privateKey.byteOffset + privateKey.byteLength,
+    ) as ArrayBuffer;
+    const cryptoKey = await crypto.subtle.importKey(
+      'raw',
+      privateKeyBuf,
+      { name: 'Ed25519' },
+      false,
+      ['sign'],
+    );
+    const signatureBytes = await crypto.subtle.sign(
+      { name: 'Ed25519' },
+      cryptoKey,
+      new TextEncoder().encode(signatureBase),
+    );
+
+    // 6. Encode signature as base64 (RFC 8941 Byte Sequence uses standard base64 in :...:)
+    const signatureB64 = btoa(String.fromCharCode(...new Uint8Array(signatureBytes)));
+
+    // 7. Build Signature-Agent URL
+    const baseUrl = (signatureAgentBaseUrl ?? DEFAULT_BASE_URL).replace(/\/$/, '');
+    const signatureAgent = `${baseUrl}/agents/${keyid}`;
+
+    // 8. Return cloned request with signature headers added
+    const headers = new Headers(request.headers);
+    headers.set('Signature-Input', `${label}=${sigParams}`);
+    headers.set('Signature', `${label}=:${signatureB64}:`);
+    headers.set('Signature-Agent', signatureAgent);
+
+    return new Request(request, { headers });
   }
 }
 

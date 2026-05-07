@@ -673,6 +673,46 @@ export interface TrustScoreResult {
 /** Badge style for trust badge SVG */
 export type TrustBadgeStyle = 'flat' | 'flat-square' | 'for-the-badge';
 
+// ─── Web Bot Auth (RFC 9421 HTTP Message Signatures) ─────────────────────────
+
+/**
+ * Options for signing an HTTP request with RFC 9421 HTTP Message Signatures
+ * in compliance with the Web Bot Auth profile (IETF draft-meunier-web-bot-auth).
+ */
+export interface SignRequestOptions {
+  /**
+   * The agent's Ed25519 private key (32 raw bytes).
+   * Generate with: crypto.subtle.generateKey({name:"Ed25519"}, true, ["sign","verify"])
+   * then export with exportKey("raw", keyPair.privateKey).
+   */
+  privateKey: Uint8Array;
+  /**
+   * The agent's Ed25519 public key (32 raw bytes).
+   * Required to compute the RFC 8037 JWK thumbprint (used as keyid).
+   */
+  publicKey: Uint8Array;
+  /**
+   * Pre-computed RFC 8037 JWK thumbprint. If omitted, computed from publicKey.
+   * This is the 43-char base64url string used as keyid in Signature-Input.
+   */
+  keyid?: string;
+  /**
+   * Base URL for the Signature-Agent key directory header.
+   * @default "https://agentlair.dev"
+   */
+  signatureAgentBaseUrl?: string;
+  /**
+   * Signature lifetime in seconds.
+   * @default 300
+   */
+  expiresIn?: number;
+  /**
+   * Signature label in the Signature and Signature-Input headers.
+   * @default "sig1"
+   */
+  label?: string;
+}
+
 // ─── Errors ───────────────────────────────────────────────────────────────────
 
 export interface AgentLairErrorBody {

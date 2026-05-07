@@ -33,7 +33,7 @@ import { stackRoutes } from './routes/stacks.js';
 import { podRoutes } from './routes/pods.js';
 import { handleCalendarRoutes } from './routes/calendar.js';
 import { tokenRoutes, publicTokenRoutes } from './routes/tokens.js';
-import { signingKeyRoutes, getSigningKey } from './routes/signing-keys.js';
+import { signingKeyRoutes, getSigningKey, getSigningKeyByThumbprint } from './routes/signing-keys.js';
 import { auditRoutes, publicAuditRoutes } from './routes/audit.js';
 import { sessionRoutes } from './routes/sessions.js';
 import { budgetRoutes } from './routes/budget.js';
@@ -981,6 +981,40 @@ app.get('/:handle', async (c, next) => {
 app.get('/agent/:name', (c) => {
   const name = c.req.param('name');
   return Response.redirect(`https://agentlair.dev/agents/${name}`, 301);
+});
+
+// Web Bot Auth: Agent key directory by JWK thumbprint (RFC 8037).
+// GET /agents/:thumbprint — returns the public JWK for Signature-Agent header resolution.
+// Distinguishable from agent names: thumbprints are exactly 43 base64url chars (include uppercase);
+// agent names are lowercase a-z0-9 + hyphens only. Falls through if not a registered thumbprint.
+app.get('/agents/:thumbprint', async (c, next) => {
+  const thumbprint = c.req.param('thumbprint');
+  // RFC 8037 thumbprint = base64url(SHA-256(canonical JWK)) = always 43 chars, base64url charset
+  if (!thumbprint || !/^[A-Za-z0-9_-]{43}$/.test(thumbprint)) {
+    return next();
+  }
+  const record = await getSigningKeyByThumbprint(c.env, thumbprint);
+  if (!record) {
+    return next(); // Not a registered thumbprint — fall through to /agents/:name
+  }
+  return new Response(JSON.stringify({
+    kty: 'OKP',
+    crv: 'Ed25519',
+    x: record.public_key,
+    kid: thumbprint,
+    use: 'sig',
+    alg: 'EdDSA',
+    agent_id: record.agent_id,
+    ...(record.agent_name !== undefined && { agent_name: record.agent_name }),
+    status: record.status,
+  }), {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'public, max-age=300',
+      'Access-Control-Allow-Origin': '*',
+    },
+  });
 });
 
 // Agent identity discovery — x402-gated, no API key required.
