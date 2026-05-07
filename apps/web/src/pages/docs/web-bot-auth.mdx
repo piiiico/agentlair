@@ -1,0 +1,135 @@
+---
+layout: ../../layouts/BasicLayout.astro
+title: "Web Bot Auth — AgentLair"
+description: "RFC 9421 HTTP message signatures for AI agents. Register your Ed25519 key, sign outgoing requests, and let any server verify your identity against the AgentLair key directory."
+---
+
+# Web Bot Auth
+
+What is Web Bot Auth? It is an IETF protocol built on [RFC 9421 HTTP Message Signatures](https://www.rfc-editor.org/rfc/rfc9421). Every signed HTTP request carries a cryptographic signature; the receiving server resolves the signing key from a URL you provide, then verifies it. No sessions. No cookies. Just math.
+
+[Cloudflare's Thibault Meunier authored the draft.](https://datatracker.ietf.org/doc/draft-meunier-web-bot-auth/) Google Cloud Fraud Defense already integrates it. It is becoming the standard for distinguishing legitimate agent traffic from anonymous scrapers.
+
+---
+
+## What does AgentLair give you for Web Bot Auth?
+
+Three things, all live in production:
+
+- **JWKS endpoint** at `/.well-known/jwks.json`. Platform signing key for AAT verification.
+- **Per-agent key resolver** at `/agents/:thumbprint`. Resolves a 43-character [RFC 8037 JWK thumbprint](https://www.rfc-editor.org/rfc/rfc8037) to an Ed25519 OKP JWK. No authentication required. This is the URL any verifier calls to check your signature.
+- **`AgentLair.signRequest()`** in the SDK. Pass it a Request and your keypair. Returns a new Request with `Signature-Input`, `Signature`, and `Signature-Agent` headers attached.
+
+---
+
+## End-to-end flow
+
+### Step 1: Register your signing key
+
+Generate an Ed25519 keypair. The `public_key` field takes the raw 32-byte public key encoded as base64url. This is the `x` field from a JWK, not the full JWK object.
+
+```bash
+curl -X POST https://agentlair.dev/v1/agents/signing-keys \
+  -H "Authorization: Bearer al_live_..." \
+  -H "Content-Type: application/json" \
+  -d '{"public_key": "<base64url-encoded-32-byte-ed25519-public-key>"}'
+```
+
+Response (201):
+
+```json
+{
+  "keyid": "1C8llqFwtA2HHc2H6l_ASQ",
+  "thumbprint": "ciTmCS_evtMsZrFJdhcvB3y4VgaYhcmLn77QlnEwWQY",
+  "algorithm": "ed25519",
+  "registered_at": "2026-05-07T12:00:00Z",
+  "status": "active",
+  "signature_agent_url": "https://agentlair.dev/agents/ciTmCS_evtMsZrFJdhcvB3y4VgaYhcmLn77QlnEwWQY"
+}
+```
+
+One active key per agent. Registering a new key revokes the previous one.
+
+The `thumbprint` in the response is what verifiers use to look up your key. Save `signature_agent_url`.
+
+### Step 2: Sign an outgoing request
+
+**Try it interactively:** [Web Bot Auth Playground &rarr;](/playground/web-bot-auth)
+
+```typescript
+import { AgentLair } from "@agentlair/sdk";
+
+// privateKey and publicKey are Uint8Array (32 bytes each for Ed25519)
+const signedRequest = await AgentLair.signRequest(
+  new Request("https://api.example.com/resource"),
+  { privateKey, publicKey },
+);
+
+const response = await fetch(signedRequest);
+```
+
+Three headers are added: `Signature-Input` (parameters), `Signature` (base64 Ed25519 over the signature base), and `Signature-Agent` (URL to your key in the AgentLair directory).
+
+### Step 3: Verifier resolves your key
+
+Any server can resolve your key without authentication:
+
+```bash
+curl https://agentlair.dev/agents/<thumbprint>
+```
+
+Returns:
+
+```json
+{
+  "kty": "OKP",
+  "crv": "Ed25519",
+  "x": "<base64url-public-key>",
+  "kid": "<thumbprint>",
+  "use": "sig",
+  "alg": "EdDSA",
+  "agent_id": "acc_k9pFUtGxKPby2BQX",
+  "agent_name": "my-agent",
+  "status": "active"
+}
+```
+
+The verifier checks the signature against `x` per RFC 9421.
+
+---
+
+## How does Web Bot Auth layer with AgentLair AAT?
+
+Web Bot Auth answers: "Is this request signed by a real agent with a registered key?"
+
+AgentLair AAT answers: "Does this agent's operator have skin in the game?"
+
+They compose. Web Bot Auth is identity. AAT is accountability. A server that requires both will reject unsigned requests and reject agents with no active AAT. Neither replaces the other.
+
+---
+
+## What is NOT included yet
+
+AgentLair does not currently ship:
+
+- Signature verification middleware for incoming requests (verify per RFC 9421 yourself)
+- A client library that auto-signs every fetch call
+- SVM or Aptos signing schemes
+- Revocation push notifications
+
+Short list. Will grow.
+
+---
+
+## References
+
+- [RFC 9421](https://www.rfc-editor.org/rfc/rfc9421) (HTTP Message Signatures)
+- [draft-meunier-web-bot-auth-architecture-05](https://datatracker.ietf.org/doc/draft-meunier-web-bot-auth/) (Web Bot Auth architecture, Cloudflare)
+- [Google Cloud Fraud Defense](https://cloud.google.com/security/products/fraud-defense) (integrates Web Bot Auth for agent traffic scoring)
+
+---
+
+## Related
+
+- [API Reference](/docs/api-reference)
+- [Getting Started](/getting-started)

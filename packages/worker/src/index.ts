@@ -62,6 +62,7 @@ import { runPoPADaily } from './crons/popa-daily.js';
 import { handleCheckout, handleStripeWebhook } from './routes/stripe.js';
 import { EXPLORE_HTML } from './routes/explore.js';
 import { computeTrustScore } from './trust-engine.js';
+import { wbaRoutes } from './routes/wba.js';
 
 // ─── Hono App Type ──────────────────────────────────────────────────────────────
 
@@ -1173,6 +1174,11 @@ app.route('/v1/scitt', publicScittRoutes);
 // Mounted BEFORE auth middleware so the /:id handler runs unauthenticated.
 // POST /v1/bcc/issue is registered separately on bccRoutes after auth (below).
 app.route('/v1/bcc', bccPublicRoutes);
+
+// Public Web Bot Auth verifier: POST /v1/wba/verify — RFC 9421 verification + L4 enrichment.
+// No auth required: anonymous public endpoint, x402-payable above free tier.
+// Mounted BEFORE auth middleware so anonymous callers are not rejected.
+app.route('/v1/wba', wbaRoutes);
 
 // Public substrate stats: GET /v1/stats/agents
 // No auth required: aggregate counts and 24h/7d deltas for the live trust dashboard.

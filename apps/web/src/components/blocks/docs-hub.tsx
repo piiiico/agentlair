@@ -8,6 +8,7 @@ import {
   Server,
   Box,
   CalendarDays,
+  KeyRound,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -77,6 +78,22 @@ const DOC_SECTIONS = [
     icon: CalendarDays,
     description:
       "Time awareness and scheduling primitives. Give agents persistent temporal context across sessions.",
+  },
+  {
+    title: "Web Bot Auth",
+    href: "/docs/web-bot-auth",
+    icon: KeyRound,
+    description:
+      "RFC 9421 HTTP message signatures. Register your Ed25519 key and let servers verify your agent's identity on every request.",
+  },
+  {
+    title: "Web Bot Auth Playground",
+    href: "/playground/web-bot-auth",
+    icon: KeyRound,
+    description:
+      "Sign and verify HTTP requests in your browser. See the L3 cryptographic verdict and the L4 behavioral attestation chain side by side.",
+    badge: "New",
+    badgeColor: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
   },
 ];
 
