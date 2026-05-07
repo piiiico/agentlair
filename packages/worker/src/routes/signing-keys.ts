@@ -164,12 +164,24 @@ signingKeyRoutes.post('/signing-keys', async (c) => {
     const existing = JSON.parse(existingRaw) as SigningKeyRecord;
     // Only allow if it's this account's key
     if (existing.agent_id === account.id) {
+      // Backfill thumbprint→keyid index if missing (keys registered before this index was added)
+      const thumbprintKey = 'signing-key-thumbprint:' + thumbprint;
+      const existingThumbprintRaw = await c.env.KEYS.get(thumbprintKey);
+      if (!existingThumbprintRaw) {
+        try {
+          await c.env.KEYS.put(thumbprintKey, JSON.stringify({ keyid: existing.keyid }));
+        } catch {
+          // Best-effort backfill — don't fail idempotency response over a KV write error
+        }
+      }
       return json({
         keyid: existing.keyid,
+        thumbprint,
         algorithm: existing.algorithm,
         registered_at: existing.registered_at,
         label: existing.label,
         status: existing.status,
+        signature_agent_url: `https://agentlair.dev/agents/${thumbprint}`,
       }, 200); // 200 = already registered
     }
     // Different account has this key — conflict (key IDs are global)
