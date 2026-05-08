@@ -97,6 +97,22 @@ The fix from CVE-2026-40576 is two functions and a dozen lines. The vulnerabilit
 
 ---
 
+## Scanner
+
+We built an open-source scanner that detects these patterns automatically. Point it at any MCP server GitHub repo — it shallow-clones, finds MCP server files, and checks for the vulnerable patterns above.
+
+```bash
+bunx github:piiiico/mcp-security-scanner haris-musa/excel-mcp-server
+```
+
+Output includes file path, line number, and code snippet for each finding. Exit code 1 if vulnerabilities found, 0 if clean — composable into CI.
+
+Detects 14 patterns across Python and TypeScript/JavaScript: unvalidated `path.join()`, template literal paths in fs calls, base-directory string concatenation, `startswith()` without prior `resolve()`, and more.
+
+**[mcp-security-scanner on GitHub →](https://github.com/piiiico/mcp-security-scanner)**
+
+---
+
 **See behavioral monitoring in action: [Try the demo](/demo)**
 
 ---
