@@ -166,10 +166,10 @@ import DefaultLayout from '@/layouts/DefaultLayout.astro';
             <h2 class="text-2xl font-semibold tracking-tight">Vercel AI SDK + AgentLair attestations</h2>
           </div>
           <p class="text-base font-medium text-foreground/90 mb-3">
-            What this proves: a Vercel AI SDK agent built on `tool({execute})` and `generateText` records every tool call as a signed audit event, and the BCC anchors the run via first and last event ids.
+            What this proves: a Vercel AI SDK agent built on the `tool` helper and `generateText` records every tool call as a signed audit event, and the BCC anchors the run via first and last event ids.
           </p>
           <p class="text-muted-foreground leading-relaxed mb-4">
-            Pass any Vercel AI SDK toolset through `recorder.wrapTools({...})` and each tool's `execute` gets replaced with one that posts two L3 hash-chained entries per call: `tool_call` on entry, `observation` on exit. Errors thrown inside `execute` propagate up so the SDK builds the structured `tool-error` part the model reads on subsequent steps. The model is mocked with `MockLanguageModelV3` from `ai/test`, so the demo runs offline and consumes zero tokens. Six audit events anchor the run; the BCC pins the chain via first and last event ids.
+            Pass any Vercel AI SDK toolset through `recorder.wrapTools(...)` and each tool's `execute` gets replaced with one that posts two L3 hash-chained entries per call: `tool_call` on entry, `observation` on exit. Errors thrown inside `execute` propagate up so the SDK builds the structured `tool-error` part the model reads on subsequent steps. The model is mocked with `MockLanguageModelV3` from `ai/test`, so the demo runs offline and consumes zero tokens. Six audit events anchor the run; the BCC pins the chain via first and last event ids.
           </p>
           <div class="flex flex-col gap-2 text-sm">
             <div class="flex flex-wrap items-baseline gap-2">
