@@ -4,7 +4,7 @@ import DefaultLayout from '@/layouts/DefaultLayout.astro';
 
 <DefaultLayout
   title="Clone-and-run demos · AgentLair"
-  description="Three runnable demo repos for AgentLair primitives: Behavioral Commitment Credentials, x402-on-Base pay-per-call MCP, and audit-chain dispute resolution. Each repo issues live artifacts you can re-verify on agentlair.dev."
+  description="Four runnable demo repos for AgentLair primitives: Behavioral Commitment Credentials, x402-on-Base pay-per-call MCP, audit-chain dispute resolution, and LangChain.js behavioral attestations. Each repo issues live artifacts you can re-verify on agentlair.dev."
 >
   <main>
     <!-- Hero -->
@@ -14,7 +14,7 @@ import DefaultLayout from '@/layouts/DefaultLayout.astro';
         Clone-and-run, not slideware.
       </h1>
       <p class="text-lg text-muted-foreground leading-relaxed mb-4">
-        Three runnable repos. Each one isolates a different layer of the substrate AgentLair runs on: behavioral commitment credentials that verify across organizations, pay-per-call MCP tools settled on Base, and an audit chain that decides disputes from observed behavior. Clone any of them and run the README. The credentials you read about in the cards below resolve to public verify endpoints right now.
+        Four runnable repos. Each one isolates a different layer of the substrate AgentLair runs on: behavioral commitment credentials that verify across organizations, pay-per-call MCP tools settled on Base, an audit chain that decides disputes from observed behavior, and a drop-in LangChain.js wrapper that emits signed attestations as your agent runs. Clone any of them and run the README. The credentials you read about in the cards below resolve to public verify endpoints right now.
       </p>
       <div class="flex items-center gap-3 text-sm text-muted-foreground border-t pt-6 mt-6">
         <span>May 2026</span>
@@ -105,6 +105,31 @@ import DefaultLayout from '@/layouts/DefaultLayout.astro';
               <span class="font-mono text-xs text-muted-foreground uppercase tracking-wider">Live B</span>
               <a href="https://agentlair.dev/v1/bcc/bcc_FkXFSLuwdlMVwNiMKxeU/verify" class="font-mono text-foreground hover:text-primary break-all">bcc_FkXFSLuwdlMVwNiMKxeU</a>
               <span class="text-xs text-muted-foreground">(over-cap, dispute UPHELD)</span>
+            </div>
+          </div>
+        </article>
+
+        <!-- Card 4: LangChain attestations -->
+        <article class="rounded-xl border bg-card p-6 md:p-8 shadow-sm">
+          <div class="flex flex-wrap items-baseline gap-3 mb-2">
+            <span class="text-xs font-mono tracking-wider uppercase text-primary">04</span>
+            <h2 class="text-2xl font-semibold tracking-tight">LangChain + AgentLair attestations</h2>
+          </div>
+          <p class="text-base font-medium text-foreground/90 mb-3">
+            What this proves: a LangChain.js agent emits signed audit events as its tools fire, and finishes with a publicly verifiable Bonded Credibility Credential that anchors the run to the audit chain.
+          </p>
+          <p class="text-muted-foreground leading-relaxed mb-4">
+            Pass an `AgentLairCallbackHandler` as a callback to any LangChain runnable. Two events fire per tool call: `tool_call` on start, `observation` on end. When the agent is done, `handler.issueBcc()` mints a BCC whose `claim` body cross-references the first and last audit event ids. The wrapper extends `BaseCallbackHandler` from `@langchain/core` and works with three agent shapes out of the box: a single tool, a ReactAgent, or any RunnableSequence.
+          </p>
+          <div class="flex flex-col gap-2 text-sm">
+            <div class="flex flex-wrap items-baseline gap-2">
+              <span class="font-mono text-xs text-muted-foreground uppercase tracking-wider">Repo</span>
+              <a href="https://github.com/piiiico/agentlair-langchain-attestations-demo" class="font-mono text-primary hover:underline break-all">github.com/piiiico/agentlair-langchain-attestations-demo</a>
+            </div>
+            <div class="flex flex-wrap items-baseline gap-2">
+              <span class="font-mono text-xs text-muted-foreground uppercase tracking-wider">Live</span>
+              <a href="https://agentlair.dev/v1/bcc/bcc_lgqfH7XRthR40JGr7Ask/verify" class="font-mono text-foreground hover:text-primary break-all">bcc_lgqfH7XRthR40JGr7Ask</a>
+              <span class="text-xs text-muted-foreground">(verify endpoint, returns valid:true; 4 audit events anchored)</span>
             </div>
           </div>
         </article>
