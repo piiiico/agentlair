@@ -8,7 +8,7 @@ import { Navbar } from "@/components/blocks/navbar";
   <head>
     <BaseHead
       title="AgentLair vs. Competitors — Comparison"
-      description="How AgentLair compares to Cloudflare Email for Agents, AgentMail, World ID, Microsoft Agent Governance Toolkit, ERC-8004, and ZeroID."
+      description="How AgentLair compares to AWS AgentCore Payments, Visa TAP, Mastercard Verifiable Intent, Cloudflare Email for Agents, AgentMail, World ID, Microsoft Agent Governance Toolkit, ERC-8004, and ZeroID."
     />
   </head>
   <body class="h-screen antialiased">
@@ -337,7 +337,48 @@ import { Navbar } from "@/components/blocks/navbar";
       <section class="mx-auto max-w-4xl px-4 pb-16">
         <h2 class="text-2xl font-bold tracking-tight mb-8">About each solution</h2>
 
+        <!-- May 2026 framing -->
+        <div class="rounded-xl border border-primary/30 bg-primary/5 p-6 mb-8">
+          <p class="text-xs font-medium tracking-widest uppercase text-primary mb-2">May 2026 update</p>
+          <p class="text-foreground leading-relaxed text-sm">
+            Three named payment-governance entrants shipped in the first week of May: <strong>AWS AgentCore Payments</strong>, <strong>Visa Token Authentication for Payments (TAP)</strong>, and <strong>Mastercard Verifiable Intent</strong>. Hyperscalers and card networks now have official answers for "agents need to pay things." None of them answer the next question: <em>is the spender still behaving like the spender you authorized?</em> That gap is the L4 layer AgentLair sits in. The three target the payment stack (L1–L3); the feature table above compares the agent identity and trust infrastructure layer they don't touch.
+          </p>
+        </div>
+
         <div class="space-y-8">
+
+          <!-- AWS AgentCore Payments -->
+          <div class="border rounded-xl p-6">
+            <div class="flex items-start justify-between gap-4 mb-3">
+              <h3 class="text-lg font-semibold">AWS AgentCore Payments</h3>
+              <span class="text-xs font-medium text-muted-foreground border rounded-full px-3 py-1 whitespace-nowrap shrink-0">L3 Payment Wallet</span>
+            </div>
+            <p class="text-muted-foreground leading-relaxed">
+              AWS AgentCore Payments shipped May 7. Coinbase x402 and Stripe bundled so agents pay APIs mid-task, with per-session caps and CloudWatch traces. The wallet layer for agentic commerce is now hyperscaler-default. Good. The thing it doesn't do is notice when a permitted spender starts behaving like a compromised one. Spending caps prevent runaway burns; they can't tell you the agent has changed since you authorized it last Tuesday. That second question is L4. AgentLair sits there.
+            </p>
+          </div>
+
+          <!-- Visa Token Authentication for Payments -->
+          <div class="border rounded-xl p-6">
+            <div class="flex items-start justify-between gap-4 mb-3">
+              <h3 class="text-lg font-semibold">Visa Token Authentication for Payments (TAP)</h3>
+              <span class="text-xs font-medium text-muted-foreground border rounded-full px-3 py-1 whitespace-nowrap shrink-0">L1 Agent-Card Binding</span>
+            </div>
+            <p class="text-muted-foreground leading-relaxed">
+              Visa Token Authentication for Payments (TAP) lets cardholders authorize a specific agent to use a specific token on a specific merchant. It's identity binding for cards. Strong on who. Silent on what-the-agent-does-once-authorized. The token verifies a one-time consent. AgentLair verifies behavior across thousands of subsequent calls. Different layer, different problem.
+            </p>
+          </div>
+
+          <!-- Mastercard Verifiable Intent -->
+          <div class="border rounded-xl p-6">
+            <div class="flex items-start justify-between gap-4 mb-3">
+              <h3 class="text-lg font-semibold">Mastercard Verifiable Intent</h3>
+              <span class="text-xs font-medium text-muted-foreground border rounded-full px-3 py-1 whitespace-nowrap shrink-0">L2 Delegation Chain</span>
+            </div>
+            <p class="text-muted-foreground leading-relaxed">
+              Mastercard Verifiable Intent uses an SD-JWT delegation chain from issuer to cardholder to agent. Signed at every hop. Cryptographically clean. What it proves: the agent had permission at the moment of payment. What it doesn't prove: the agent is still operating within the delegated scope an hour later, or that it hasn't been prompt-injected since. Delegation is a snapshot. Behavior is continuous. AgentLair runs the continuous half.
+            </p>
+          </div>
 
           <!-- Cloudflare -->
           <div class="border rounded-xl p-6">

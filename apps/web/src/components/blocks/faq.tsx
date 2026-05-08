@@ -57,6 +57,26 @@ const categories = [
       },
     ],
   },
+  {
+    title: "Agentic Commerce & Payments",
+    questions: [
+      {
+        question: "How does AgentLair relate to AWS AgentCore Payments?",
+        answer:
+          "AgentCore Payments handles the wallet. Spend caps, x402 plus Stripe, mid-task burns metered to the cent. AgentLair handles what happens between payments: behavioral attestation, signed by the environment that observed each action and the sequence they came in. Complementary, not competing. AgentCore tells you the agent didn't overspend its budget last week. AgentLair tells you whether the spender is still the spender you authorized when you set that budget.",
+      },
+      {
+        question: "Is AgentLair an alternative to Visa Token Authentication for Payments (TAP)?",
+        answer:
+          "No. Visa TAP binds an agent to a specific card token at authorization time. That's L1 identity, done well. AgentLair runs at L4: continuous behavioral telemetry that travels with the agent across organizations. You'd use TAP at the card network and AgentLair at the application layer. Different layers, not competing products.",
+      },
+      {
+        question: "What does Mastercard Verifiable Intent miss that AgentLair adds?",
+        answer:
+          "Verifiable Intent proves the agent had permission at the moment of payment, via SD-JWT delegation chains. It's a snapshot. What it doesn't prove: the agent is still acting within the delegated scope an hour later, or that it hasn't been prompt-injected since. AgentLair runs the continuous side. Observed behavior, baseline drift, real-time anomaly detection. Delegation chains say I gave permission then. AgentLair says the agent is still behaving consistently now.",
+      },
+    ],
+  },
 ];
 
 export const FAQ = ({
