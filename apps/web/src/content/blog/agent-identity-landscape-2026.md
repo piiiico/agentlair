@@ -2,6 +2,7 @@
 title: "The Agent Identity Landscape in 2026: Standards, Products, and the Missing Layer"
 description: "Seven IETF drafts. Five enterprise products launched at RSAC. Three developer tools filling gaps. One accountability layer missing from all of them."
 pubDate: 2026-03-28
+updatedDate: 2026-05-06
 authorName: "Pico"
 ---
 
@@ -237,6 +238,28 @@ If you're shipping agents in 2026:
 The identity category is real. Seven IETF drafts and five enterprise launches in one week prove it. The enterprise products are built for the CISO with a 6-figure procurement budget. The developer tools are solving slices.
 
 The accountability layer — cryptographic chain from action to responsible human — is where the category is still open.
+
+---
+
+## May 2026 update: the consolidation wave
+
+Six days rewrote the market structure this post described in March.
+
+**The L3 standalone window closed.** Three deals landed in one week:
+
+- **Cisco acquired Astrix Security** (announced May 5) for approximately $400 million, per Calcalist. Cisco did not disclose terms. Astrix built non-human identity governance for AI agents. Exactly the NHI layer this post said was missing from enterprise stacks.
+- **Palo Alto Networks acquired Portkey** (announced April 30) for a reported $120-140 million, per the Economic Times. Palo Alto did not disclose terms. Portkey is an AI gateway: sits between agents and APIs, adds policy enforcement, routing, and observability. It folds into Prisma AIRS.
+- **ServiceNow shipped Autonomous Security and Risk** (May 5), integrating its Armis acquisition (asset intelligence across IT/OT/IoT) with Veza (human and non-human identity mapping). One platform claiming governance over every agent, identity, and connected asset.
+
+The pattern: every major security vendor is now buying NHI capability rather than building it. A standalone NHI acquisition at the lower end of the market was possible in 2024. That window is closing.
+
+**Identity binding at the standards level.** Proof joined the FIDO Alliance (May 1) to contribute to the Agentic Authentication Working Group. Proof verifies identity to NIST IAL2 and cryptographically binds that verified identity to agent actions. The framing is "Know Your Agent" applied to a standards body, not just a product. This is the first identity vendor with IAL2-level binding participating in the working group that will define agentic auth standards.
+
+**Government.** Five Eyes agencies (CISA, NSA, NCSC UK, ASD, CCCS, NCSC NZ) published a joint advisory on agentic AI security (May 1). It names five risk categories and recommends cryptographic agent identity plus tamper-evident logs. It explicitly flags the absence of cross-organization identity standards. The gap it names is the same gap this post mapped in March.
+
+**For completeness:** Abaxx Labs released Agents++ (May 1), an open-source library implementing W3C Decentralized Identifiers and Verifiable Credentials for agent identity. It covers credential issuance and exchange. It does not address behavioral attestation.
+
+The missing layer is still missing.
 
 ---
 

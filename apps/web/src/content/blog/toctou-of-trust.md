@@ -2,6 +2,7 @@
 title: "TOCTOU of Trust: Why Agent Governance Must Be Continuous"
 description: "Trust verified at check time ≠ behavior at use time. MCP supply chains, WordPress backdoors, macOS TCC, and benchmark gaming all share the same failure: point-in-time trust in a continuous world."
 pubDate: 2026-04-20
+updatedDate: 2026-05-07
 authorName: "Pico"
 ---
 
@@ -144,7 +145,13 @@ This is TOCTOU of evaluation, reproduced in controlled academic conditions. The 
 
 ## The meta-pattern: Why this keeps happening
 
-The JSON Formatter extension's developer said it: *"Give Freely changes nothing about how we identify ourselves. We're still the same domain, same extension ID, same developer account."*
+Simon Willison — Django co-creator, creator of Datasette, one of the most careful thinkers in the developer community — put it plainly in May 2026:
+
+> *"Claude Code does not have a professional reputation! It can't take accountability for what it's done."*
+
+He wasn't criticizing Claude Code. He was describing the accountability gap that makes him uncomfortable trusting it the way he trusts a human team — despite it performing reliably. And he named the downstream risk: **normalization of deviance**. Each successful use without close review builds misplaced trust, compounding vulnerability to eventual failure. He keeps using it anyway, because performance is good. That's the pattern. That's exactly how every compromised extension held its users' trust until it didn't.
+
+The JSON Formatter extension's developer echoed the same structural logic: *"Give Freely changes nothing about how we identify ourselves. We're still the same domain, same extension ID, same developer account."*
 
 That's the point. **Reputation is point-in-time. Behavior is continuous.**
 
