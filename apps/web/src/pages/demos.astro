@@ -4,7 +4,7 @@ import DefaultLayout from '@/layouts/DefaultLayout.astro';
 
 <DefaultLayout
   title="Clone-and-run demos · AgentLair"
-  description="Five runnable demo repos for AgentLair primitives: Behavioral Commitment Credentials, x402-on-Base pay-per-call MCP, audit-chain dispute resolution, LangChain.js behavioral attestations, and OpenAI Agents SDK behavioral attestations. Each repo issues live artifacts you can re-verify on agentlair.dev."
+  description="Six runnable demo repos for AgentLair primitives: Behavioral Commitment Credentials, x402-on-Base pay-per-call MCP, audit-chain dispute resolution, and behavioral attestations for LangChain.js, the OpenAI Agents SDK, and the Vercel AI SDK. Each repo issues live artifacts you can re-verify on agentlair.dev."
 >
   <main>
     <!-- Hero -->
@@ -14,7 +14,7 @@ import DefaultLayout from '@/layouts/DefaultLayout.astro';
         Clone-and-run, not slideware.
       </h1>
       <p class="text-lg text-muted-foreground leading-relaxed mb-4">
-        Five runnable repos. Each one isolates a different layer of the substrate AgentLair runs on: behavioral commitment credentials that verify across organizations, pay-per-call MCP tools settled on Base, an audit chain that decides disputes from observed behavior, and drop-in attestation wrappers for the two TypeScript agent frameworks people actually ship — LangChain.js and the OpenAI Agents SDK. Clone any of them and run the README. The credentials you read about in the cards below resolve to public verify endpoints right now.
+        Six runnable repos. Each one isolates a different layer of the substrate AgentLair runs on: behavioral commitment credentials that verify across organizations, pay-per-call MCP tools settled on Base, an audit chain that decides disputes from observed behavior, and drop-in attestation wrappers for the three TypeScript agent frameworks people actually ship: LangChain.js, the OpenAI Agents SDK, and the Vercel AI SDK. Clone any of them and run the README. The credentials you read about in the cards below resolve to public verify endpoints right now.
       </p>
       <div class="flex items-center gap-3 text-sm text-muted-foreground border-t pt-6 mt-6">
         <span>May 2026</span>
@@ -154,6 +154,31 @@ import DefaultLayout from '@/layouts/DefaultLayout.astro';
             <div class="flex flex-wrap items-baseline gap-2">
               <span class="font-mono text-xs text-muted-foreground uppercase tracking-wider">Live</span>
               <a href="https://agentlair.dev/v1/bcc/bcc_8gkhJjgw0JM7mMIsqUW1/verify" class="font-mono text-foreground hover:text-primary break-all">bcc_8gkhJjgw0JM7mMIsqUW1</a>
+              <span class="text-xs text-muted-foreground">(verify endpoint, returns valid:true; 6 audit events anchored)</span>
+            </div>
+          </div>
+        </article>
+
+        <!-- Card 6: Vercel AI SDK attestations -->
+        <article class="rounded-xl border bg-card p-6 md:p-8 shadow-sm">
+          <div class="flex flex-wrap items-baseline gap-3 mb-2">
+            <span class="text-xs font-mono tracking-wider uppercase text-primary">06</span>
+            <h2 class="text-2xl font-semibold tracking-tight">Vercel AI SDK + AgentLair attestations</h2>
+          </div>
+          <p class="text-base font-medium text-foreground/90 mb-3">
+            What this proves: a Vercel AI SDK agent built on `tool({execute})` and `generateText` records every tool call as a signed audit event, and the BCC anchors the run via first and last event ids.
+          </p>
+          <p class="text-muted-foreground leading-relaxed mb-4">
+            Pass any Vercel AI SDK toolset through `recorder.wrapTools({...})` and each tool's `execute` gets replaced with one that posts two L3 hash-chained entries per call: `tool_call` on entry, `observation` on exit. Errors thrown inside `execute` propagate up so the SDK builds the structured `tool-error` part the model reads on subsequent steps. The model is mocked with `MockLanguageModelV3` from `ai/test`, so the demo runs offline and consumes zero tokens. Six audit events anchor the run; the BCC pins the chain via first and last event ids.
+          </p>
+          <div class="flex flex-col gap-2 text-sm">
+            <div class="flex flex-wrap items-baseline gap-2">
+              <span class="font-mono text-xs text-muted-foreground uppercase tracking-wider">Repo</span>
+              <a href="https://github.com/piiiico/agentlair-vercel-ai-attestations-demo" class="font-mono text-primary hover:underline break-all">github.com/piiiico/agentlair-vercel-ai-attestations-demo</a>
+            </div>
+            <div class="flex flex-wrap items-baseline gap-2">
+              <span class="font-mono text-xs text-muted-foreground uppercase tracking-wider">Live</span>
+              <a href="https://agentlair.dev/v1/bcc/bcc_4jGn7YfkZdhyDJfVo2Rf/verify" class="font-mono text-foreground hover:text-primary break-all">bcc_4jGn7YfkZdhyDJfVo2Rf</a>
               <span class="text-xs text-muted-foreground">(verify endpoint, returns valid:true; 6 audit events anchored)</span>
             </div>
           </div>
