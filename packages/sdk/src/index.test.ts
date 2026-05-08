@@ -1019,3 +1019,105 @@ describe('lair.trust.badge', () => {
     expect(url).toBe('http://localhost:8787/badge/acc_abc123');
   });
 });
+
+// ─── AgentLair.signRequest ──────────────────────────────────────────────────
+
+describe('AgentLair.signRequest — happy path', () => {
+  test('produces a signature an origin can verify with the public key', async () => {
+    // Generate a real Ed25519 keypair so we exercise the actual crypto path on Bun
+    const rawKeyPair = await crypto.subtle.generateKey(
+      { name: 'Ed25519' },
+      true,
+      ['sign', 'verify'],
+    );
+
+    // Export public key as raw bytes (32 bytes)
+    const publicKeyRaw = new Uint8Array(
+      await crypto.subtle.exportKey('raw', rawKeyPair.publicKey),
+    );
+
+    // Export private key (PKCS#8) and extract the 32-byte seed (last 32 bytes of DER)
+    const privateKeyPkcs8 = new Uint8Array(
+      await crypto.subtle.exportKey('pkcs8', rawKeyPair.privateKey),
+    );
+    const privateKeySeed = privateKeyPkcs8.slice(-32);
+
+    const request = new Request('https://api.example.com/resource');
+    const signedRequest = await AgentLair.signRequest(request, {
+      privateKey: privateKeySeed,
+      publicKey: publicKeyRaw,
+    });
+
+    // Signature-Input and Signature headers must be present
+    expect(signedRequest.headers.has('Signature-Input')).toBe(true);
+    expect(signedRequest.headers.has('Signature')).toBe(true);
+    expect(signedRequest.headers.has('Signature-Agent')).toBe(true);
+
+    // Signature-Agent must point to agentlair.dev
+    expect(signedRequest.headers.get('Signature-Agent')).toContain('https://agentlair.dev/agents/');
+
+    // Extract and verify the signature
+    const sigHeader = signedRequest.headers.get('Signature')!;
+    // Format: sig1=:<base64>:
+    const b64Match = sigHeader.match(/:([A-Za-z0-9+/=]+):/);
+    expect(b64Match).not.toBeNull();
+    const sigBytes = Uint8Array.from(atob(b64Match![1]), (c) => c.charCodeAt(0));
+
+    // Re-import public key to verify
+    const verifyKey = await crypto.subtle.importKey(
+      'raw',
+      publicKeyRaw,
+      { name: 'Ed25519' },
+      false,
+      ['verify'],
+    );
+
+    // Reconstruct signature base (same as signRequest internals)
+    const sigInputHeader = signedRequest.headers.get('Signature-Input')!;
+    // Extract sigParams from: sig1=("@authority" "@target-uri");created=...
+    const sigParams = sigInputHeader.replace(/^sig1=/, '');
+    const url = new URL(signedRequest.url);
+    const signatureBase = [
+      `"@authority": ${url.host}`,
+      `"@target-uri": ${signedRequest.url}`,
+      `"@signature-params": ${sigParams}`,
+    ].join('\n');
+
+    const valid = await crypto.subtle.verify(
+      { name: 'Ed25519' },
+      verifyKey,
+      sigBytes,
+      new TextEncoder().encode(signatureBase),
+    );
+    expect(valid).toBe(true);
+  });
+
+  test('respects custom label', async () => {
+    const rawKeyPair = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
+    const publicKeyRaw = new Uint8Array(await crypto.subtle.exportKey('raw', rawKeyPair.publicKey));
+    const privateKeyPkcs8 = new Uint8Array(await crypto.subtle.exportKey('pkcs8', rawKeyPair.privateKey));
+    const privateKeySeed = privateKeyPkcs8.slice(-32);
+
+    const signedRequest = await AgentLair.signRequest(
+      new Request('https://api.example.com/resource'),
+      { privateKey: privateKeySeed, publicKey: publicKeyRaw, label: 'mybot' },
+    );
+
+    expect(signedRequest.headers.get('Signature-Input')).toMatch(/^mybot=/);
+    expect(signedRequest.headers.get('Signature')).toMatch(/^mybot=/);
+  });
+
+  test('respects custom signatureAgentBaseUrl', async () => {
+    const rawKeyPair = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
+    const publicKeyRaw = new Uint8Array(await crypto.subtle.exportKey('raw', rawKeyPair.publicKey));
+    const privateKeyPkcs8 = new Uint8Array(await crypto.subtle.exportKey('pkcs8', rawKeyPair.privateKey));
+    const privateKeySeed = privateKeyPkcs8.slice(-32);
+
+    const signedRequest = await AgentLair.signRequest(
+      new Request('https://api.example.com/resource'),
+      { privateKey: privateKeySeed, publicKey: publicKeyRaw, signatureAgentBaseUrl: 'http://localhost:8787' },
+    );
+
+    expect(signedRequest.headers.get('Signature-Agent')).toContain('http://localhost:8787/agents/');
+  });
+});

@@ -905,6 +905,24 @@ export class AgentLair {
   // ─── Static: signRequest (RFC 9421 Web Bot Auth) ───────────────────────────
 
   /**
+   * Wrap a 32-byte Ed25519 seed in PKCS#8 DER encoding.
+   *
+   * The W3C Secure Curves spec only allows 'raw' format for PUBLIC key import.
+   * Bun (and Cloudflare Workers) enforce this strictly — importKey('raw', seed, ..., ['sign'])
+   * throws SyntaxError. Wrapping in PKCS#8 satisfies all spec-compliant runtimes.
+   */
+  static #wrapEd25519SeedInPkcs8(seed: Uint8Array): Uint8Array {
+    const prefix = new Uint8Array([
+      0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06,
+      0x03, 0x2b, 0x65, 0x70, 0x04, 0x22, 0x04, 0x20,
+    ]);
+    const out = new Uint8Array(prefix.length + seed.length);
+    out.set(prefix, 0);
+    out.set(seed, prefix.length);
+    return out;
+  }
+
+  /**
    * Sign an HTTP request with RFC 9421 HTTP Message Signatures for Web Bot Auth compliance.
    *
    * Adds three headers to the request:
@@ -958,15 +976,13 @@ export class AgentLair {
     ].join('\n');
 
     // 5. Sign with Ed25519 via SubtleCrypto
-    //    Note: 'raw' Ed25519 private key import requires Node 18+ or Bun
-    //    Normalize to ArrayBuffer to satisfy strict SubtleCrypto typings
-    const privateKeyBuf = privateKey.buffer.slice(
-      privateKey.byteOffset,
-      privateKey.byteOffset + privateKey.byteLength,
-    ) as ArrayBuffer;
+    //    W3C Secure Curves only allows 'raw' for PUBLIC key import.
+    //    Wrap the 32-byte seed in PKCS#8 DER so import works on Bun,
+    //    Cloudflare Workers, and any spec-strict runtime.
+    const pkcs8 = AgentLair.#wrapEd25519SeedInPkcs8(privateKey);
     const cryptoKey = await crypto.subtle.importKey(
-      'raw',
-      privateKeyBuf,
+      'pkcs8',
+      pkcs8.buffer.slice(pkcs8.byteOffset, pkcs8.byteOffset + pkcs8.byteLength) as ArrayBuffer,
       { name: 'Ed25519' },
       false,
       ['sign'],
