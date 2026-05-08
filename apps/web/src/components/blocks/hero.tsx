@@ -86,6 +86,12 @@ export const Hero = () => {
             </a>{" "}
             Real-time SCITT receipts, trust histogram, signed by AgentLair.
           </p>
+          <p className="mt-2 text-sm text-muted-foreground">
+            <a href="/demos" className="underline underline-offset-2 hover:text-foreground">
+              Clone-and-run examples →
+            </a>{" "}
+            Three repos: BCC, x402-on-Base, audit-chain dispute resolution.
+          </p>
         </div>
 
         {/* Right side - Features */}

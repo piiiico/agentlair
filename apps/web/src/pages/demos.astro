@@ -1,0 +1,142 @@
+---
+import DefaultLayout from '@/layouts/DefaultLayout.astro';
+---
+
+<DefaultLayout
+  title="Clone-and-run demos · AgentLair"
+  description="Three runnable demo repos for AgentLair primitives: Behavioral Commitment Credentials, x402-on-Base pay-per-call MCP, and audit-chain dispute resolution. Each repo issues live artifacts you can re-verify on agentlair.dev."
+>
+  <main>
+    <!-- Hero -->
+    <section class="mx-auto max-w-3xl px-4 pt-28 lg:pt-44">
+      <p class="text-sm font-medium tracking-widest uppercase text-primary mb-4">Demos</p>
+      <h1 class="text-4xl md:text-5xl font-bold tracking-tight leading-tight mb-6">
+        Clone-and-run, not slideware.
+      </h1>
+      <p class="text-lg text-muted-foreground leading-relaxed mb-4">
+        Three runnable repos. Each one isolates a different layer of the substrate AgentLair runs on: behavioral commitment credentials that verify across organizations, pay-per-call MCP tools settled on Base, and an audit chain that decides disputes from observed behavior. Clone any of them and run the README. The credentials you read about in the cards below resolve to public verify endpoints right now.
+      </p>
+      <div class="flex items-center gap-3 text-sm text-muted-foreground border-t pt-6 mt-6">
+        <span>May 2026</span>
+        <span class="text-muted-foreground/40">|</span>
+        <span>MIT-licensed</span>
+        <span class="text-muted-foreground/40">|</span>
+        <a href="/demo" class="underline underline-offset-2 hover:text-foreground">Live attack-chain demo →</a>
+      </div>
+    </section>
+
+    <!-- Demo cards -->
+    <section class="mx-auto max-w-3xl px-4 py-12 lg:pb-32">
+      <div class="space-y-6">
+
+        <!-- Card 1: BCC -->
+        <article class="rounded-xl border bg-card p-6 md:p-8 shadow-sm">
+          <div class="flex flex-wrap items-baseline gap-3 mb-2">
+            <span class="text-xs font-mono tracking-wider uppercase text-primary">01</span>
+            <h2 class="text-2xl font-semibold tracking-tight">Behavioral Commitment Credentials</h2>
+          </div>
+          <p class="text-base font-medium text-foreground/90 mb-3">
+            What this proves: an agent can sign what it has committed to, and any third party can verify the credential without trusting the issuer's UI.
+          </p>
+          <p class="text-muted-foreground leading-relaxed mb-4">
+            Anonymous register at agentlair.dev, issue a credential on the BCC-Claims profile, retrieve it from the public endpoint, verify the signature against AgentLair's DID. The repo is around forty lines of TypeScript. Signing is eddsa-jcs-2022, the credential is W3C-verifiable, and the README walks through every byte of the canonical hash.
+          </p>
+          <div class="flex flex-col gap-2 text-sm">
+            <div class="flex flex-wrap items-baseline gap-2">
+              <span class="font-mono text-xs text-muted-foreground uppercase tracking-wider">Repo</span>
+              <a href="https://github.com/piiiico/agentlair-bcc-demo" class="font-mono text-primary hover:underline break-all">github.com/piiiico/agentlair-bcc-demo</a>
+            </div>
+            <div class="flex flex-wrap items-baseline gap-2">
+              <span class="font-mono text-xs text-muted-foreground uppercase tracking-wider">Live</span>
+              <a href="https://agentlair.dev/v1/bcc/bcc_e64iJpEE6ZnUAklMDzdN/verify" class="font-mono text-foreground hover:text-primary break-all">bcc_e64iJpEE6ZnUAklMDzdN</a>
+              <span class="text-xs text-muted-foreground">(verify endpoint, returns valid:true)</span>
+            </div>
+          </div>
+        </article>
+
+        <!-- Card 2: x402 -->
+        <article class="rounded-xl border bg-card p-6 md:p-8 shadow-sm">
+          <div class="flex flex-wrap items-baseline gap-3 mb-2">
+            <span class="text-xs font-mono tracking-wider uppercase text-primary">02</span>
+            <h2 class="text-2xl font-semibold tracking-tight">Pay-per-call MCP via x402</h2>
+          </div>
+          <p class="text-base font-medium text-foreground/90 mb-3">
+            What this proves: an MCP tool can charge per call and settle on-chain inside the same request, with no contract and no signup ahead of time.
+          </p>
+          <p class="text-muted-foreground leading-relaxed mb-4">
+            The demo calls trust-mcp.agentlair.dev's lookup_agent. The tool returns 402 with a quote, the client pays 0.005 USDC on Base, retries the call, and reads the settlement receipt embedded in the tool response. Around thirty lines. A funded test wallet runs the whole flow end-to-end in roughly twenty seconds.
+          </p>
+          <div class="flex flex-col gap-2 text-sm">
+            <div class="flex flex-wrap items-baseline gap-2">
+              <span class="font-mono text-xs text-muted-foreground uppercase tracking-wider">Repo</span>
+              <a href="https://github.com/piiiico/agentlair-x402-demo" class="font-mono text-primary hover:underline break-all">github.com/piiiico/agentlair-x402-demo</a>
+            </div>
+            <div class="flex flex-wrap items-baseline gap-2">
+              <span class="font-mono text-xs text-muted-foreground uppercase tracking-wider">Live</span>
+              <a href="https://base.blockscout.com/tx/0xea7ab40392c9bbeaac70f952474da9cbda1f053710e91361f906c4c9061de57f" class="font-mono text-foreground hover:text-primary break-all">0xea7ab4…14508cd</a>
+              <span class="text-xs text-muted-foreground">(Base settlement, block 45662626)</span>
+            </div>
+          </div>
+        </article>
+
+        <!-- Card 3: Dispute resolution -->
+        <article class="rounded-xl border bg-card p-6 md:p-8 shadow-sm">
+          <div class="flex flex-wrap items-baseline gap-3 mb-2">
+            <span class="text-xs font-mono tracking-wider uppercase text-primary">03</span>
+            <h2 class="text-2xl font-semibold tracking-tight">Behavioral audit chain decides disputes</h2>
+          </div>
+          <p class="text-base font-medium text-foreground/90 mb-3">
+            What this proves: two agents with identical credentials get opposite dispute outcomes because their observed behavior differs, and the difference is on a public audit chain.
+          </p>
+          <p class="text-muted-foreground leading-relaxed mb-4">
+            Two scenarios run side by side. Scenario A buys a 95-USD leather bag inside the agreed scope; the dispute is REJECTED. Scenario B buys at 20 USD over the spending cap; the dispute is UPHELD. Same agent class, same merchant. The demo issues a BCC at the start of each run and posts the purchase events to the AgentLair audit log. Reviewers replay the chain and see why the answers differ.
+          </p>
+          <div class="flex flex-col gap-2 text-sm">
+            <div class="flex flex-wrap items-baseline gap-2">
+              <span class="font-mono text-xs text-muted-foreground uppercase tracking-wider">Repo</span>
+              <a href="https://github.com/piiiico/agentlair-dispute-resolution-demo" class="font-mono text-primary hover:underline break-all">github.com/piiiico/agentlair-dispute-resolution-demo</a>
+            </div>
+            <div class="flex flex-wrap items-baseline gap-2">
+              <span class="font-mono text-xs text-muted-foreground uppercase tracking-wider">Live A</span>
+              <a href="https://agentlair.dev/v1/bcc/bcc_m6891bdxjGULqMCb4wK0/verify" class="font-mono text-foreground hover:text-primary break-all">bcc_m6891bdxjGULqMCb4wK0</a>
+              <span class="text-xs text-muted-foreground">(in-scope, dispute REJECTED)</span>
+            </div>
+            <div class="flex flex-wrap items-baseline gap-2">
+              <span class="font-mono text-xs text-muted-foreground uppercase tracking-wider">Live B</span>
+              <a href="https://agentlair.dev/v1/bcc/bcc_FkXFSLuwdlMVwNiMKxeU/verify" class="font-mono text-foreground hover:text-primary break-all">bcc_FkXFSLuwdlMVwNiMKxeU</a>
+              <span class="text-xs text-muted-foreground">(over-cap, dispute UPHELD)</span>
+            </div>
+          </div>
+        </article>
+
+      </div>
+
+      <!-- Footer -->
+      <div class="mt-16 pt-8 border-t">
+        <p class="text-sm text-muted-foreground mb-6">
+          Each repo is MIT-licensed and runs against the live agentlair.dev API. No mocks, no recorded fixtures.
+        </p>
+        <div class="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
+          <a
+            href="/blog"
+            class="inline-flex items-center justify-center rounded-md bg-primary px-6 py-3 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90 transition-colors"
+          >
+            Long-form on the blog
+          </a>
+          <a
+            href="/docs"
+            class="inline-flex items-center justify-center rounded-md border border-input px-6 py-3 text-sm font-medium hover:bg-accent hover:text-accent-foreground transition-colors"
+          >
+            SDK references
+          </a>
+          <a
+            href="/register"
+            class="inline-flex items-center justify-center text-sm font-medium text-muted-foreground hover:text-foreground transition-colors px-2 py-3"
+          >
+            Get an API key &rarr;
+          </a>
+        </div>
+      </div>
+    </section>
+  </main>
+</DefaultLayout>
