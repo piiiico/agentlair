@@ -219,6 +219,12 @@ bccPublicRoutes.get('/list', async (c) => {
     return err('Invalid cursor.', 400, 'invalid_cursor');
   }
 
+  // ── Parse subject_did filter ───────────────────────────────────────────────
+  const subjectDid = c.req.query('subject_did');
+  if (subjectDid !== undefined && !subjectDid.startsWith('did:')) {
+    return err('Invalid subject_did. Must be a DID (e.g. did:web:...).', 400, 'invalid_subject_did');
+  }
+
   // ── Query D1 ───────────────────────────────────────────────────────────────
   type Row = { rowid: number; id: string; subject_did: string; stake_medium: string; issued_at: string };
   let rows: Row[];
@@ -232,29 +238,51 @@ bccPublicRoutes.get('/list', async (c) => {
 
     if (!cursorRow) return err('Cursor not found.', 404, 'cursor_not_found');
 
-    const result = await c.env.AUDIT
-      .prepare(
-        `SELECT rowid, id, subject_did, stake_medium, issued_at
-         FROM bcc_credentials
-         WHERE revoked_at IS NULL AND rowid < ?1
-         ORDER BY rowid DESC
-         LIMIT ?2`,
-      )
-      .bind(cursorRow.rowid, limit)
-      .all<Row>();
+    const result = subjectDid
+      ? await c.env.AUDIT
+          .prepare(
+            `SELECT rowid, id, subject_did, stake_medium, issued_at
+             FROM bcc_credentials
+             WHERE revoked_at IS NULL AND rowid < ?1 AND subject_did = ?2
+             ORDER BY rowid DESC
+             LIMIT ?3`,
+          )
+          .bind(cursorRow.rowid, subjectDid, limit)
+          .all<Row>()
+      : await c.env.AUDIT
+          .prepare(
+            `SELECT rowid, id, subject_did, stake_medium, issued_at
+             FROM bcc_credentials
+             WHERE revoked_at IS NULL AND rowid < ?1
+             ORDER BY rowid DESC
+             LIMIT ?2`,
+          )
+          .bind(cursorRow.rowid, limit)
+          .all<Row>();
 
     rows = result.results;
   } else {
-    const result = await c.env.AUDIT
-      .prepare(
-        `SELECT rowid, id, subject_did, stake_medium, issued_at
-         FROM bcc_credentials
-         WHERE revoked_at IS NULL
-         ORDER BY rowid DESC
-         LIMIT ?`,
-      )
-      .bind(limit)
-      .all<Row>();
+    const result = subjectDid
+      ? await c.env.AUDIT
+          .prepare(
+            `SELECT rowid, id, subject_did, stake_medium, issued_at
+             FROM bcc_credentials
+             WHERE revoked_at IS NULL AND subject_did = ?1
+             ORDER BY rowid DESC
+             LIMIT ?2`,
+          )
+          .bind(subjectDid, limit)
+          .all<Row>()
+      : await c.env.AUDIT
+          .prepare(
+            `SELECT rowid, id, subject_did, stake_medium, issued_at
+             FROM bcc_credentials
+             WHERE revoked_at IS NULL
+             ORDER BY rowid DESC
+             LIMIT ?`,
+          )
+          .bind(limit)
+          .all<Row>();
 
     rows = result.results;
   }

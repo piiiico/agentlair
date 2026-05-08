@@ -65,15 +65,34 @@ function makeMockD1(rows?: Map<string, Record<string, unknown>>): MockD1 {
           // Sort by rowid desc (insertion order)
           rows.sort((a, b) => (b['rowid'] as number) - (a['rowid'] as number));
 
+          const hasCursor = q.includes('rowid < ?1');
+          const hasSubjectFilter = q.includes('and subject_did');
+
           let limit: number;
-          if (q.includes('rowid < ?1')) {
+          let subjectDid: string | undefined;
+
+          if (hasCursor && hasSubjectFilter) {
+            // Cursor + subject_did: bindings = [cursorRowid, subjectDid, limit]
+            const cursorRowid = bindings[0] as number;
+            subjectDid = bindings[1] as string;
+            limit = bindings[2] as number;
+            rows = rows.filter(r => (r['rowid'] as number) < cursorRowid);
+          } else if (hasCursor) {
             // Cursor query: bindings = [cursorRowid, limit]
             const cursorRowid = bindings[0] as number;
             limit = bindings[1] as number;
             rows = rows.filter(r => (r['rowid'] as number) < cursorRowid);
+          } else if (hasSubjectFilter) {
+            // subject_did only: bindings = [subjectDid, limit]
+            subjectDid = bindings[0] as string;
+            limit = bindings[1] as number;
           } else {
-            // No cursor: bindings = [limit]
+            // No cursor, no filter: bindings = [limit]
             limit = bindings[0] as number;
+          }
+
+          if (subjectDid !== undefined) {
+            rows = rows.filter(r => r['subject_did'] === subjectDid);
           }
 
           rows = rows.slice(0, limit);
@@ -1177,5 +1196,61 @@ describe('GET /:id/badge — BCC badge endpoint', () => {
     expect(res.status).toBe(200);
     const svg = await res.text();
     expect(svg.includes('>AL-BCC<')).toBe(true);
+  });
+});
+
+// ─── GET /list?subject_did filter tests ───────────────────────────────────────
+
+/** Build a store with mixed subjects for filter testing. */
+function makeSubjectFilterStore(): Map<string, Record<string, unknown>> {
+  const store = new Map<string, Record<string, unknown>>();
+  store.set('bcc_s1_a', {
+    rowid: 1, id: 'bcc_s1_a', subject_did: 'did:web:subject1.example.com',
+    stake_medium: 'existence', issued_at: '2026-05-05T01:00:00.000Z', revoked_at: null,
+    credential_json: JSON.stringify({}),
+  });
+  store.set('bcc_s1_b', {
+    rowid: 2, id: 'bcc_s1_b', subject_did: 'did:web:subject1.example.com',
+    stake_medium: 'claims', issued_at: '2026-05-05T02:00:00.000Z', revoked_at: null,
+    credential_json: JSON.stringify({}),
+  });
+  store.set('bcc_s2_a', {
+    rowid: 3, id: 'bcc_s2_a', subject_did: 'did:web:subject2.example.com',
+    stake_medium: 'capital', issued_at: '2026-05-05T03:00:00.000Z', revoked_at: null,
+    credential_json: JSON.stringify({}),
+  });
+  return store;
+}
+
+describe('GET /list?subject_did — subject filter', () => {
+  test('1: known subject_did returns only that subject\'s credentials', async () => {
+    const db = makeMockD1(makeSubjectFilterStore());
+    const { app, env } = makeTestApp(null, db, null);
+
+    const res = await app.fetch(
+      new Request('http://x/list?subject_did=did:web:subject1.example.com'),
+      env as never,
+    );
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { items: Record<string, unknown>[]; count: number; next_cursor: string | null };
+    expect(body.count).toBe(2);
+    expect(body.items.every((i: Record<string, unknown>) => i['subject_did'] === 'did:web:subject1.example.com')).toBe(true);
+    expect(body.next_cursor).toBeNull();
+  });
+
+  test('2: unknown subject_did returns empty list', async () => {
+    const db = makeMockD1(makeSubjectFilterStore());
+    const { app, env } = makeTestApp(null, db, null);
+
+    const res = await app.fetch(
+      new Request('http://x/list?subject_did=did:web:unknown.example.com'),
+      env as never,
+    );
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { items: unknown[]; count: number };
+    expect(body.items).toEqual([]);
+    expect(body.count).toBe(0);
   });
 });
