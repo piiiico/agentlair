@@ -1,0 +1,193 @@
+---
+import BaseHead from "@/components/BaseHead.astro";
+import { Footer } from "@/components/blocks/footer";
+import { Navbar } from "@/components/blocks/navbar";
+---
+
+<html lang="en">
+  <head>
+    <BaseHead
+      title="Agent Disputes · Behavioral Evidence for Chargebacks · AgentLair"
+      description="Receipts and OAuth tokens are not enough when the buyer was an AI agent. AgentLair issues a Behavioral Commitment Credential at session start and an audit chain for the actions inside the session. The dispute layer the May 2026 agentic-payments stack still leaves open."
+    />
+  </head>
+  <body class="h-screen antialiased">
+    <Navbar client:only="react" />
+    <main>
+      <!-- Hero -->
+      <section class="mx-auto max-w-3xl px-4 pt-28 lg:pt-44 text-center">
+        <p class="text-sm font-medium tracking-widest uppercase text-primary mb-4">Agent Disputes</p>
+        <h1 class="text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight leading-tight mb-6">
+          Agent disputes
+        </h1>
+        <p class="text-xl text-muted-foreground leading-relaxed max-w-2xl mx-auto mb-6">
+          When an AI agent buys something on a cardholder's behalf and the cardholder calls fraud, two questions land on the merchant's desk at once. Did the agent have authority to spend? Did it stay inside the scope it was given? Receipts and OAuth tokens answer the first one. They cannot answer the second.
+        </p>
+        <p class="text-2xl md:text-3xl font-semibold tracking-tight">
+          Receipts aren't enough.
+        </p>
+      </section>
+
+      <!-- The dispute gap callout -->
+      <section class="mx-auto max-w-3xl px-4 py-16">
+        <div class="rounded-lg border border-primary/30 bg-primary/5 p-8">
+          <p class="text-sm font-medium tracking-widest uppercase text-primary mb-3">May 2026: the dispute gap</p>
+          <blockquote class="border-l-4 border-primary pl-6 py-2 mb-6">
+            <p class="text-lg italic text-foreground leading-relaxed">
+              "Dispute management simply does not appear" in agentic-commerce reports.
+            </p>
+            <footer class="mt-2 text-sm text-muted-foreground">
+              Chargebacks911 CTO, Electronic Payments International, May 2026
+            </footer>
+          </blockquote>
+          <p class="text-muted-foreground text-sm leading-relaxed">
+            Three weeks earlier, AWS shipped AgentCore Payments with per-session spending caps and observability hooks. Visa shipped Token Authentication for agent payments. Mastercard shipped Verifiable Intent. None of those four touch what happens after the charge clears.
+          </p>
+          <p class="text-muted-foreground text-sm leading-relaxed mt-4">
+            Two scenarios on AgentLair's live demo make the gap concrete. Same agent class, same merchant, same cardholder. Opposite outcomes. The audit chain is the only thing that decides which is which.
+          </p>
+        </div>
+      </section>
+
+      <!-- Q1 -->
+      <section class="mx-auto max-w-3xl px-4 py-12 border-t">
+        <h2 class="text-2xl md:text-3xl font-bold tracking-tight mb-4">
+          How do you dispute an AI agent purchase?
+        </h2>
+        <p class="text-muted-foreground leading-relaxed mb-4">
+          Today the merchant gets a chargeback notice and a transaction receipt. That used to be enough when the buyer was a human typing a card number. With an agent in the loop, the cardholder's real claim is rarely "I didn't authorize this." It is usually "I didn't authorize this much, this often, or at this merchant."
+        </p>
+        <p class="text-muted-foreground leading-relaxed mb-4">
+          You need three things the receipt does not contain. The scope the agent committed to. The actions the agent actually took. A way for a third party to compare them.
+        </p>
+        <p class="text-foreground leading-relaxed">
+          <strong>What AgentLair adds:</strong> a Behavioral Commitment Credential issued at session start, an audit log of every tool call mid-session, and a public verify endpoint at the end. See the live dispute resolution demo at <a href="https://github.com/piiiico/agentlair-dispute-resolution-demo" class="text-primary hover:underline font-mono text-sm break-all">github.com/piiiico/agentlair-dispute-resolution-demo</a>.
+        </p>
+      </section>
+
+      <!-- Q2 -->
+      <section class="mx-auto max-w-3xl px-4 py-12 border-t">
+        <h2 class="text-2xl md:text-3xl font-bold tracking-tight mb-4">
+          What evidence does a merchant need to defend a chargeback when the buyer was an agent?
+        </h2>
+        <p class="text-muted-foreground leading-relaxed mb-4">
+          Card networks already accept device fingerprints, IP addresses, and 3-D Secure tokens. None of those describe what an agent did. They describe who held the keys. That distinction breaks chargeback defense for any merchant accepting agent traffic.
+        </p>
+        <p class="text-muted-foreground leading-relaxed mb-4">
+          The new evidence works differently. A signed credential commits the agent to a price cap and a merchant whitelist before the session starts. Every tool call lands in a replayable record. Two scenarios on the live demo make the difference concrete.
+        </p>
+        <ul class="space-y-2 text-sm text-foreground border-l-2 border-primary/30 pl-4 mb-4">
+          <li>A <span class="font-semibold">$95 leather bag</span> inside the agreed scope produces a <span class="text-primary font-mono">REJECTED</span> dispute.</li>
+          <li>A <span class="font-semibold">$20-over-cap purchase</span> produces an <span class="text-primary font-mono">UPHELD</span> dispute.</li>
+        </ul>
+        <p class="text-foreground leading-relaxed">
+          Same agent class. Different evidence. Verify the in-scope BCC at <a href="https://agentlair.dev/v1/bcc/bcc_m6891bdxjGULqMCb4wK0/verify" class="text-primary hover:underline font-mono text-sm break-all">bcc_m6891bdxjGULqMCb4wK0</a>.
+        </p>
+      </section>
+
+      <!-- Q3 -->
+      <section class="mx-auto max-w-3xl px-4 py-12 border-t">
+        <h2 class="text-2xl md:text-3xl font-bold tracking-tight mb-4">
+          Does AWS AgentCore Payments cover dispute resolution?
+        </h2>
+        <p class="text-muted-foreground leading-relaxed mb-4">
+          AgentCore Payments shipped in preview on May 7, 2026. It gives merchants per-session spending limits, observability hooks, and an audit feed. That is real progress at L3 governance. It is not a dispute layer.
+        </p>
+        <p class="text-foreground leading-relaxed">
+          <strong>What it doesn't do:</strong> when the dispute lands, AgentCore can confirm the agent paid. It cannot tell the issuing bank whether the agent was inside the scope the cardholder delegated. The behavioral evidence sits in your logs, not in a credential a third party can verify on its own. Did you expect AgentCore to close the dispute loop? It doesn't. That is the layer AgentLair fills. <a href="/compare" class="text-primary hover:underline">See how AgentLair compares</a>.
+        </p>
+      </section>
+
+      <!-- Q4 -->
+      <section class="mx-auto max-w-3xl px-4 py-12 border-t">
+        <h2 class="text-2xl md:text-3xl font-bold tracking-tight mb-4">
+          What about disputes under Visa Token Authentication?
+        </h2>
+        <p class="text-muted-foreground leading-relaxed mb-4">
+          Visa TAP authenticates the agent's payment token at the moment of charge. The cardholder consented to delegate. The token is bound. The gate is closed.
+        </p>
+        <p class="text-foreground leading-relaxed">
+          <strong>What it doesn't do:</strong> TAP closes the gate when the agent walks through. Whether the agent stayed inside the cardholder's intent three hours later, on the seventh purchase, at a different merchant, is not in scope. That second question is what dispute resolution requires. Mastercard Verifiable Intent narrows the same gap on the consumer side and has the same boundary: it captures intent at the front, not behavior throughout.
+        </p>
+      </section>
+
+      <!-- Q5 -->
+      <section class="mx-auto max-w-3xl px-4 py-12 border-t">
+        <h2 class="text-2xl md:text-3xl font-bold tracking-tight mb-4">
+          Can I prove an agent acted within scope?
+        </h2>
+        <p class="text-muted-foreground leading-relaxed mb-4">
+          Yes, when scope was committed before the action, behavior was streamed during, and both anchored to a verifiable credential. Without those three pieces, you can't.
+        </p>
+        <p class="text-muted-foreground leading-relaxed mb-4">
+          Concrete: issue a Behavioral Commitment Credential at session start with a price cap, a merchant whitelist, and a time window. Stream tool calls to the AgentLair audit log as the session runs. On dispute, pull the BCC, replay the chain, and let the issuer compare.
+        </p>
+        <p class="text-foreground leading-relaxed mb-2">
+          Two BCC IDs run on the live demo right now:
+        </p>
+        <ul class="space-y-2 text-sm border-l-2 border-primary/30 pl-4">
+          <li><a href="https://agentlair.dev/v1/bcc/bcc_m6891bdxjGULqMCb4wK0/verify" class="text-primary hover:underline font-mono break-all">bcc_m6891bdxjGULqMCb4wK0</a> — Scenario A, in-scope, dispute REJECTED.</li>
+          <li><a href="https://agentlair.dev/v1/bcc/bcc_FkXFSLuwdlMVwNiMKxeU/verify" class="text-primary hover:underline font-mono break-all">bcc_FkXFSLuwdlMVwNiMKxeU</a> — Scenario B, over-cap, dispute UPHELD.</li>
+        </ul>
+      </section>
+
+      <!-- Q6 -->
+      <section class="mx-auto max-w-3xl px-4 py-12 border-t">
+        <h2 class="text-2xl md:text-3xl font-bold tracking-tight mb-4">
+          How does behavioral commitment evidence work in chargebacks?
+        </h2>
+        <p class="text-muted-foreground leading-relaxed mb-4">
+          Three steps. The agent issues a BCC committing to scope before the first transaction. Every action inside the session anchors to an audit log on AgentLair. When a dispute opens, the issuing bank or the merchant pulls the BCC and the replay together.
+        </p>
+        <p class="text-foreground leading-relaxed">
+          The chain decides. Same agent class, same merchant. Opposite outcomes when the behavior diverges from the commitment. The reviewer does not have to trust the agent's vendor. They verify the credential against AgentLair's DID and read the audit chain themselves.
+        </p>
+      </section>
+
+      <!-- Q7 -->
+      <section class="mx-auto max-w-3xl px-4 py-12 border-t">
+        <h2 class="text-2xl md:text-3xl font-bold tracking-tight mb-4">
+          What is an AgentLair behavioral commitment credential?
+        </h2>
+        <p class="text-muted-foreground leading-relaxed mb-4">
+          A W3C-verifiable credential issued under the BCC-Claims profile and signed with eddsa-jcs-2022. Anchored at the issuer DID did:web:agentlair.dev. Verifiable from any third party (bank, merchant, regulator) without a call to AgentLair's API.
+        </p>
+        <p class="text-foreground leading-relaxed">
+          Verify the live one yourself: <a href="https://agentlair.dev/v1/bcc/bcc_m6891bdxjGULqMCb4wK0/verify" class="text-primary hover:underline font-mono text-sm break-all">agentlair.dev/v1/bcc/bcc_m6891bdxjGULqMCb4wK0/verify</a>. Returns <span class="font-mono text-sm">valid:true</span> and the full evidence chain.
+        </p>
+      </section>
+
+      <!-- Bottom line CTA -->
+      <section class="mx-auto max-w-2xl px-4 py-16 border-t text-center">
+        <h2 class="text-2xl md:text-3xl font-bold tracking-tight mb-4">
+          Identity at the gate is solved.<br />
+          <span class="text-muted-foreground">What happens after isn't.</span>
+        </h2>
+        <p class="text-muted-foreground mb-8">
+          Dispute resolution is the layer the May 2026 agentic-payments stack still doesn't touch. AgentLair sits exactly there.
+        </p>
+        <div class="flex flex-col sm:flex-row gap-4 justify-center">
+          <a
+            href="https://github.com/piiiico/agentlair-dispute-resolution-demo"
+            class="inline-flex items-center justify-center rounded-md bg-primary px-6 py-3 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90 transition-colors"
+          >
+            Clone the dispute demo
+          </a>
+          <a
+            href="/demos"
+            class="inline-flex items-center justify-center rounded-md border border-input px-6 py-3 text-sm font-medium hover:bg-accent hover:text-accent-foreground transition-colors"
+          >
+            See all six demos
+          </a>
+          <a
+            href="/behavioral"
+            class="inline-flex items-center justify-center rounded-md border border-input px-6 py-3 text-sm font-medium hover:bg-accent hover:text-accent-foreground transition-colors"
+          >
+            Behavioral monitoring
+          </a>
+        </div>
+      </section>
+    </main>
+    <Footer />
+  </body>
+</html>
