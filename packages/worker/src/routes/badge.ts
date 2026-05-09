@@ -21,6 +21,7 @@ import { Hono } from 'hono';
 import type { HonoEnv } from '../types.js';
 import type { ATFLevel, TrustProfile } from '../trust-engine.js';
 import { computeTrustScore } from '../trust-engine.js';
+import { auditCardUrl, gradeColor, type Grade } from '../lib/a2a-audit.js';
 
 export const badgeRoutes = new Hono<HonoEnv>();
 
@@ -239,12 +240,18 @@ async function handleBadgeRequest(c: any): Promise<Response> {
   }
 }
 
-export function svgResponse(svg: string): Response {
+export interface SvgResponseOpts {
+  ttl?: number;       // Cache TTL in seconds. Default: 300 (5 minutes).
+  status?: number;    // HTTP status. Default: 200.
+}
+
+export function svgResponse(svg: string, opts: SvgResponseOpts = {}): Response {
+  const ttl = opts.ttl ?? 300;
   return new Response(svg, {
-    status: 200,
+    status: opts.status ?? 200,
     headers: {
       'Content-Type': 'image/svg+xml',
-      'Cache-Control': 'public, max-age=300, s-maxage=300',
+      'Cache-Control': `public, max-age=${ttl}, s-maxage=${ttl}`,
       'X-Content-Type-Options': 'nosniff',
       // Allow embedding in any page (GitHub READMEs, docs, etc.)
       'Access-Control-Allow-Origin': '*',
@@ -313,9 +320,171 @@ async function handleScoreJsonRequest(c: any): Promise<Response> {
   }
 }
 
+// ─── A2A Trust Audit Badge ───────────────────────────────────────────────────
+//
+// GET /badge/a2a/:encoded[.svg]    — SVG badge rendering @agentlair/a2a-trust-audit
+//                                     scoring of the agent at the encoded URL.
+// GET /badge/a2a/:encoded/score.json — JSON of the same audit result.
+//
+// :encoded = base64url-encoded card URL. Standards-compliant base64url accepts
+//   chars [A-Za-z0-9_-] with optional `=` padding stripped. Examples:
+//     base64url("https://agentlair.dev/.well-known/agent.json") =
+//       "aHR0cHM6Ly9hZ2VudGxhaXIuZGV2Ly53ZWxsLWtub3duL2FnZW50Lmpzb24"
+//
+// Cache: 1h (audit is expensive — fetch + parse + 20+ checks).
+
+const A2A_BADGE_TTL_SECONDS = 3600;
+
+// Hosts the audit refuses to fetch. Block private/loopback nets and
+// any LAN-style address. We only accept http(s) URLs (already enforced in
+// fetchAgentCard) but also pre-screen the host string. Belt + suspenders for SSRF.
+const PRIVATE_HOST_PATTERNS: RegExp[] = [
+  /^localhost$/i,
+  /^127\./, /^10\./, /^172\.(1[6-9]|2[0-9]|3[0-1])\./, /^192\.168\./,
+  /^169\.254\./,                  // link-local
+  /^0\./,                         // 0.0.0.0/8
+  /\.local$/i, /\.internal$/i,    // common LAN suffixes
+  /^\[?::1\]?$/,                  // IPv6 loopback
+  /^\[?fc/i, /^\[?fd/i, /^\[?fe80/i, // IPv6 ULA / link-local
+];
+
+export function isPublicHost(host: string): boolean {
+  // Strip port carefully — bare IPv6 has multiple colons and no port; bracketed
+  // IPv6 may have a port after `]:`; hostnames/IPv4 have at most one colon.
+  let h = host;
+  if (h.startsWith('[')) {
+    // [::1] or [::1]:8080 → ::1
+    const close = h.indexOf(']');
+    h = close > 0 ? h.slice(1, close) : h.slice(1);
+  } else {
+    const colonCount = (h.match(/:/g) || []).length;
+    if (colonCount === 1) {
+      // host:port (IPv4 or DNS) — strip port
+      h = h.split(':')[0];
+    }
+    // else: bare IPv6 (multiple colons) or no colons — leave intact
+  }
+  if (!h) return false;
+  for (const p of PRIVATE_HOST_PATTERNS) {
+    if (p.test(h)) return false;
+  }
+  return true;
+}
+
+export function decodeBase64UrlCardUrl(encoded: string): string | null {
+  try {
+    // Strip optional .svg suffix
+    let token = encoded;
+    if (token.endsWith('.svg')) token = token.slice(0, -4);
+
+    // base64url → base64 (replace - and _, pad to multiple of 4)
+    let b64 = token.replace(/-/g, '+').replace(/_/g, '/');
+    while (b64.length % 4 !== 0) b64 += '=';
+
+    const decoded = atob(b64);
+    if (!/^https?:\/\//i.test(decoded)) return null;
+    // Parse to validate + extract host
+    const u = new URL(decoded);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+    if (!isPublicHost(u.host)) return null;
+    return decoded;
+  } catch {
+    return null;
+  }
+}
+
+async function handleA2ABadgeRequest(c: any): Promise<Response> {
+  const encoded = c.req.param('encoded') || '';
+  const style = parseStyle(c.req.query('style'));
+  const customLabel = c.req.query('label');
+  const label = customLabel || 'A2A Trust';
+
+  const cardUrl = decodeBase64UrlCardUrl(encoded);
+  if (!cardUrl) {
+    return svgResponse(renderErrorBadge(label, 'invalid url', style), { ttl: 300 });
+  }
+
+  // Cloudflare Cache API — cache the rendered SVG keyed by the request URL
+  // (includes query params, so different styles/labels get separate cache entries).
+  // `caches` is available in CF Workers (and the worker runtime); not in bun tests.
+  const cache: Cache | undefined =
+    typeof caches !== 'undefined' ? (caches as any).default : undefined;
+  const cacheKey = new Request(c.req.url, { method: 'GET' });
+  if (cache) {
+    const hit = await cache.match(cacheKey);
+    if (hit) return hit;
+  }
+
+  try {
+    const result = await auditCardUrl(cardUrl);
+    const overall = result.scores.overall;
+    const value = `${result.grade} ${overall}`;
+    const color = gradeColor(result.grade as Grade);
+    const svg = renderBadgeSVG(label, value, color, style);
+    const response = svgResponse(svg, { ttl: A2A_BADGE_TTL_SECONDS });
+
+    // Stash a clone in Cloudflare's edge cache (no-await — we don't want to
+    // block the response on cache write).
+    if (cache) {
+      // c.executionCtx is a Hono helper exposing the worker's ExecutionContext.
+      const ctx = c.executionCtx;
+      const cloned = response.clone();
+      if (ctx?.waitUntil) ctx.waitUntil(cache.put(cacheKey, cloned));
+      else await cache.put(cacheKey, cloned);
+    }
+    return response;
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : 'audit failed';
+    // Render an "error" badge with short cache so transient failures recover quickly.
+    const short = msg.length > 24 ? 'error' : msg.toLowerCase().replace(/[^a-z0-9 ]/g, '').slice(0, 24);
+    return svgResponse(renderErrorBadge(label, short || 'error', style), { ttl: 60 });
+  }
+}
+
+async function handleA2AScoreJsonRequest(c: any): Promise<Response> {
+  const encoded = c.req.param('encoded') || '';
+  const cardUrl = decodeBase64UrlCardUrl(encoded);
+  if (!cardUrl) {
+    return jsonResponse({ error: 'Invalid base64url card URL.' }, 400, 60);
+  }
+  try {
+    const result = await auditCardUrl(cardUrl);
+    return jsonResponse({
+      target: result.target,
+      fetched_from: result.fetched_from,
+      agent_name: result.card.name ?? null,
+      scores: result.scores,
+      grade: result.grade,
+      checks: result.checks.map(c => ({
+        id: c.id, layer: c.layer, name: c.name, pass: c.pass, severity: c.severity,
+      })),
+    }, 200, A2A_BADGE_TTL_SECONDS);
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : 'audit failed';
+    return jsonResponse({ error: msg }, 502, 60);
+  }
+}
+
+function jsonResponse(body: unknown, status: number, ttl: number): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      'Content-Type': 'application/json',
+      'Cache-Control': `public, max-age=${ttl}, s-maxage=${ttl}`,
+      'Access-Control-Allow-Origin': '*',
+    },
+  });
+}
+
 // ─── Mount Routes ────────────────────────────────────────────────────────────
 // Handles both /badge/:agentId and /badge/:agentId.svg
 // Also handles /badge/:agentId/score.svg for GitHub Actions / shields.io compat
+//
+// A2A audit routes registered FIRST so the static "a2a" segment wins over the
+// catch-all `:agentId` parameter route.
+
+badgeRoutes.get('/a2a/:encoded/score.json', handleA2AScoreJsonRequest);
+badgeRoutes.get('/a2a/:encoded', handleA2ABadgeRequest);
 
 badgeRoutes.get('/:agentId/score.json', handleScoreJsonRequest);
 badgeRoutes.get('/:agentId/score.svg', handleBadgeRequest);
