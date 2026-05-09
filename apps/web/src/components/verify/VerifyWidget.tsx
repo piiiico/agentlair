@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { cn } from '@/lib/utils';
 
 // ── API base ──────────────────────────────────────────────────────────────────
@@ -530,12 +530,28 @@ function buildSummary(s: State): string {
 
 // ── Main widget ───────────────────────────────────────────────────────────────
 
+// ── Copy-to-clipboard helper ─────────────────────────────────────────────────
+
+function buildVerifyLink(input: string): string {
+  const parsed = classify(input);
+  if (parsed.kind === 'aat') {
+    return `https://agentlair.dev/verify?aat=${encodeURIComponent(input.trim())}`;
+  }
+  if (parsed.kind === 'did') {
+    return `https://agentlair.dev/verify?did=${encodeURIComponent(input.trim())}`;
+  }
+  return '';
+}
+
 export function VerifyWidget() {
   const [raw, setRaw] = useState('');
   const [state, setState] = useState<State>(initialState);
   const [running, setRunning] = useState(false);
+  const [copied, setCopied] = useState(false);
+  // Track whether auto-submit from URL params triggered the current run
+  const autoSubmitRef = useRef(false);
 
-  const run = useCallback(async (input: string) => {
+  const run = useCallback(async (input: string, fromUrlParams = false) => {
     const parsed = classify(input);
     setState({
       parsed,
@@ -587,16 +603,49 @@ export function VerifyWidget() {
       }
     } finally {
       setRunning(false);
+      // Clean ?aat/?did from URL after auto-submit to prevent leaking sensitive AATs
+      if (fromUrlParams && typeof window !== 'undefined') {
+        window.history.replaceState({}, '', '/verify');
+      }
     }
+  }, []);
+
+  // ── URL parameter auto-submit ────────────────────────────────────────────────
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const aat = params.get('aat');
+    const did = params.get('did');
+    // Prefer ?aat if both present; skip if neither
+    const input = aat ?? did;
+    if (!input) return;
+    // Safety: reject inputs >2KB or without valid JWT/DID structure
+    if (input.length > 2048) return;
+    autoSubmitRef.current = true;
+    setRaw(input);
+    run(input, true);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const onSubmit = useCallback(
     (e: React.FormEvent) => {
       e.preventDefault();
-      run(raw);
+      run(raw, false);
     },
     [raw, run],
   );
+
+  const onCopyLink = useCallback(async () => {
+    const link = buildVerifyLink(raw);
+    if (!link) return;
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard not available — silently ignore
+    }
+  }, [raw]);
 
   // ── Card tone derivation ────────────────────────────────────────────────────
 
@@ -677,7 +726,7 @@ export function VerifyWidget() {
             type="button"
             onClick={() => {
               setRaw('did:web:agentlair.dev');
-              run('did:web:agentlair.dev');
+              run('did:web:agentlair.dev', false);
             }}
             className="text-sm text-muted-foreground underline underline-offset-2 hover:text-foreground"
           >
@@ -819,6 +868,17 @@ export function VerifyWidget() {
         {/* 6. SUMMARY */}
         <Card index={6} title="Summary" tone={summaryTone} status="output" testId="summary">
           <p className="text-base">{summary}</p>
+          {state.parsed && state.parsed.kind !== 'unknown' && state.parsed.value && (
+            <div className="mt-4">
+              <button
+                type="button"
+                onClick={onCopyLink}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
+              >
+                {copied ? '✓ Copied!' : '↗ Copy verify link'}
+              </button>
+            </div>
+          )}
         </Card>
       </div>
 

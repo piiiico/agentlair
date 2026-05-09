@@ -1,0 +1,191 @@
+---
+import BaseHead from "@/components/BaseHead.astro";
+import { Footer } from "@/components/blocks/footer";
+import { Navbar } from "@/components/blocks/navbar";
+---
+
+<html lang="en">
+  <head>
+    <BaseHead
+      title="CLARITY Act + Agentic Finance: Behavioral Attestations as Compliance Evidence — AgentLair"
+      description="How AgentLair Behavioral Compliance Credentials produce auditable evidence that agent transactions stay within authorized scope under CLARITY Act compliance frameworks."
+    />
+  </head>
+  <body class="h-screen antialiased">
+    <Navbar client:only="react" />
+    <main>
+      <!-- Hero -->
+      <section class="mx-auto max-w-3xl px-4 pt-28 lg:pt-44 text-center">
+        <p class="text-sm font-medium tracking-widest uppercase text-primary mb-4">CLARITY Act · Agentic Finance</p>
+        <h1 class="text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight leading-tight mb-6">
+          Compliance evidence for agent-driven digital asset transactions.
+        </h1>
+        <p class="text-xl text-muted-foreground leading-relaxed max-w-2xl mx-auto mb-6">
+          The CLARITY Act sets recordkeeping and audit expectations for digital commodity intermediaries. Agentic finance adds a question those frameworks were not written for: when an autonomous agent moves the funds, how do you produce evidence that the agent stayed inside the scope it was given?
+        </p>
+        <p class="text-2xl md:text-3xl font-semibold tracking-tight">
+          Receipts authorize. Behavior is what regulators have to verify.
+        </p>
+      </section>
+
+      <!-- Callout: May 2026 markup window -->
+      <section class="mx-auto max-w-3xl px-4 py-16">
+        <div class="rounded-lg border border-primary/30 bg-primary/5 p-8">
+          <p class="text-sm font-medium tracking-widest uppercase text-primary mb-3">May 2026: the markup window</p>
+          <blockquote class="border-l-4 border-primary pl-6 py-2 mb-6">
+            <p class="text-lg italic text-foreground leading-relaxed">
+              "There's not a lot of slack left in the rope right now. But it is an achievable timeline."
+            </p>
+            <footer class="mt-2 text-sm text-muted-foreground">
+              Patrick Witt, Executive Director, President's Council of Advisors for Digital Assets, Consensus Miami, <a href="https://www.coindesk.com/policy/2026/05/06/white-house-targets-july-4-for-clarity-act-passage-says-crypto-adviser-patrick-witt" class="text-primary hover:underline">May 6, 2026</a>
+            </footer>
+          </blockquote>
+          <p class="text-muted-foreground text-sm leading-relaxed">
+            Senate Banking is expected to mark up the CLARITY Act the week of May 11, 2026. Witt described the White House plan: Senate Banking markup in May, four working Senate weeks in June, House passage by July 4. Whatever the final bill says about digital commodity intermediaries, every team building agent-driven transactions on top of those rails has to start producing the evidence the framework expects.
+          </p>
+        </div>
+      </section>
+
+      <!-- H2 #1 -->
+      <section class="mx-auto max-w-3xl px-4 py-12 border-t">
+        <h2 class="text-2xl md:text-3xl font-bold tracking-tight mb-4">
+          What does CLARITY Act compliance look like for agent-driven transactions?
+        </h2>
+        <p class="text-muted-foreground leading-relaxed mb-4">
+          The House-passed text of <a href="https://www.congress.gov/bill/119th-congress/house-bill/3633/text" class="text-primary hover:underline">HR 3633</a> modernizes recordkeeping requirements for digital commodity intermediaries. Section 305 lets SEC-registered brokers, dealers, and exchanges satisfy Securities Exchange Act books-and-records rules using blockchain records, with the SEC directed to issue or revise rules within 180 days of enactment. Title II and Title III layer on trade monitoring, customer-asset segregation, and third-party security audit disclosures.
+        </p>
+        <p class="text-foreground leading-relaxed">
+          None of that text mentions AI agents. The compliance question agentic teams have to answer anyway: when an agent submitted the order, can the intermediary produce a record that ties the action to a delegated authority and a defined scope?
+        </p>
+      </section>
+
+      <!-- H2 #2 -->
+      <section class="mx-auto max-w-3xl px-4 py-12 border-t">
+        <h2 class="text-2xl md:text-3xl font-bold tracking-tight mb-4">
+          Why is the Senate Banking markup the moment to think about agentic finance?
+        </h2>
+        <p class="text-muted-foreground leading-relaxed mb-4">
+          The bill text is the floor. Once Senate Banking finishes markup and the framework moves toward enactment, intermediaries onboarding agent-driven flows will be writing exam binders against rules that exist on paper but were drafted before agentic commerce shipped at hyperscaler scale. Coinbase's Chief Legal Officer urged banks at Consensus 2026 not to "snatch defeat from the jaws of victory" and to accept the bipartisan compromise.
+        </p>
+        <p class="text-foreground leading-relaxed">
+          Teams building on those rails have a window: ship the auditable evidence layer before the rules land, not after.
+        </p>
+      </section>
+
+      <!-- H2 #3 -->
+      <section class="mx-auto max-w-3xl px-4 py-12 border-t">
+        <h2 class="text-2xl md:text-3xl font-bold tracking-tight mb-4">
+          What can L3 governance show a regulator about an agent transaction?
+        </h2>
+        <p class="text-muted-foreground leading-relaxed mb-4">
+          Modern infrastructure already produces a lot of L3 evidence. AWS CloudTrail records every IAM-authenticated call. AWS AgentCore Payments, which shipped in preview on May 7, 2026, gives merchants per-session spending caps and observability hooks. Stripe scoped tokens cap spend per agent per period. Cloudflare-Stripe Projects bind a payment token to a specific agent identity at a specific provisioning surface.
+        </p>
+        <p class="text-foreground leading-relaxed">
+          That is governance evidence. A regulator reading a CloudTrail export can confirm the agent paid, what it paid for, and that the spend stayed under the cap. Those answers are real, and an examiner is right to expect them.
+        </p>
+      </section>
+
+      <!-- H2 #4 -->
+      <section class="mx-auto max-w-3xl px-4 py-12 border-t">
+        <h2 class="text-2xl md:text-3xl font-bold tracking-tight mb-4">
+          What does L3 governance leave unanswered?
+        </h2>
+        <p class="text-muted-foreground leading-relaxed mb-4">
+          Three questions an examiner is likely to ask, and CloudTrail-style logs cannot answer.
+        </p>
+        <ul class="space-y-3 text-foreground border-l-2 border-primary/30 pl-6 mb-4">
+          <li>What scope did the agent commit to before the transaction series began? CloudTrail records the call, not the consent.</li>
+          <li>Did the action sequence stay inside that scope? Spending caps see total dollars; they don't see whether the agent crossed a merchant whitelist or a venue restriction.</li>
+          <li>Can a third party verify the answer without trusting the operator's logs? Internal audit trails ride on the operator's word that the export is complete and unaltered.</li>
+        </ul>
+        <p class="text-foreground leading-relaxed">
+          Those are the gaps a behavioral attestation closes.
+        </p>
+      </section>
+
+      <!-- H2 #5 -->
+      <section class="mx-auto max-w-3xl px-4 py-12 border-t">
+        <h2 class="text-2xl md:text-3xl font-bold tracking-tight mb-4">
+          What is a Behavioral Compliance Credential, and what does it commit to?
+        </h2>
+        <p class="text-muted-foreground leading-relaxed mb-4">
+          A Behavioral Compliance Credential is a W3C-verifiable credential issued at the start of an agent session under the BCC-Claims profile, signed with eddsa-jcs-2022, anchored at the issuer DID did:web:agentlair.dev. The credential commits the agent to a defined scope before any transaction lands: a price cap, a merchant or venue whitelist, a time window, the principal who delegated the authority.
+        </p>
+        <p class="text-foreground leading-relaxed">
+          The endpoint that issues it is <span class="font-mono text-sm">POST /v1/bcc/issue</span>. The endpoint that verifies it without calling AgentLair's API is <a href="https://agentlair.dev/v1/bcc/bcc_e64iJpEE6ZnUAklMDzdN/verify" class="text-primary hover:underline font-mono text-sm break-all">GET /v1/bcc/:id/verify</a>. Any examiner can pull the credential and check the signature against the published JWKS.
+        </p>
+      </section>
+
+      <!-- H2 #6 -->
+      <section class="mx-auto max-w-3xl px-4 py-12 border-t">
+        <h2 class="text-2xl md:text-3xl font-bold tracking-tight mb-4">
+          How does a hash-chained audit log fit into a CLARITY recordkeeping regime?
+        </h2>
+        <p class="text-muted-foreground leading-relaxed mb-4">
+          Section 305 lets intermediaries satisfy books-and-records requirements using blockchain records. The deeper requirement underneath that is integrity: the record produced has to be tamper-evident, ordered, and reconstructable on demand.
+        </p>
+        <p class="text-foreground leading-relaxed">
+          AgentLair's <span class="font-mono text-sm">POST /v1/audit/log</span> writes signed envelopes carrying a timestamp, a category, an action, a JTI, and a prev_hash that anchors each entry to the previous one. Every tool call inside an agent session lands in the chain. An examiner can replay the sequence, verify the signature on every envelope, and recompute the prev_hash to confirm no entry was inserted, removed, or rewritten.
+        </p>
+      </section>
+
+      <!-- H2 #7 -->
+      <section class="mx-auto max-w-3xl px-4 py-12 border-t">
+        <h2 class="text-2xl md:text-3xl font-bold tracking-tight mb-4">
+          What do SCITT receipts add that an internal log cannot?
+        </h2>
+        <p class="text-muted-foreground leading-relaxed mb-4">
+          An internal hash-chained log proves consistency to the party that holds it. A regulator reviewing it has to take the operator at their word that the chain is the chain. SCITT, the IETF Supply Chain Integrity, Transparency, and Trust framework, layers a transparency service over signed statements so a third party can confirm a specific receipt was registered without revealing any state the operator has not chosen to publish.
+        </p>
+        <p class="text-foreground leading-relaxed">
+          AgentLair issues SCITT receipts at <span class="font-mono text-sm">/v1/scitt/verify</span> with a public verifier UI at <a href="/verify-receipt" class="text-primary hover:underline">/verify-receipt</a>. A counterparty, an issuer, or an examiner verifies the receipt without a callback to the agent operator. The audit chain stops being self-attested.
+        </p>
+      </section>
+
+      <!-- H2 #8 -->
+      <section class="mx-auto max-w-3xl px-4 py-12 border-t">
+        <h2 class="text-2xl md:text-3xl font-bold tracking-tight mb-4">
+          A worked example: tokenized treasury rebalancing under Section 305
+        </h2>
+        <p class="text-muted-foreground leading-relaxed mb-4">
+          A treasury team delegates an agent to rebalance a tokenized asset position once per business day, under a 200,000 USD daily volume cap, restricted to two venues, between 08:00 and 16:00 New York time. Before any order, the agent issues a BCC committing to that scope. Every venue call, quote request, and order lands in the audit chain, anchored to the BCC's session id. At end of day, the team produces a SCITT receipt for the day's chain.
+        </p>
+        <p class="text-foreground leading-relaxed">
+          When the examiner asks how the team shows the agent stayed inside the delegated authority, the team produces three artifacts. The BCC for the scope. The audit chain for the actions. The SCITT receipt for verifiability. Same shape as <a href="/disputes" class="text-primary hover:underline">the dispute resolution flow</a>, applied to a recordkeeping question instead of a chargeback.
+        </p>
+      </section>
+
+      <!-- Bottom CTA -->
+      <section class="mx-auto max-w-2xl px-4 py-16 border-t text-center">
+        <h2 class="text-2xl md:text-3xl font-bold tracking-tight mb-4">
+          Compliance evidence is not a slide.<br />
+          <span class="text-muted-foreground">It's three artifacts an examiner can verify.</span>
+        </h2>
+        <p class="text-muted-foreground mb-8">
+          BCC for scope. Audit chain for actions. SCITT receipt for third-party verifiability. Each one runs on agentlair.dev today, against live endpoints, with no callback to the operator required.
+        </p>
+        <div class="flex flex-col sm:flex-row gap-4 justify-center">
+          <a
+            href="/demos"
+            class="inline-flex items-center justify-center rounded-md bg-primary px-6 py-3 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90 transition-colors"
+          >
+            See clone-and-run demos
+          </a>
+          <a
+            href="/disputes"
+            class="inline-flex items-center justify-center rounded-md border border-input px-6 py-3 text-sm font-medium hover:bg-accent hover:text-accent-foreground transition-colors"
+          >
+            Dispute resolution flow
+          </a>
+          <a
+            href="/agent-payments"
+            class="inline-flex items-center justify-center rounded-md border border-input px-6 py-3 text-sm font-medium hover:bg-accent hover:text-accent-foreground transition-colors"
+          >
+            Four-layer payment stack
+          </a>
+        </div>
+      </section>
+    </main>
+    <Footer />
+  </body>
+</html>

@@ -1,0 +1,190 @@
+---
+import BaseHead from "@/components/BaseHead.astro";
+import { Footer } from "@/components/blocks/footer";
+import { Navbar } from "@/components/blocks/navbar";
+---
+
+<html lang="en">
+  <head>
+    <BaseHead
+      title="How to Authorize an Agent Payment · The Four-Layer Stack · AgentLair"
+      description="Authorizing an agent payment is no longer one decision. It's four: identity, protocol, spending governance, behavioral attestation. The May 2026 stack (AgentCore Payments, x402, Visa TAP, Mastercard Verifiable Intent, Cloudflare-Stripe Projects) closes L1-L3. AgentLair is the L4 gate."
+    />
+  </head>
+  <body class="h-screen antialiased">
+    <Navbar client:only="react" />
+    <main>
+      <!-- Hero -->
+      <section class="mx-auto max-w-3xl px-4 pt-28 lg:pt-44 text-center">
+        <p class="text-sm font-medium tracking-widest uppercase text-primary mb-4">Agent Payment Authorization</p>
+        <h1 class="text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight leading-tight mb-6">
+          Authorizing an agent payment is no longer one decision.
+        </h1>
+        <p class="text-2xl md:text-3xl font-semibold tracking-tight mb-6">
+          It's four.
+        </p>
+        <p class="text-xl text-muted-foreground leading-relaxed max-w-2xl mx-auto">
+          Identity. Protocol. Spending governance. Behavioral attestation. Each layer answers a different question, and any production deployment has to answer all four. The May 2026 stack covers the first three. The fourth is where most teams find out they don't have an answer.
+        </p>
+      </section>
+
+      <!-- May 2026 stack callout -->
+      <section class="mx-auto max-w-3xl px-4 py-16">
+        <div class="rounded-lg border border-primary/30 bg-primary/5 p-8">
+          <p class="text-sm font-medium tracking-widest uppercase text-primary mb-3">May 2026: the four-layer stack shipped in 36 days</p>
+          <p class="text-muted-foreground text-sm leading-relaxed">
+            Between April 2 and May 7, every major payment-rail and hyperscaler shipped agent commerce primitives. The
+            <a href="https://www.linuxfoundation.org/press/linux-foundation-is-launching-the-x402-foundation-and-welcoming-the-contribution-of-the-x402-protocol" class="text-primary hover:underline">x402 Foundation</a>
+            launched at the Linux Foundation with 22 founding members. Cloudflare and Stripe shipped Projects on April 30. AWS shipped
+            <a href="https://aws.amazon.com/blogs/machine-learning/agents-that-transact-introducing-amazon-bedrock-agentcore-payments-built-with-coinbase-and-stripe/" class="text-primary hover:underline">AgentCore Payments</a>
+            in preview on May 7. Visa Token Authentication for Payments and Mastercard Verifiable Intent shipped the same window.
+          </p>
+          <p class="text-muted-foreground text-sm leading-relaxed mt-4">
+            Each one closes a different layer. None of them close the L4 gate.
+          </p>
+        </div>
+      </section>
+
+      <!-- H2 #1 -->
+      <section class="mx-auto max-w-3xl px-4 py-12 border-t">
+        <h2 class="text-2xl md:text-3xl font-bold tracking-tight mb-4">
+          What does it take to authorize an agent payment?
+        </h2>
+        <p class="text-muted-foreground leading-relaxed mb-4">
+          Four layers, four questions. Identity at L1 asks who is acting and whether that key binds to a registered principal. Protocol at L2 asks how payment crosses the wire and whether the merchant accepts it. Spending governance at L3 asks what caps, merchants, and time windows constrain the agent. Behavioral attestation at L4 asks whether the agent stayed inside the scope it was given across every tool call, and whether a third party can verify that without trusting the agent's operator.
+        </p>
+        <p class="text-foreground leading-relaxed">
+          Each question has its own infrastructure and its own failure mode. Bundling them makes governance look complete when it isn't. Splitting them lets you check what's actually in place before authorizing the spend.
+        </p>
+      </section>
+
+      <!-- H2 #2 -->
+      <section class="mx-auto max-w-3xl px-4 py-12 border-t">
+        <h2 class="text-2xl md:text-3xl font-bold tracking-tight mb-4">
+          How do AgentCore Payments and x402 fit together?
+        </h2>
+        <p class="text-muted-foreground leading-relaxed mb-4">
+          On May 7, AWS shipped the preview of <a href="https://aws.amazon.com/blogs/machine-learning/agents-that-transact-introducing-amazon-bedrock-agentcore-payments-built-with-coinbase-and-stripe/" class="text-primary hover:underline">Amazon Bedrock AgentCore Payments</a>. Coinbase x402 and Stripe are bundled. Spending limits run at the infrastructure layer. Every transaction lands in the same logs, metrics, and traces developers already use in AgentCore. The Coinbase x402 Bazaar MCP server exposes over 10,000 endpoints agents can search and pay for autonomously.
+        </p>
+        <p class="text-foreground leading-relaxed">
+          That covers L2 and a piece of L3 inside one hyperscaler product. Five weeks earlier, on April 2, the <a href="https://www.linuxfoundation.org/press/linux-foundation-is-launching-the-x402-foundation-and-welcoming-the-contribution-of-the-x402-protocol" class="text-primary hover:underline">x402 Foundation</a> launched under the Linux Foundation with 22 founding members including Visa, Mastercard, American Express, Stripe, Coinbase, Cloudflare, AWS, Google, Microsoft, Adyen, Fiserv, and Shopify. The protocol is now neutral infrastructure. The wallet on top of it is a hyperscaler default.
+        </p>
+      </section>
+
+      <!-- H2 #3 -->
+      <section class="mx-auto max-w-3xl px-4 py-12 border-t">
+        <h2 class="text-2xl md:text-3xl font-bold tracking-tight mb-4">
+          How are Visa TAP and Mastercard Verifiable Intent different from x402?
+        </h2>
+        <p class="text-muted-foreground leading-relaxed mb-4">
+          Visa Token Authentication for Payments and Mastercard Verifiable Intent live one layer below x402. Both bind a card or an authorization to a specific agent at a specific moment.
+        </p>
+        <p class="text-muted-foreground leading-relaxed mb-4">
+          Visa TAP lets a cardholder authorize a specific agent to use a specific token at a specific merchant. The token verifies one-time consent. Mastercard Verifiable Intent uses an SD-JWT delegation chain from issuer to cardholder to agent, signed at every hop. The chain proves the agent had permission at the moment of payment.
+        </p>
+        <p class="text-foreground leading-relaxed">
+          Both are L1 identity binding and L2 delegation. Both are clean cryptography. Neither describes what the agent does after the moment of consent.
+        </p>
+      </section>
+
+      <!-- H2 #4 -->
+      <section class="mx-auto max-w-3xl px-4 py-12 border-t">
+        <h2 class="text-2xl md:text-3xl font-bold tracking-tight mb-4">
+          What do Cloudflare-Stripe Projects spending caps actually enforce?
+        </h2>
+        <p class="text-muted-foreground leading-relaxed mb-4">
+          Cloudflare and Stripe <a href="https://blog.cloudflare.com/agents-stripe-projects/" class="text-primary hover:underline">launched Projects</a> on April 30. An agent can register a Cloudflare account, buy a domain, deploy a Worker, and bill a Stripe-issued payment token. The default cap is $100 per month.
+        </p>
+        <p class="text-muted-foreground leading-relaxed mb-4">
+          A .com registration runs about $10 a year. An agent acting in good faith might spend $15. An agent operating from a poisoned context can register sixty look-alike domains in a single session, deploy a credential-harvesting Worker on each, and finish the month $40 under cap. The Stripe charges authorize cleanly. The transactions reconcile. None of it trips a fraud signal.
+        </p>
+        <p class="text-foreground leading-relaxed">
+          The cap answered did the spend stay in budget. It did not ask should this agent be allowed to register microsoft.io.support-portal.com. Those are different questions, and only one of them is currently being asked at provisioning time. <a href="/blog/cloudflare-stripe-projects-spending-cap-not-trust" class="text-primary hover:underline">Read the full breakdown</a>.
+        </p>
+      </section>
+
+      <!-- H2 #5 -->
+      <section class="mx-auto max-w-3xl px-4 py-12 border-t">
+        <h2 class="text-2xl md:text-3xl font-bold tracking-tight mb-4">
+          What do spending caps not prove about an agent?
+        </h2>
+        <p class="text-muted-foreground leading-relaxed mb-4">
+          A cap is a financial guardrail. It limits the size of the damage. It says nothing about the shape.
+        </p>
+        <p class="text-muted-foreground leading-relaxed mb-4">
+          Spending caps don't see which merchants the agent was authorized for. They don't see whether the action sequence matches the agent's prior behavior. They don't see whether the same key is operating from a freshly-created controller with no history. They don't see whether the agent has been prompt-injected since authorization. They don't see whether sixty similar registrations in 90 days fit a phishing pattern.
+        </p>
+        <p class="text-foreground leading-relaxed">
+          That's the L4 question. Caps are necessary. They are also the layer that gets confused with governance because they ship in the same product. Treating L3 as L4 is the failure mode this page exists to correct.
+        </p>
+      </section>
+
+      <!-- H2 #6 -->
+      <section class="mx-auto max-w-3xl px-4 py-12 border-t">
+        <h2 class="text-2xl md:text-3xl font-bold tracking-tight mb-4">
+          How does behavioral attestation bind to the existing payment rails?
+        </h2>
+        <p class="text-muted-foreground leading-relaxed mb-4">
+          Behavioral attestation issues a credential at session start that commits the agent to a specific scope: a price cap, a merchant whitelist, a time window. Every tool call inside the session anchors to a tamper-evident audit log. The credential is verifiable at any third party from a JWKS endpoint, with no callback to the issuer required.
+        </p>
+        <p class="text-muted-foreground leading-relaxed mb-4">
+          In practice, the agent carries two things. A payment token to answer can it pay. A <a href="/behavioral" class="text-primary hover:underline">Behavioral Commitment Credential</a> to answer should it be trusted with this action. A receiving service like Cloudflare, a card network, or an x402 endpoint can check both at provisioning time. The cap stops the financial half of the damage. The behavioral profile stops the half that doesn't show up on a card statement.
+        </p>
+        <p class="text-foreground leading-relaxed">
+          Chargebacks911's CTO described the gap to Electronic Payments International this week: "dispute management simply does not appear" in agentic-commerce reports. The cap doesn't resolve disputes. The token doesn't resolve disputes. The audit chain does. <a href="/disputes" class="text-primary hover:underline">See the live dispute resolution demo</a>.
+        </p>
+      </section>
+
+      <!-- H2 #7 -->
+      <section class="mx-auto max-w-3xl px-4 py-12 border-t">
+        <h2 class="text-2xl md:text-3xl font-bold tracking-tight mb-4">
+          Which layer answers which question about agent payment authorization?
+        </h2>
+        <ul class="space-y-3 text-foreground border-l-2 border-primary/30 pl-6 mb-6">
+          <li><span class="font-semibold">Identity at L1</span> answers who is acting. Visa TAP, Mastercard Verifiable Intent, agent DIDs.</li>
+          <li><span class="font-semibold">Protocol at L2</span> answers how the payment crosses the wire. x402, Stripe MCP Payments.</li>
+          <li><span class="font-semibold">Spending governance at L3</span> answers what budget the agent can spend. AgentCore Payments, Cloudflare Projects, Stripe scoped tokens.</li>
+          <li><span class="font-semibold">Behavioral attestation at L4</span> answers whether the agent stayed inside the scope. AgentLair Behavioral Commitment Credentials.</li>
+        </ul>
+        <p class="text-muted-foreground leading-relaxed mb-4">
+          An L1-L3 integration authorizes a spender at the moment of payment. Can you still verify the spender three hours later? On the seventh purchase? At a different merchant? Not without L4.
+        </p>
+        <p class="text-foreground leading-relaxed">
+          The May 2026 stack closed L1 through L3. The next gate to add is L4. <a href="/blog/agents-can-pay" class="text-primary hover:underline">More on why L3 standardization makes L4 urgent</a>.
+        </p>
+      </section>
+
+      <!-- Bottom CTA -->
+      <section class="mx-auto max-w-2xl px-4 py-16 border-t text-center">
+        <h2 class="text-2xl md:text-3xl font-bold tracking-tight mb-4">
+          Identity at the gate is solved.<br />
+          <span class="text-muted-foreground">What happens after isn't.</span>
+        </h2>
+        <p class="text-muted-foreground mb-8">
+          Authorize the agent at L1. Pay through L2. Cap the spend at L3. Verify the behavior at L4. AgentLair is the L4 gate that binds to every existing rail.
+        </p>
+        <div class="flex flex-col sm:flex-row gap-4 justify-center">
+          <a
+            href="/disputes"
+            class="inline-flex items-center justify-center rounded-md bg-primary px-6 py-3 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90 transition-colors"
+          >
+            See L4 in action: dispute demo
+          </a>
+          <a
+            href="/behavioral"
+            class="inline-flex items-center justify-center rounded-md border border-input px-6 py-3 text-sm font-medium hover:bg-accent hover:text-accent-foreground transition-colors"
+          >
+            Behavioral monitoring
+          </a>
+          <a
+            href="/compare"
+            class="inline-flex items-center justify-center rounded-md border border-input px-6 py-3 text-sm font-medium hover:bg-accent hover:text-accent-foreground transition-colors"
+          >
+            Compare layers
+          </a>
+        </div>
+      </section>
+    </main>
+    <Footer />
+  </body>
+</html>

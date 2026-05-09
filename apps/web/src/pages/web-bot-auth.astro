@@ -1,0 +1,233 @@
+---
+import BaseHead from "@/components/BaseHead.astro";
+import { Footer } from "@/components/blocks/footer";
+import { Navbar } from "@/components/blocks/navbar";
+---
+
+<html lang="en">
+  <head>
+    <BaseHead
+      title="Web Bot Auth + AgentLair · Same key, two layers"
+      description="How AgentLair issues Ed25519 keys that sign Web Bot Auth requests Google Cloud Fraud Defense accepts, and adds a commitment chain on top."
+    />
+  </head>
+  <body class="h-screen antialiased">
+    <Navbar client:only="react" />
+    <main>
+      <!-- Hero -->
+      <section class="mx-auto max-w-3xl px-4 pt-28 lg:pt-44 text-center">
+        <p class="text-sm font-medium tracking-widest uppercase text-primary mb-4">Web Bot Auth · Agent identity</p>
+        <h1 class="text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight leading-tight mb-6">
+          Same key. Two layers.
+        </h1>
+        <p class="text-xl text-muted-foreground leading-relaxed max-w-2xl mx-auto mb-6">
+          Google Cloud Fraud Defense, the reCAPTCHA successor announced May 2026, integrates the IETF Web Bot Auth draft and SPIFFE workload identity. Two open standards are now the bot detection floor for Google's 14M+ verified domains. The integration tells origins one thing about an inbound agent. The signed request was made by a key Google can name.
+        </p>
+        <p class="text-2xl md:text-3xl font-semibold tracking-tight">
+          That answers who. It does not answer who agreed to what.
+        </p>
+      </section>
+
+      <!-- Callout: the framing -->
+      <section class="mx-auto max-w-3xl px-4 py-16">
+        <div class="rounded-lg border border-primary/30 bg-primary/5 p-8">
+          <p class="text-sm font-medium tracking-widest uppercase text-primary mb-3">May 2026: the human-side gap</p>
+          <blockquote class="border-l-4 border-primary pl-6 py-2 mb-6">
+            <p class="text-lg italic text-foreground leading-relaxed">
+              "Connecting agent and human identities."
+            </p>
+            <footer class="mt-2 text-sm text-muted-foreground">
+              <a href="https://cloud.google.com/blog/products/identity-security/introducing-google-cloud-fraud-defense-the-next-evolution-of-recaptcha/" class="text-primary hover:underline">Google Cloud Fraud Defense announcement</a>, framing the play around <a href="https://datatracker.ietf.org/doc/draft-meunier-web-bot-auth-architecture/05/" class="text-primary hover:underline">draft-meunier-web-bot-auth-architecture-05</a> + SPIFFE
+            </footer>
+          </blockquote>
+          <p class="text-muted-foreground text-sm leading-relaxed">
+            The Web Bot Auth signing surface gives the agent half of that sentence. The human-side accountability lives one layer up. AgentLair runs that layer.
+          </p>
+        </div>
+      </section>
+
+      <!-- H2 #1 -->
+      <section class="mx-auto max-w-3xl px-4 py-12 border-t">
+        <h2 class="text-2xl md:text-3xl font-bold tracking-tight mb-4">
+          What does Web Bot Auth specify, and why did Google Cloud Fraud Defense pick it up?
+        </h2>
+        <p class="text-muted-foreground leading-relaxed mb-4">
+          Web Bot Auth, <a href="https://datatracker.ietf.org/doc/draft-meunier-web-bot-auth-architecture/05/" class="text-primary hover:underline">draft-meunier-web-bot-auth-architecture-05</a>, defines how a bot or agent signs an outbound HTTP request so an origin can verify it without a CAPTCHA round trip. The signing primitive is RFC 9421 HTTP Message Signatures. The required algorithms are Ed25519 and RSA-PSS with SHA-512. HMAC is prohibited because non-repudiation matters for downstream evidence.
+        </p>
+        <p class="text-foreground leading-relaxed">
+          Three headers ride along on every signed request. A <span class="font-mono text-sm">Signature</span> header carrying the signature itself, a <span class="font-mono text-sm">Signature-Input</span> header naming the signed components, and an optional <span class="font-mono text-sm">Signature-Agent</span> header pointing at the issuer's key directory. Google Cloud Fraud Defense reads those three headers, looks up the key, and either trusts the request or sends it through the rest of the bot defense pipeline.
+        </p>
+      </section>
+
+      <!-- H2 #2 -->
+      <section class="mx-auto max-w-3xl px-4 py-12 border-t">
+        <h2 class="text-2xl md:text-3xl font-bold tracking-tight mb-4">
+          How are AgentLair credentials compatible with Web Bot Auth today?
+        </h2>
+        <p class="text-muted-foreground leading-relaxed mb-4">
+          AgentLair has shipped Ed25519 keys for every registered agent since launch. The thumbprint on each agent key is the same SHA-256 thumbprint Web Bot Auth expects in its <span class="font-mono text-sm">keyid</span> parameter. The key directory Web Bot Auth wants exists at <a href="https://agentlair.dev/.well-known/jwks.json" class="text-primary hover:underline font-mono text-sm">/.well-known/jwks.json</a>, the same JWKS endpoint that powers Agent Authentication Tokens.
+        </p>
+        <p class="text-foreground leading-relaxed">
+          The signing surface is the addition. As of today, <span class="font-mono text-sm">@agentlair/openai-agents</span> 0.2.0 and <span class="font-mono text-sm">@agentlair/langchain</span> 0.3.0 ship <span class="font-mono text-sm">signRequest()</span> and <span class="font-mono text-sm">computeJwkThumbprint()</span> helpers that produce RFC 9421 signatures the AgentLair worker verifies on the L3 audit endpoint. 58 + 56 SDK tests pass. The signature roundtrip is real.
+        </p>
+      </section>
+
+      <!-- H2 #3 — Compatibility table -->
+      <section class="mx-auto max-w-3xl px-4 py-12 border-t">
+        <h2 class="text-2xl md:text-3xl font-bold tracking-tight mb-4">
+          The compatibility table, claim by claim
+        </h2>
+        <div class="overflow-x-auto mb-4">
+          <table class="w-full text-sm border-collapse">
+            <thead>
+              <tr class="border-b">
+                <th class="text-left py-2 pr-4 font-semibold">Component</th>
+                <th class="text-left py-2 pr-4 font-semibold">Web Bot Auth requires</th>
+                <th class="text-left py-2 pr-4 font-semibold">AgentLair today</th>
+                <th class="text-left py-2 font-semibold">Status</th>
+              </tr>
+            </thead>
+            <tbody class="text-muted-foreground">
+              <tr class="border-b">
+                <td class="py-2 pr-4">Algorithm</td>
+                <td class="py-2 pr-4">Ed25519 or RSA-PSS</td>
+                <td class="py-2 pr-4">Ed25519 on every agent key</td>
+                <td class="py-2 text-foreground">Aligned</td>
+              </tr>
+              <tr class="border-b">
+                <td class="py-2 pr-4">Key format</td>
+                <td class="py-2 pr-4">JWK with SHA-256 thumbprint</td>
+                <td class="py-2 pr-4 font-mono text-xs">JWKS at /.well-known/jwks.json</td>
+                <td class="py-2 text-foreground">Aligned</td>
+              </tr>
+              <tr class="border-b">
+                <td class="py-2 pr-4 font-mono text-xs">keyid</td>
+                <td class="py-2 pr-4">Base64url SHA-256 thumbprint</td>
+                <td class="py-2 pr-4 font-mono text-xs">computeJwkThumbprint()</td>
+                <td class="py-2 text-foreground">Aligned</td>
+              </tr>
+              <tr class="border-b">
+                <td class="py-2 pr-4">Signing surface</td>
+                <td class="py-2 pr-4">RFC 9421 HTTP Message Signatures</td>
+                <td class="py-2 pr-4 font-mono text-xs">signRequest() in 0.2.0 / 0.3.0</td>
+                <td class="py-2 text-foreground">Aligned</td>
+              </tr>
+              <tr class="border-b">
+                <td class="py-2 pr-4">Key discovery</td>
+                <td class="py-2 pr-4">Provider directory URL</td>
+                <td class="py-2 pr-4 font-mono text-xs">JWKS + /agents/&lt;thumbprint&gt;</td>
+                <td class="py-2 text-foreground">Aligned</td>
+              </tr>
+              <tr>
+                <td class="py-2 pr-4">Replay window</td>
+                <td class="py-2 pr-4 font-mono text-xs">created and expires</td>
+                <td class="py-2 pr-4 font-mono text-xs">Issued by signRequest()</td>
+                <td class="py-2 text-foreground">Aligned</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="text-foreground leading-relaxed">
+          Eighty percent of the compatibility surface is the same Ed25519 keypair AgentLair already issues. The remaining twenty percent is what Web Bot Auth leaves out on purpose.
+        </p>
+      </section>
+
+      <!-- H2 #4 -->
+      <section class="mx-auto max-w-3xl px-4 py-12 border-t">
+        <h2 class="text-2xl md:text-3xl font-bold tracking-tight mb-4">
+          What does Web Bot Auth not say?
+        </h2>
+        <p class="text-muted-foreground leading-relaxed mb-4">
+          Web Bot Auth says nothing about who controls the key. Nothing about what the agent committed to before the request fired. Nothing about whether a human principal is on the other end of the credential, or whether that principal has any skin in the game. The draft is deliberately scoped to the signing event. That scoping is correct for an IETF wire protocol.
+        </p>
+        <p class="text-foreground leading-relaxed">
+          It is also the gap a Fraud Defense origin still has to close on its own. An origin that accepts a Web Bot Auth signature has confirmed the request was signed by a known key. Nothing more.
+        </p>
+      </section>
+
+      <!-- H2 #5 -->
+      <section class="mx-auto max-w-3xl px-4 py-12 border-t">
+        <h2 class="text-2xl md:text-3xl font-bold tracking-tight mb-4">
+          How AgentLair adds the commitment chain on the same key
+        </h2>
+        <p class="text-muted-foreground leading-relaxed mb-4">
+          An AgentLair agent key signs three artifacts during a session, all anchored to the same Ed25519 keypair. The Behavioral Commitment Credential at session start, declaring the scope the agent has agreed to: spend cap, merchant whitelist, time window, principal identity. The L3 audit chain entries posted as the agent works, each with a hash linking it to the previous entry. The Web Bot Auth signature on every outbound HTTP request, verifiable by any origin with the key directory.
+        </p>
+        <p class="text-foreground leading-relaxed">
+          One key, three artifacts, one accountable principal. The Fraud Defense origin reads the signature. The disputes counterparty reads the audit chain. The compliance examiner reads the BCC. None of them have to trust the operator's logs to do their job.
+        </p>
+      </section>
+
+      <!-- H2 #6 -->
+      <section class="mx-auto max-w-3xl px-4 py-12 border-t">
+        <h2 class="text-2xl md:text-3xl font-bold tracking-tight mb-4">
+          Where Web Bot Auth, SPIFFE, and AgentLair sit in the same stack
+        </h2>
+        <p class="text-muted-foreground leading-relaxed mb-4">
+          Google Cloud Fraud Defense names two standards in the same announcement, which is rare. SPIFFE handles workload identity inside infrastructure. The SVID document confirms the process running the agent is the workload it claims to be. Web Bot Auth handles agent identity on the wire. The signed HTTP request confirms the agent in front of the origin holds a valid key. AgentLair handles the accountability layer above both.
+        </p>
+        <p class="text-foreground leading-relaxed">
+          The credential confirms a named human principal accepted a defined scope before the agent acted, and the audit chain confirms the agent stayed inside that scope. Three standards, three jobs. Composable, not competing. AgentLair has no opinion on whether the workload runs on Cloud Run, Lambda, or a developer's laptop.
+        </p>
+      </section>
+
+      <!-- H2 #7 -->
+      <section class="mx-auto max-w-3xl px-4 py-12 border-t">
+        <h2 class="text-2xl md:text-3xl font-bold tracking-tight mb-4">
+          A worked example: a signed request that arrives at a Fraud Defense origin
+        </h2>
+        <p class="text-muted-foreground leading-relaxed mb-4">
+          A retail agent built on the OpenAI Agents SDK is delegated to buy a 95-USD leather bag, capped to one merchant, valid for 30 minutes. At session start, the SDK calls AgentLair to issue a BCC pinning that scope, then opens an L3 audit session. When the agent calls the merchant's checkout endpoint, <span class="font-mono text-sm">signRequest()</span> produces a Web Bot Auth signature using the same Ed25519 key the BCC was signed with.
+        </p>
+        <p class="text-foreground leading-relaxed">
+          The merchant's edge runs Google Cloud Fraud Defense. Fraud Defense pulls the keyid out of <span class="font-mono text-sm">Signature-Input</span>, fetches the JWK from agentlair.dev, verifies the signature, and lets the request through. The merchant reads a normal request body. Behind the scenes, the audit chain logs the call. If the buyer disputes the charge thirty days later, the merchant produces three artifacts the issuer can verify without phoning AgentLair. The BCC for scope. The audit chain for the action. The signed request itself, anchored to the same key. Same shape as <a href="/disputes" class="text-primary hover:underline">the dispute resolution flow</a>, with the wire-layer signature pulled in.
+        </p>
+      </section>
+
+      <!-- H2 #8 -->
+      <section class="mx-auto max-w-3xl px-4 py-12 border-t">
+        <h2 class="text-2xl md:text-3xl font-bold tracking-tight mb-4">
+          What this looks like for a team building today
+        </h2>
+        <p class="text-muted-foreground leading-relaxed mb-4">
+          Pull <span class="font-mono text-sm">@agentlair/openai-agents</span> 0.2.0 or <span class="font-mono text-sm">@agentlair/langchain</span> 0.3.0. Wire <span class="font-mono text-sm">signRequest()</span> into your agent's HTTP transport. Issue a BCC at session start with the scope you want to commit to. Post audit events as your tools fire.
+        </p>
+        <p class="text-foreground leading-relaxed">
+          The same Ed25519 keypair that gets your agent past Google Cloud Fraud Defense is the keypair that anchors the commitment chain. No new crypto. No second authority. One signing identity for the wire and the chain. The wire layer is being standardized this year. The chain layer is what the dispute team and the compliance team end up reading next.
+        </p>
+      </section>
+
+      <!-- Bottom CTA -->
+      <section class="mx-auto max-w-2xl px-4 py-16 border-t text-center">
+        <h2 class="text-2xl md:text-3xl font-bold tracking-tight mb-4">
+          One key. Three artifacts.<br />
+          <span class="text-muted-foreground">Verifiable by any third party.</span>
+        </h2>
+        <p class="text-muted-foreground mb-8">
+          The BCC commits to the scope. The audit chain proves the action stayed inside it. The signed request is what Google Cloud Fraud Defense reads. None of them need a callback to the operator.
+        </p>
+        <div class="flex flex-col sm:flex-row gap-4 justify-center">
+          <a
+            href="/demos"
+            class="inline-flex items-center justify-center rounded-md bg-primary px-6 py-3 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90 transition-colors"
+          >
+            See clone-and-run demos
+          </a>
+          <a
+            href="/agent-payments"
+            class="inline-flex items-center justify-center rounded-md border border-input px-6 py-3 text-sm font-medium hover:bg-accent hover:text-accent-foreground transition-colors"
+          >
+            Four-layer payment stack
+          </a>
+          <a
+            href="/disputes"
+            class="inline-flex items-center justify-center rounded-md border border-input px-6 py-3 text-sm font-medium hover:bg-accent hover:text-accent-foreground transition-colors"
+          >
+            Dispute resolution flow
+          </a>
+        </div>
+      </section>
+    </main>
+    <Footer />
+  </body>
+</html>
