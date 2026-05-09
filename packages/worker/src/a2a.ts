@@ -7,12 +7,19 @@ export const AGENT_CARD = {
   url: 'https://agentlair.dev',
   iconUrl: 'https://agentlair.dev/favicon.ico',
   version: '0.18.3',
+  did: 'did:web:agentlair.dev',
+  jwks_uri: 'https://agentlair.dev/.well-known/jwks.json',
+  provider: {
+    organization: 'Amdal Solutions AS',
+    url: 'https://agentlair.dev',
+  },
   defaultInputModes: ['application/json'],
   defaultOutputModes: ['application/json'],
   capabilities: {
     streaming: false,
     pushNotifications: false,
     stateTransitionHistory: false,
+    extended_agent_card: true,
   },
   skills: [
     {
@@ -46,10 +53,42 @@ export const AGENT_CARD = {
         'read emails received by my-agent@agentlair.dev',
       ],
     },
+    {
+      id: 'token-issue',
+      name: 'Issue AAT',
+      description: 'Issue an Agent Authentication Token (EdDSA JWT) for cross-org authentication.',
+      tags: ['identity', 'authentication', 'jwt'],
+      examples: [
+        'issue a token for my agent',
+        'get an AAT for cross-service auth',
+      ],
+    },
+    {
+      id: 'trust-query',
+      name: 'Query agent trust',
+      description: 'Retrieve behavioral trust score for any AgentLair-registered agent.',
+      tags: ['trust', 'behavioral', 'monitoring'],
+      examples: [
+        'check trust score for agent X',
+        'what is the behavioral trust level of this agent',
+      ],
+    },
   ],
   authentication: {
     schemes: ['bearer'],
     description: 'AgentLair API key (al_live_...) — obtain free from POST /v1/auth/keys, no account required.',
+  },
+  trust_attestation: {
+    self_reported: true,
+    trust_endpoint: 'https://agentlair.dev/v1/trust/',
+    level: 'senior',
+    trend: 'stable',
+  },
+  audit_trail_url: 'https://agentlair.dev/v1/audit',
+  behavioral_monitoring: {
+    provider: 'agentlair.dev',
+    type: 'continuous',
+    description: 'Cross-org behavioral observation with trust score computation. 10+ observations required for attestation.',
   },
   contact: {
     email: 'api@agentlair.dev',
