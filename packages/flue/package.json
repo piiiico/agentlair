@@ -1,0 +1,72 @@
+{
+  "name": "@agentlair/flue",
+  "version": "0.1.0",
+  "description": "AgentLair integration for Flue — agent identity (AATs), behavioral trust scoring, and trust-gated MCP connections.",
+  "keywords": [
+    "agentlair",
+    "flue",
+    "flueframework",
+    "ai-agent",
+    "trust",
+    "identity",
+    "eddsa",
+    "jwt",
+    "jwks",
+    "agent-security",
+    "behavioral-trust",
+    "mcp"
+  ],
+  "homepage": "https://agentlair.dev",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/piiiico/agentlair"
+  },
+  "license": "MIT",
+  "author": "AgentLair",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./verify": {
+      "import": "./dist/verify.js",
+      "types": "./dist/verify.d.ts"
+    },
+    "./mcp": {
+      "import": "./dist/mcp.js",
+      "types": "./dist/mcp.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "peerDependencies": {
+    "@flue/sdk": ">=0.1.0"
+  },
+  "peerDependenciesMeta": {
+    "@flue/sdk": {
+      "optional": false
+    }
+  },
+  "dependencies": {
+    "jose": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
