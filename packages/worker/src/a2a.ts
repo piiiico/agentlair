@@ -19,7 +19,6 @@ export const AGENT_CARD = {
     streaming: false,
     pushNotifications: false,
     stateTransitionHistory: false,
-    extended_agent_card: true,
   },
   skills: [
     {
@@ -80,11 +79,9 @@ export const AGENT_CARD = {
   },
   trust_attestation: {
     self_reported: true,
-    trust_endpoint: 'https://agentlair.dev/v1/trust/',
-    level: 'senior',
-    trend: 'stable',
+    trust_endpoint_template: 'https://agentlair.dev/v1/trust/{agentId}',
   },
-  audit_trail_url: 'https://agentlair.dev/v1/audit',
+  audit_trail_url_template: 'https://agentlair.dev/v1/audit/{jti}',
   behavioral_monitoring: {
     provider: 'agentlair.dev',
     type: 'continuous',
