@@ -13,7 +13,7 @@ import { AGENT_CARD } from './a2a.js';
 import { LLMS_TXT } from './llms-txt.js';
 import { RSL_XML, AGENTS_JSON } from './well-known-extras.js';
 import { authenticateAny } from './middleware/auth.js';
-import { buildJWKS, getPublicKey, computeKeyId, publicKeyToJWK } from './jwt.js';
+import { buildJWKS, getPublicKey, computeKeyId, publicKeyToJWK, signJWS } from './jwt.js';
 import { checkRateLimit, checkPodRateLimit } from './middleware/ratelimit.js';
 import { detectAgent, AGENTLAIR_MANIFEST } from './middleware/agent-detect.js';
 import { securityHeaders } from './middleware/security-headers.js';
@@ -354,12 +354,25 @@ app.on(['GET', 'HEAD'], '/docs', () =>
   new Response(SCALAR_DOCS_HTML, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=3600', 'X-Powered-By': 'AgentLair' } })
 );
 
-app.get('/.well-known/agent.json', () =>
-  new Response(JSON.stringify(AGENT_CARD, null, 2), {
+app.get('/.well-known/agent.json', async (c) => {
+  const card: Record<string, unknown> = { ...AGENT_CARD };
+
+  if (c.env.AUDIT_SIGNING_KEY) {
+    const publicKeyBytes = getPublicKey(c.env.AUDIT_SIGNING_KEY);
+    const kid = await computeKeyId(publicKeyBytes);
+    card.card_signature = signJWS(
+      AGENT_CARD as unknown as Record<string, unknown>,
+      c.env.AUDIT_SIGNING_KEY,
+      kid,
+      'https://agentlair.dev/.well-known/jwks.json',
+    );
+  }
+
+  return new Response(JSON.stringify(card, null, 2), {
     status: 200,
     headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=3600' },
-  })
-);
+  });
+});
 
 app.get('/llms.txt', () =>
   new Response(LLMS_TXT, {

@@ -179,6 +179,66 @@ export function verifyJWT(token: string, publicKeyBytes: Uint8Array): AATClaims 
   }
 }
 
+// ─── JWS signing (generic JSON payloads) ─────────────────────────────────────
+
+/**
+ * Sign an arbitrary JSON payload using JWS Compact Serialization (RFC 7515).
+ * Uses EdDSA / Ed25519 — same key as AAT signing.
+ *
+ * Returns a JWS compact string: header.payload.signature
+ *
+ * Header includes `jku` (JWK Set URL) so verifiers can resolve the key
+ * without prior configuration.
+ */
+export function signJWS(
+  payload: Record<string, unknown>,
+  privateKeyB64: string,
+  kid: string,
+  jku?: string,
+): string {
+  const header: Record<string, string> = {
+    alg: 'EdDSA',
+    kid,
+  };
+  if (jku) header.jku = jku;
+
+  const headerB64 = b64urlEncode(JSON.stringify(header));
+  const payloadB64 = b64urlEncode(JSON.stringify(payload));
+
+  const signingInput = `${headerB64}.${payloadB64}`;
+  const messageBytes = new TextEncoder().encode(signingInput);
+  const privateKeyBytes = Uint8Array.from(atob(privateKeyB64), (c) => c.charCodeAt(0));
+  const signatureBytes = ed25519.sign(messageBytes, privateKeyBytes);
+
+  return `${headerB64}.${payloadB64}.${b64urlEncode(signatureBytes)}`;
+}
+
+/**
+ * Verify a JWS compact string against a known Ed25519 public key.
+ * Returns parsed payload if valid, null otherwise.
+ */
+export function verifyJWS(jws: string, publicKeyBytes: Uint8Array): Record<string, unknown> | null {
+  const parts = jws.split('.');
+  if (parts.length !== 3) return null;
+
+  const [headerB64, payloadB64, signatureB64] = parts;
+  const signingInput = `${headerB64}.${payloadB64}`;
+  const messageBytes = new TextEncoder().encode(signingInput);
+
+  try {
+    const signatureBytes = b64urlDecode(signatureB64);
+    if (!ed25519.verify(signatureBytes, messageBytes, publicKeyBytes)) return null;
+  } catch {
+    return null;
+  }
+
+  try {
+    return JSON.parse(new TextDecoder().decode(b64urlDecode(payloadB64))) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
 // ─── JWKS document builder ────────────────────────────────────────────────────
 
 /**
