@@ -11,6 +11,7 @@ import { InboxNotifier } from './durable-objects/inbox-notifier.js';
 import { API_DISCOVERY, OPENAPI_SPEC, SCALAR_DOCS_HTML } from './openapi.js';
 import { buildSignedAgentCard } from './a2a.js';
 import { LLMS_TXT } from './llms-txt.js';
+import { ROBOTS_TXT } from './robots-txt.js';
 import { RSL_XML, AGENTS_JSON } from './well-known-extras.js';
 import { authenticateAny } from './middleware/auth.js';
 import { buildJWKS, getPublicKey, computeKeyId, publicKeyToJWK } from './jwt.js';
@@ -373,6 +374,13 @@ app.get('/.well-known/agent.json', async (c) => {
 
 app.get('/llms.txt', () =>
   new Response(LLMS_TXT, {
+    status: 200,
+    headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=3600' },
+  })
+);
+
+app.get('/robots.txt', () =>
+  new Response(ROBOTS_TXT, {
     status: 200,
     headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=3600' },
   })

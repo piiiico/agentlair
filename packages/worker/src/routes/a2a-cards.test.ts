@@ -209,4 +209,28 @@ describe('GET /a2a/:thumbprint', () => {
     const json = await res.json() as any;
     expect(json.error).toBe('invalid url');
   });
+
+  test('12. <script> in name field is HTML-escaped, not literal', async () => {
+    // Override fetch for this test only — return a card with malicious name.
+    globalThis.fetch = (async (input: any) => {
+      const url = typeof input === 'string' ? input : input?.url ?? '';
+      if (url.includes('agentlair.dev')) {
+        return new Response(JSON.stringify({
+          ...A_CARD,
+          name: '<script>alert(1)</script>',
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response('not found', { status: 404 });
+    }) as any;
+
+    const app = makeApp();
+    const encoded = b64url('https://agentlair.dev/.well-known/agent.json');
+    const res = await app.request(`/a2a/${encoded}`);
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    // Literal <script> from the name field MUST NOT appear in rendered HTML
+    expect(body).not.toContain('<script>alert(1)</script>');
+    // Escaped form MUST appear (proves escapeHtml ran on this field)
+    expect(body).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
+  });
 });
