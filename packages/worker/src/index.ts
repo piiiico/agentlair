@@ -9,7 +9,7 @@ import { nanoid, sha256hex, hmacSha256, json, err, VERBOSE_ONLY_FIELDS } from '.
 import type { Env, Account, RouteContext, RouteHandler } from './types.js';
 import { InboxNotifier } from './durable-objects/inbox-notifier.js';
 import { API_DISCOVERY, OPENAPI_SPEC, SCALAR_DOCS_HTML } from './openapi.js';
-import { AGENT_CARD, buildSignedAgentCard } from './a2a.js';
+import { buildSignedAgentCard } from './a2a.js';
 import { LLMS_TXT } from './llms-txt.js';
 import { RSL_XML, AGENTS_JSON } from './well-known-extras.js';
 import { authenticateAny } from './middleware/auth.js';
