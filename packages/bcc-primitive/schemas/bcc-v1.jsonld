@@ -1,0 +1,44 @@
+{
+  "@context": {
+    "@version": 1.1,
+    "@protected": true,
+    "id": "@id",
+    "type": "@type",
+    "BondedCredibilityCredential": {
+      "@id": "https://agentlair.dev/terms/BondedCredibilityCredential",
+      "@type": "@id"
+    },
+    "bcc_profile": {
+      "@id": "https://agentlair.dev/terms/bcc_profile",
+      "@type": "https://www.w3.org/2001/XMLSchema#string"
+    },
+    "stake_medium": {
+      "@id": "https://agentlair.dev/terms/stake_medium",
+      "@type": "https://www.w3.org/2001/XMLSchema#string"
+    },
+    "stake_amount": {
+      "@id": "https://agentlair.dev/terms/stake_amount",
+      "@type": "https://www.w3.org/2001/XMLSchema#decimal"
+    },
+    "stake_unit": {
+      "@id": "https://agentlair.dev/terms/stake_unit",
+      "@type": "https://www.w3.org/2001/XMLSchema#string"
+    },
+    "commitment_window_start": {
+      "@id": "https://agentlair.dev/terms/commitment_window_start",
+      "@type": "https://www.w3.org/2001/XMLSchema#dateTime"
+    },
+    "commitment_window_end": {
+      "@id": "https://agentlair.dev/terms/commitment_window_end",
+      "@type": "https://www.w3.org/2001/XMLSchema#dateTime"
+    },
+    "slashing_oracle_uri": {
+      "@id": "https://agentlair.dev/terms/slashing_oracle_uri",
+      "@type": "@id"
+    },
+    "evidence_anchor": {
+      "@id": "https://agentlair.dev/terms/evidence_anchor",
+      "@type": "https://www.w3.org/2001/XMLSchema#string"
+    }
+  }
+}

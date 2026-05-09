@@ -1,0 +1,6 @@
+# Foundry build artifacts
+cache/
+out/
+broadcast/
+# Foundry-managed dependencies (run: forge install foundry-rs/forge-std)
+lib/

@@ -1,0 +1,54 @@
+{
+  "name": "@agentlair/bcc-primitive",
+  "version": "0.1.0",
+  "description": "BCC primitive consumed by AgentLair (agents) and Commit (humans/businesses). Includes W3C VC schemas, CBP.sol Solidity contract, and a unified verifier SDK.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./schemas/*": "./schemas/*"
+  },
+  "files": [
+    "dist",
+    "schemas",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "bun run build",
+    "contracts:test": "cd contracts && forge test -vv",
+    "contracts:build": "cd contracts && forge build"
+  },
+  "keywords": [
+    "agentlair",
+    "bcc",
+    "bonded-credibility",
+    "cbp",
+    "solidity",
+    "w3c-vc",
+    "verifiable-credentials",
+    "trust",
+    "agent-trust"
+  ],
+  "author": "AgentLair",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/piiiico/agentlair"
+  },
+  "homepage": "https://agentlair.dev",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.9.3"
+  }
+}

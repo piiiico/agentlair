@@ -1,0 +1,43 @@
+{
+  "@context": {
+    "@version": 1.1,
+    "@protected": true,
+    "id": "@id",
+    "type": "@type",
+    "CommitEndorsementCredential": {
+      "@id": "https://getcommit.dev/terms/CommitEndorsementCredential",
+      "@type": "@id"
+    },
+    "endorsement_subject": {
+      "@id": "https://getcommit.dev/terms/endorsement_subject",
+      "@comment": "TODO: Subject type for Commit-side endorsements. Conforms to BCC envelope shape (evidence_anchor, commitment_window_*, slashing_oracle_uri). Proof diverges from AgentLair: Semaphore-nullifier proof for human anonymity rather than DID-EdDSA-JCS-2022."
+    },
+    "endorsement_kind": {
+      "@id": "https://getcommit.dev/terms/endorsement_kind",
+      "@comment": "TODO: Endorsement classification — e.g. 'code_review', 'security_audit', 'tbrm_attestation'. Define enum when Commit's first import lands.",
+      "@type": "https://www.w3.org/2001/XMLSchema#string"
+    },
+    "reviewer_nullifier": {
+      "@id": "https://getcommit.dev/terms/reviewer_nullifier",
+      "@comment": "TODO: World ID Semaphore nullifier hash for the reviewer (privacy-preserving uniqueness). Scoped per epoch. Not linkable across epochs.",
+      "@type": "https://www.w3.org/2001/XMLSchema#string"
+    },
+    "evidence_anchor": {
+      "@id": "https://agentlair.dev/terms/evidence_anchor",
+      "@comment": "Inherited from BCC envelope: scitt:<entry_id> or 0x<tx_hash>. Both surfaces MUST honour this field.",
+      "@type": "https://www.w3.org/2001/XMLSchema#string"
+    },
+    "commitment_window_start": {
+      "@id": "https://agentlair.dev/terms/commitment_window_start",
+      "@type": "https://www.w3.org/2001/XMLSchema#dateTime"
+    },
+    "commitment_window_end": {
+      "@id": "https://agentlair.dev/terms/commitment_window_end",
+      "@type": "https://www.w3.org/2001/XMLSchema#dateTime"
+    },
+    "slashing_oracle_uri": {
+      "@id": "https://agentlair.dev/terms/slashing_oracle_uri",
+      "@type": "@id"
+    }
+  }
+}

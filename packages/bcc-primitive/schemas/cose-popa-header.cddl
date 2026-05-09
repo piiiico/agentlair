@@ -1,0 +1,31 @@
+; COSE Protected Header additions for Proof-of-Presence Attestation (PoPA)
+; Implements BCC-Existence profile from bcc-schema-v1
+; Source: popa-spec-v1.md §Anchoring to AgentLair SCITT
+
+; The PoPA COSE Signed Statement uses COSE_Sign1 with these additions to the
+; standard COSE protected header (IANA registry labels 1, 3; custom label PoPA-sequence).
+
+COSE_PoPA_Protected_Header = {
+  1 => -8,                    ; Algorithm: EdDSA (IANA COSE Algorithm -8)
+  3 => "application/popa+json", ; Content type
+  391 => tstr,                ; Issuer DID (SCITT §6), e.g. "did:web:agentlair.dev"
+  "PoPA-sequence" => uint     ; Monotonic counter from genesis — fast gap detection
+                              ; without payload parse. Verifier infers gaps from
+                              ; sequence jumps (N to N+2 means 1-day gap).
+}
+
+; The PoPA attestation payload (content-type application/popa+json):
+PoPA_Payload = {
+  "agent_did" => tstr,             ; DID of the attesting agent
+  "timestamp" => tstr,             ; ISO 8601 UTC, must be in [window_start-1h, window_end+1h]
+  "window_start" => tstr,          ; Start of 24h UTC interval (day-aligned 00:00)
+  "window_end" => tstr,            ; End of 24h UTC interval (day-aligned 24:00)
+  "activity_proof" => {
+    "type" => "mcp_call_count",    ; v1: mcp_call_count (future: response_id_hash)
+    "count" => uint,               ; MCP calls in window; 0 is valid (existence != activity)
+    "window_hash" => tstr          ; sha256:<hex> of sorted call IDs — privacy-preserving
+  },
+  "prev_attestation_id" => tstr / null,  ; scitt:<entry_id> or null for genesis
+  "sequence" => uint,              ; Monotonic from genesis
+  "signature" => bstr              ; EdDSA over JCS-canonicalized payload JSON
+}
