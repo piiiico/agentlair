@@ -38,13 +38,13 @@ Salt Security's own data: 48.9% of organizations can't see machine-to-machine tr
 4. **Cold-start signal** — new agents need trust derived from developer identity, not just behavioral history
 5. **Anomaly-driven decay** — trust drops when behavior changes, not just when tokens expire
 
-The EU AI Act's full enforcement in August 2026 makes this compliance infrastructure, not optional tooling.
+The EU AI Act's high-risk enforcement (December 2027, delayed from August 2026 via the Omnibus deal) makes this compliance infrastructure, not optional tooling.
 
 ## The Regulatory Catalyst
 
-The EU AI Act's full enforcement in August 2026 makes this compliance infrastructure, not optional tooling. Article 14 mandates demonstrable human oversight of autonomous systems. Article 99 sets penalties at up to EUR 35 million or 7% of global turnover. The FDX published AI agent standards in April 2026 specifically requiring behavioral audit trails for financial services. The DoD's own legal analysis confirmed: contracts cannot govern agent runtime behavior — only runtime enforcement can.
+The EU AI Act's high-risk enforcement date moved to December 2, 2027 (Omnibus deal, May 7, 2026). The requirements didn't change. Conformity assessment takes 6-12 months, so companies deploying high-risk agents need compliant infrastructure by late 2026. Article 14 mandates demonstrable human oversight of autonomous systems. Article 99 sets penalties at up to EUR 35 million or 7% of global turnover. The FDX published AI agent standards in April 2026 specifically requiring behavioral audit trails for financial services. The DoD's own legal analysis confirmed: contracts cannot govern agent runtime behavior — only runtime enforcement can.
 
-For any organization deploying autonomous agents in the EU after August 2026, L1-L3 answers "who authorized this agent." Only L4 answers "what did this agent actually do?"
+For any organization deploying autonomous agents in the EU, L1-L3 answers "who authorized this agent." Only L4 answers "what did this agent actually do?"
 
 ## AgentLair: Building the Missing Layer
 

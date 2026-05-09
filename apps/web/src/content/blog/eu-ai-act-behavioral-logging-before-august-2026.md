@@ -1,15 +1,16 @@
 ---
-title: "EU AI Act Article 12: Why Your AI Agents Need Behavioral Logging Before August 2026"
-description: "August 2, 2026, Article 12 becomes enforceable. Penalties reach 3% of global revenue. Declarative compliance (policy files, SOC2, system prompts) cannot satisfy it. Here's what behavioral logging actually requires and why the clock is running."
+title: "EU AI Act Article 12: Why Your AI Agents Need Behavioral Logging Before December 2027"
+description: "The EU AI Act high-risk deadline moved to December 2, 2027. The architectural requirements didn't change. Conformity assessment takes 6-12 months. Here's what behavioral logging actually requires and why the preparation window is now."
 pubDate: 2026-04-30
+updatedDate: 2026-05-09
 authorName: "Pico"
 ---
 
-**August 2, 2026.** That's the enforcement date for EU AI Act Annex III obligations, including Article 12, which mandates automatic tamper-evident logging for high-risk AI systems. Penalties for non-compliance: up to €15 million or 3% of global annual turnover, whichever is higher.
+> **Update (May 9, 2026):** The EU Omnibus deal closed on May 7. The high-risk AI deadline (Annex III, including Article 12) has been pushed from August 2, 2026 to **December 2, 2027** — a 16-month extension. Formal adoption is expected before August 2026. This post has been updated to reflect the new timeline. The architectural requirements are unchanged.
 
-A proposed deferral to December 2027 is being negotiated via the EU's Digital Omnibus package. It has not passed. Companies building on the assumption of a deferral are betting on a legislative timeline they don't control.
+**December 2, 2027.** That's the new enforcement date for EU AI Act Annex III obligations, including Article 12, which mandates automatic tamper-evident logging for high-risk AI systems. Penalties for non-compliance: up to €15 million or 3% of global annual turnover, whichever is higher.
 
-The compliance window is four months. Most AI agent teams are not ready.
+The deadline moved. The requirements didn't. And conformity assessment for high-risk AI systems takes 6-12 months — meaning companies need compliant infrastructure in place by late 2026 at the latest. Every agent deployed between now and enforcement without behavioral evidence becomes a liability on day one.
 
 ---
 
@@ -89,17 +90,17 @@ AgentLair's audit trail was designed for this architecture, not retrofitted for 
 
 ## The Conformity Assessment Timeline
 
-The reason to start now is not August 2, 2026. It's the preparation time before that date.
+The reason to start now is not December 2, 2027. It's the preparation time before that date.
 
 High-risk AI systems under Annex III don't just need compliant infrastructure. They need a conformity assessment demonstrating that infrastructure is in place. For AI systems requiring notified body involvement (certain biometric, law enforcement, and critical infrastructure categories), assessment timelines stretch well beyond what most teams budget. Building the compliant infrastructure, documenting it, running it long enough to produce a meaningful audit trail, and producing the technical documentation for assessment is not a week of work.
 
-The companies that will fail the August 2026 deadline are the ones starting in June.
+The companies that will fail the December 2027 deadline are the ones starting in mid-2027.
 
 Start with scope: does your deployment trigger Annex III? This requires legal review, not engineering judgment. Then audit your current logging stack. Is logging controlled by the agent or by independent infrastructure? Does your log store have cryptographic tamper-evidence? Can you query and export by actor, time range, and outcome?
 
 If logging is in the agent's code, the architecture needs to change. This is not a configuration change. It requires infrastructure sitting outside the agent's control boundary. Building that correctly (Ed25519 signing infrastructure, hash chain implementation, retention policy enforcement) takes 6-8 weeks minimum before testing.
 
-The proposed December 2027 deferral, if it passes, buys time. It doesn't change the architectural requirements. The infrastructure that satisfies Article 12 is the same whether you're building for August 2026 or December 2027. The companies that wait for the deferral to finalize will be in the same position they're in now, except with less time.
+The 16-month extension from the Omnibus deal gives teams runway. It does not change the architectural requirements. The infrastructure that satisfies Article 12 is the same whether you're building now or in December 2027. But every agent deployed between now and enforcement without behavioral logging accumulates unmonitored operational history — history that regulators may ask about retroactively.
 
 ---
 

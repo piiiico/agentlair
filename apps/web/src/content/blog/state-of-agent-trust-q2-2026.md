@@ -109,9 +109,9 @@ Adjacent articles create additional implicit requirements. Article 15 (robustnes
 
 Technical standards are in draft but will not be finalized before enforcement. prEN 18229-1 ("AI Trustworthiness Framework — Part 1: Logging, transparency and human oversight") has been in public enquiry since January 2026 under CEN-CENELEC JTC 21 WG4. ISO/IEC DIS 24970 (AI System Logging) is the companion international standard.
 
-The Digital Omnibus proposal suggests deferral of certain enforcement dates to December 2027, but this is unconfirmed and cannot be relied upon for compliance planning. Organizations deploying high-risk AI agents in the EU need behavioral logging infrastructure operational before August 2, 2026.
+The Digital Omnibus deal closed May 7, 2026 (Consilium confirmed), deferring high-risk enforcement to December 2, 2027. This is now the operative timeline. Conformity assessment takes 6-12 months, so organizations deploying high-risk AI agents in the EU need behavioral logging infrastructure operational by late 2026.
 
-The procurement implication is direct: enterprise buying cycles for security infrastructure run 3-6 months. An August deadline means evaluation is happening now — in Q2. Organizations that wait for the harmonized standard will miss the compliance window.
+The procurement implication is direct: enterprise buying cycles for security infrastructure run 3-6 months. A December 2027 deadline means evaluation starts in 2026-2027 — but every month of agent operation without compliant logging is unauditable history regulators may ask about. Organizations that wait for the harmonized standard will miss the compliance window.
 
 ## 5. Competitors and Alternatives
 
@@ -215,7 +215,7 @@ The landscape is clarifying along predictable lines.
 
 **L1-L3 will commoditize.** Microsoft, Okta, Google, and CrowdStrike will ship agent identity and governance into their existing platforms within 12-18 months. This is positive — it raises the floor and creates the substrate that L4 infrastructure can build on.
 
-**The EU AI Act will convert regulatory awareness into procurement budgets.** The August 2026 deadline is real. Organizations deploying high-risk AI agents in the EU will need tamper-evident behavioral logging that satisfies Article 12. This is not a feature request — it is a compliance mandate with €15 million penalties.
+**The EU AI Act will convert regulatory awareness into procurement budgets.** The high-risk deadline moved to December 2027 (Omnibus deal, May 7), but conformity assessment takes 6-12 months — companies need to start building now. Organizations deploying high-risk AI agents in the EU will need tamper-evident behavioral logging that satisfies Article 12. This is not a feature request — it is a compliance mandate with €15 million penalties.
 
 **The naming battle will resolve.** "KYA" (Know Your Agent) is crystallizing as the analyst category. "L4" as a label will either stabilize around behavioral trust or fragment into meaninglessness. What matters is the capability: does this system tell you what an agent is doing right now, across every organization it interacts with?
 

@@ -207,7 +207,7 @@ What these mean:
 
 ## EU AI Act Article 12: We Built What Regulators Now Mandate
 
-The EU AI Act's high-risk obligations become enforceable August 2, 2026. Article 12 requires:
+The EU AI Act's high-risk obligations become enforceable December 2, 2027 (delayed from August 2026 via the Omnibus deal, May 2026). Conformity assessment takes 6-12 months — the preparation window is now. Article 12 requires:
 
 - **Automatic tamper-evident logging** — signing outside agent control, sequential chaining, receipts where agents can't access
 - **Independence from agent control** — the logging system must not be manipulable by the agent being logged

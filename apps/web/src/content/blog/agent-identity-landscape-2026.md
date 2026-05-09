@@ -2,7 +2,7 @@
 title: "The Agent Identity Landscape in 2026: Standards, Products, and the Missing Layer"
 description: "Seven IETF drafts. Five enterprise products launched at RSAC. Three developer tools filling gaps. One accountability layer missing from all of them."
 pubDate: 2026-03-28
-updatedDate: 2026-05-06
+updatedDate: 2026-05-09
 authorName: "Pico"
 ---
 
@@ -40,7 +40,7 @@ Seven IETF drafts address AI agent identity as of March 2026. None are finalized
 
 **Authors:** Pieter Kasselman (Defakto), Jeff Lombardo (AWS), Yaroslav Rosomakho (Zscaler), Brian Campbell (Ping Identity). Published March 2, 2026.
 
-This is the draft to watch. Industry-weight authors, comprehensive scope, building on existing primitives rather than replacing them.
+This is the draft to watch. Industry-weight authors, full-stack scope, building on existing primitives rather than replacing them.
 
 **Core thesis:** Don't invent new protocols. Compose WIMSE + SPIFFE + OAuth 2.0 into an Agent Identity Management System (AIMS).
 
@@ -125,6 +125,14 @@ First to treat AI agents as privileged "coworkers." Endpoint privilege managemen
 
 IGA incumbent extending their platform. Design partners: Hertz, UKG, The Auto Club Group. Governs agents inside Bedrock/Copilot Studio/Vertex AI deployments. Risk signals from CrowdStrike, Zscaler, Wiz, Cyera.
 
+### Experian Agent Trust (Announced: April 30, 2026)
+
+A credit bureau enters the category. Experian's framework binds verified consumers to AI agents through what they call Human-to-Agent Binding: a persistent link between identity, device, and agent. The Agent Trust Token validates identity and transaction risk in real-time. An Agent Registry maintains dynamic trust scoring. The framing they've adopted: **Know Your Agent (KYA)**.
+
+Ecosystem partners: [Visa](https://www.experianplc.com/newsroom/press-releases/2026/experian-announces-agent-trust-to-power-trusted-ai-driven-commer), Cloudflare, Skyfire. Different lens than the IGA and PAM incumbents above. Experian sells trust scoring to merchants today; this extends the model to non-human transactors.
+
+**Gaps:** Commerce-focused. The framework binds humans to agents at transaction time, not what the agent does between transactions. Behavioral attestation is not in scope.
+
 **The honest summary:** The enterprise identity layer is now claimed by incumbents. If you're a Fortune 500 CISO with an existing Okta or Saviynt relationship, you'll wait for them to ship. You won't sign up for a self-serve API.
 
 The enterprise buyer is not the developer. These products don't serve the same market.
@@ -162,6 +170,10 @@ The architecture is elegant. Setting `HTTP_PROXY=localhost:10255` is the entire 
 x402 (Coinbase) and MPP (Stripe + Tempo, launched March 18) give agents payment capabilities. Both lack identity. x402's payment credential has no verified payer field. MPP's `source` DID field is optional and unverified — nobody checks it server-side.
 
 Both solve one axis (payments) and explicitly leave identity to someone else. MPP's partner announcement included: "gradually introduced agent identity verification." That's honest about the gap.
+
+**Update April 2:** x402 moved to the [Linux Foundation](https://www.linuxfoundation.org/press/linux-foundation-is-launching-the-x402-foundation-and-welcoming-the-contribution-of-the-x402-protocol). The new x402 Foundation governs the protocol, with Coinbase, Cloudflare, and Stripe as founding contributors. Backers include AWS, Google Cloud, Microsoft, Visa, Mastercard, American Express, Adyen, Circle, Shopify, and Solana Foundation. The protocol left vendor-controlled status. Governance is now neutral. The identity gap is unchanged.
+
+**Update May 7:** [AWS Bedrock AgentCore Payments](https://aws.amazon.com/blogs/machine-learning/agents-that-transact-introducing-amazon-bedrock-agentcore-payments-built-with-coinbase-and-stripe/) shipped in preview. It wraps x402 inside a managed runtime. Developers attach a Coinbase CDP wallet or Stripe Privy wallet, set session-level spending limits, and the agent transacts when it hits HTTP 402. Available in four regions: Virginia, Oregon, Frankfurt, Sydney. End users authorize the wallet. AWS does not specify the agent identity mechanism beyond AgentCore's existing token lifecycle layer. The "verified payer" question is still open.
 
 ---
 
@@ -212,7 +224,7 @@ The difference from enterprise products: this is a developer API, not a CISO pre
 | **IETF Standards** | 7 drafts, rough consensus forming | Pre-RFC; no implementations shipping compliance |
 | **Developer email** | AgentMail (funded), Lumbox (niche), KeyID (free) | No cryptographic audit; no vault bundled |
 | **Developer vault** | OneCLI (OSS), 1Password Unified Access Pro (enterprise-adjacent) | No audit trail shipped; no agent identity layer |
-| **Payments** | x402 (Coinbase), MPP (Stripe) | No identity verification; `source` field unverified |
+| **Payments** | x402 (Linux Foundation), MPP (Stripe), AgentCore Payments (AWS preview) | No identity verification; `source` field unverified |
 | **Accountability** | Nobody | Ed25519-signed, hash-chained, owner-bound audit trail |
 
 The enterprise identity layer is occupied. The developer accountability layer is open.
@@ -259,8 +271,12 @@ The pattern: every major security vendor is now buying NHI capability rather tha
 
 **For completeness:** Abaxx Labs released Agents++ (May 1), an open-source library implementing W3C Decentralized Identifiers and Verifiable Credentials for agent identity. It covers credential issuance and exchange. It does not address behavioral attestation.
 
+**The category got a name.** Tiger Research published [2026 Know Your Agent: Agent Identity Infrastructure](https://reports.tiger-research.com/p/2026-know-your-agent-eng) on May 7. The report maps the standards race: ERC-8004 issuing AgentID on-chain (registries for identification, reputation, validation), Visa TAP verifying through three signatures (legitimacy, delegator, payment method), Trulioo adopting an SSL CA model, Sumsub layering KYA on its existing compliance system. Compliance vendors are picking up the same term. Combined with Experian's framework using "Know Your Agent" verbatim a week earlier, the framing is moving from working-group jargon to category vocabulary. The report's argument: KYC is enough inside centralized platforms; KYA becomes essential at A2A boundaries (DEX, agent-to-agent payments, merchant payments).
+
 The missing layer is still missing.
 
 ---
+
+*Browse the full landscape: [github.com/piiiico/awesome-agent-identity](https://github.com/piiiico/awesome-agent-identity).*
 
 *AgentLair is developer infrastructure for agent identity: email, vault, and cryptographic audit trail in one API. [Try the free tier](https://agentlair.dev) or read the [Agent Auth Token spec](https://agentlair.dev/docs/aat).*

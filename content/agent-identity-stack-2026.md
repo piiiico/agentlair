@@ -121,11 +121,11 @@ A functioning cross-org behavioral trust layer needs five properties that no exi
 
 ## The Regulatory Catalyst
 
-The EU AI Act's full enforcement hits in August 2026. Article 14 mandates demonstrable human oversight of autonomous systems. Article 99 sets penalties at up to EUR 35 million or 7% of global annual turnover. For agentic commerce deployments — agents making purchases, sending payments, managing subscriptions — behavioral accountability infrastructure moves from optional to required.
+The EU AI Act's high-risk enforcement date moved to December 2, 2027 (Omnibus deal, May 7, 2026). The delay extends the timeline, not the requirements. Conformity assessment takes 6-12 months — companies deploying high-risk agents need compliant infrastructure by late 2026. Article 14 mandates demonstrable human oversight of autonomous systems. Article 99 sets penalties at up to EUR 35 million or 7% of global annual turnover. For agentic commerce deployments — agents making purchases, sending payments, managing subscriptions — behavioral accountability infrastructure moves from optional to required.
 
 The FDX (Financial Data Exchange) published AI agent standards in April 2026 specifically requiring behavioral audit trails for financial services. The U.S. Department of Defense's own legal analysis found that contracts cannot govern agent runtime behavior — runtime enforcement is the only enforcement point.
 
-The compliance timeline is concrete: any organization deploying autonomous agents in the EU after August 2026 needs a verifiable answer to "what did this agent do and why?" L1-L3 answers "who authorized this agent." Only L4 answers "what did this agent actually do, and is it consistent with expectations?"
+The compliance timeline is concrete: any organization deploying autonomous agents in the EU needs a verifiable answer to "what did this agent do and why?" by December 2027 — and needs to start building the infrastructure that produces that answer now. L1-L3 answers "who authorized this agent." Only L4 answers "what did this agent actually do, and is it consistent with expectations?"
 
 ## Where AgentLair Sits
 

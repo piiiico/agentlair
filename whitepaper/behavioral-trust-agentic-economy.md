@@ -578,7 +578,7 @@ This convergence creates L1-L3 infrastructure that makes L5 possible and necessa
 
 ### Market Timing
 
-The EU AI Act reaches full enforcement in **August 2026**. Every agentic commerce deployment in Europe after that date requires behavioral accountability infrastructure. This is not optional --- it is regulatory.
+The EU AI Act's high-risk provisions reach enforcement in **December 2027** (delayed from August 2026 via the Omnibus deal, May 2026). Conformity assessment takes 6-12 months --- companies need compliant infrastructure by late 2026. Every agentic commerce deployment in Europe without behavioral accountability infrastructure accumulates unauditable operational history. This is not optional --- it is regulatory.
 
 The UK AI Safety Institute published research explicitly naming behavioral monitoring and endpoint detection as the missing layer for autonomous agent governance (AISI, April 2026, Mythos evaluation). Government-level confirmation of the behavioral trust thesis.
 

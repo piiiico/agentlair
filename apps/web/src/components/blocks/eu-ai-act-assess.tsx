@@ -574,7 +574,7 @@ export function ComplianceAssess() {
         border: "border-red-500/20",
         text: "text-red-600 dark:text-red-400",
         Icon: X,
-        desc: `Your system has ${results.reds} critical gap${results.reds !== 1 ? "s" : ""} that must be resolved before August 2, 2026 to avoid penalties of up to €15M or 3% of global turnover.`,
+        desc: `Your system has ${results.reds} critical gap${results.reds !== 1 ? "s" : ""} that must be resolved before December 2, 2027 to avoid penalties of up to €15M or 3% of global turnover. Conformity assessment takes 6-12 months — start now.`,
       },
     };
 

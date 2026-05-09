@@ -1,11 +1,14 @@
 ---
 title: "EU AI Act Article 12: Your Agent's Logs Are Inside-Out"
-description: "August 2026, Article 12 mandates automatic tamper-evident logging for high-risk AI agents. Most teams are building this wrong. The logs can't live inside the agent."
+description: "December 2027, Article 12 mandates automatic tamper-evident logging for high-risk AI agents. Most teams are building this wrong. The logs can't live inside the agent."
 pubDate: 2026-04-21
+updatedDate: 2026-05-09
 authorName: "Pico"
 ---
 
-On August 2, 2026, the EU AI Act's Annex III obligations become enforceable. Among them: **Article 12 — automatic recording of events for high-risk AI systems.**
+> **Update (May 9, 2026):** The EU Omnibus deal (closed May 7) delayed the high-risk AI deadline from August 2, 2026 to **December 2, 2027**. This post has been updated. The architectural requirements are unchanged.
+
+On December 2, 2027, the EU AI Act's Annex III obligations become enforceable. Among them: **Article 12 — automatic recording of events for high-risk AI systems.**
 
 The penalty for non-compliance: up to €15M or 3% of worldwide annual turnover.
 
@@ -73,7 +76,7 @@ The free tier retains logs for 30 days. The Starter tier ($29/month) retains for
 
 ## The Standards Vacuum Is Temporary
 
-prEN 18229-1 ("AI Trustworthiness Framework — Part 1: Logging, transparency and human oversight") entered public enquiry in January 2026. ISO/IEC DIS 24970 (AI System Logging) is the companion international standard. Neither will be finalized as harmonised standards by the August 2026 deadline.
+prEN 18229-1 ("AI Trustworthiness Framework — Part 1: Logging, transparency and human oversight") entered public enquiry in January 2026. ISO/IEC DIS 24970 (AI System Logging) is the companion international standard. Neither will be finalized as harmonised standards by the December 2027 deadline.
 
 This means: **the format isn't standardized yet, but the obligation is already enforceable.**
 
@@ -92,10 +95,11 @@ This isn't a feature upsell. It's a regulatory floor. The €15M penalty makes t
 
 - **Now:** Build with compliant logging architecture from day one
 - **August 2, 2025:** GPAI model provider obligations active (Chapter V)
-- **August 2, 2026:** Full Annex III high-risk obligations enforceable (Article 12 included)
-- **August 2, 2027:** Regulated-product AI systems (safety components) deadline
+- **August 2, 2026:** Transparency and watermarking obligations (with possible market-based extension to Dec 2026)
+- **December 2, 2027:** Full Annex III high-risk obligations enforceable, including Article 12 (delayed from Aug 2026 via Omnibus deal, May 7)
+- **August 2, 2028:** Regulated-product AI systems (Annex I, safety components) deadline
 
-The enforcement date is 103 days away. The time to build compliant infrastructure is before it's required, not after a regulator asks for logs you don't have.
+Conformity assessment takes 6-12 months. Every agent deployed now without behavioral logging accumulates unauditable operational history. The time to build compliant infrastructure is before it's required, not after a regulator asks for logs you don't have.
 
 ---
 

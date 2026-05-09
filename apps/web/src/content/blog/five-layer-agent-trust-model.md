@@ -110,7 +110,7 @@ Four data points from the first four months of 2026:
 
 **3. MCPwn (CVE-2026-33032).** The first named MCP exploit campaign. CVSS 9.8. 2,600 exposed instances actively exploited. If AWS (CVE-2026-5058, CVSS 9.0) and Azure (CVE-2026-32211, CVSS 9.1) cannot implement MCP securely on their own official servers, the assumption that reputable vendors equal secure implementations is empirically false. The behavioral detection layer — "is this MCP server acting normally?" — does not exist in the current ecosystem.
 
-**4. AISI Confirmation.** The UK AI Safety Institute's April 2026 evaluation of Mythos-class agents explicitly named behavioral monitoring and endpoint detection as the missing layer. Their stated future work: "ranges simulating hardened and defended environments, including monitors with active monitoring, endpoint detection and real-time incident response." Government-level confirmation that L5 is the absent primitive.
+**4. AISI Confirmation.** The UK AI Safety Institute's April 2026 evaluation of Mythos-class agents explicitly named behavioral monitoring and endpoint detection as the missing layer. Their stated future work: "ranges simulating hardened and defended environments, including ranges with active monitoring, endpoint detection and real-time incident response." Government-level confirmation that L5 is the absent primitive.
 
 ---
 

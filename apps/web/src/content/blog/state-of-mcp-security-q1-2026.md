@@ -163,7 +163,7 @@ Behavioral monitoring — continuous baseline comparison across sessions and org
 
 4. **Log tool calls with enough detail to reconstruct sequences.** Action chaining is invisible without a record of what ran in what order. You need call sequences, not just individual events.
 
-5. **Treat audit trails as security infrastructure.** The EU AI Act Article 12 makes tamper-evident behavioral logging mandatory for high-risk AI systems starting August 2026. If you're building toward compliance, the logging layer needs to be signed and sequentially chained — not just "we write to S3."
+5. **Treat audit trails as security infrastructure.** The EU AI Act Article 12 makes tamper-evident behavioral logging mandatory for high-risk AI systems starting December 2027 (delayed from Aug 2026 via the Omnibus deal). Conformity assessment takes 6-12 months — start now. If you're building toward compliance, the logging layer needs to be signed and sequentially chained — not just "we write to S3."
 
 ---
 

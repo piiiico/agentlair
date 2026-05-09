@@ -1,13 +1,16 @@
 ---
 title: "EU AI Act Article 12: What Behavioral Logging Means for Your AI Agents"
-description: "If your AI agents operate in the EU after August 2, 2026, you need tamper-evident behavioral logging. Not optional — mandatory. Here's what Article 12 actually requires, why your current logging stack won't satisfy it, and what to do about it."
+description: "If your AI agents operate in the EU after December 2, 2027, you need tamper-evident behavioral logging. Not optional — mandatory. Here's what Article 12 actually requires, why your current logging stack won't satisfy it, and what to do about it."
 pubDate: 2026-04-21
+updatedDate: 2026-05-09
 authorName: "Pico"
 ---
 
-If your AI agents will operate in the EU after August 2, 2026, you need tamper-evident behavioral logging. Not optional — mandatory.
+> **Update (May 9, 2026):** The EU Omnibus deal (closed May 7) delayed the high-risk AI deadline from August 2, 2026 to **December 2, 2027**. This post has been updated. The architectural requirements are unchanged — conformity assessment takes 6-12 months, so the preparation window starts now.
 
-Article 12 of the EU AI Act is not aspirational language. It is an enforceable obligation with penalties up to €15 million or 3% of global annual turnover. The compliance window closes in under four months.
+If your AI agents will operate in the EU after December 2, 2027, you need tamper-evident behavioral logging. Not optional — mandatory.
+
+Article 12 of the EU AI Act is not aspirational language. It is an enforceable obligation with penalties up to €15 million or 3% of global annual turnover. The enforcement date moved 16 months, but conformity assessment for high-risk AI takes 6-12 months — companies deploying agents today need to plan now.
 
 Most engineering teams deploying AI agents haven't mapped this to their infrastructure yet. This post does that mapping.
 
@@ -61,7 +64,7 @@ The technical requirements for Article 12-compliant behavioral logging are:
 
 ## Implementation Checklist
 
-Here is what you need in place before August 2, 2026, if your agents operate in Annex III domains in the EU:
+Here is what you need in place before December 2, 2027, if your agents operate in Annex III domains in the EU (ideally by late 2026 to allow for conformity assessment):
 
 **Architecture**
 - [ ] Audit logging happens at the infrastructure layer (middleware, gateway, or proxy) — not in the agent's own code
@@ -113,37 +116,37 @@ The architectural property that distinguishes AgentLair from generic observabili
 
 ## Timeline: What to Do Now vs. What Can Wait
 
-**Now (before June 1)**
+**Now (Q2-Q3 2026)**
 
 Determine whether your agents fall under Annex III. The categories that trigger Article 12 obligations: employment and HR (hiring, task assignment, promotion), critical infrastructure management, educational assessment, access to essential private services, law enforcement-adjacent tools. If you are unsure, assume yes for EU-deployed agents and verify with legal.
 
 Audit your current logging stack. Does logging happen at the agent layer or the infrastructure layer? Does the agent control what appears in its own audit trail? If you answered "agent layer" or "yes," your current stack does not satisfy Article 12.
 
-**Before July 1**
+**Before end of 2026**
 
-If you are building compliant infrastructure yourself, the engineering timeline for a correct implementation is 6–8 weeks minimum. Ed25519 signing infrastructure, hash chain implementation, retention policy enforcement, and export tooling all need to be built and tested. Start now.
+If you are building compliant infrastructure yourself, the engineering timeline for a correct implementation is 6-8 weeks minimum. Ed25519 signing infrastructure, hash chain implementation, retention policy enforcement, and export tooling all need to be built and tested. Finishing by late 2026 gives you 12 months of production behavioral history before enforcement — that operational record is itself part of demonstrating compliance maturity.
 
 If you are adopting a third-party solution, evaluate by: Is logging outside the agent's control boundary? Is tamper evidence cryptographic (signing + chaining), not just policy-level? Does the retention tier you are considering meet the 6-month minimum?
 
-**Before August 2**
+**Before mid-2027**
 
-Verify chain integrity on a sample of your audit data. Export a compliance snapshot and confirm it can be read by someone unfamiliar with your system. Document your retention policy and retention SLA.
+Begin conformity assessment preparation. Verify chain integrity on a sample of your audit data. Export a compliance snapshot and confirm it can be read by someone unfamiliar with your system. Document your retention policy and retention SLA.
 
-If prEN 18229-1 finalizes before August (which is unlikely — it is still in public enquiry as of early 2026), review for any field requirements your schema does not cover. The standard is format-agnostic in its current draft, but the final version may specify field requirements.
+Review prEN 18229-1 when it finalizes (still in public enquiry as of early 2026). The standard is format-agnostic in its current draft, but the final version may specify field requirements.
 
 **What Can Wait**
 
-Decision-level logging — capturing the agent's reasoning, not just its actions — is not required by Article 12 for most high-risk classifications. It is a best practice and may be required by vertical-specific regulations (healthcare AI in particular), but it is not the threshold obligation for August 2026.
+Decision-level logging — capturing the agent's reasoning, not just its actions — is not required by Article 12 for most high-risk classifications. It is a best practice and may be required by vertical-specific regulations (healthcare AI in particular), but it is not the threshold obligation.
 
 External hash anchoring to a public ledger or timestamping authority (RFC 3161) is stronger forensic evidence than a private hash chain, but it exceeds what Article 12 strictly requires. Plan for it post-compliance, not as a prerequisite.
 
 ---
 
-The August 2, 2026 deadline is real. The tamper-evidence requirement is real. The independence-from-agent-control requirement is real.
+The December 2, 2027 deadline is real. The tamper-evidence requirement is real. The independence-from-agent-control requirement is real.
 
-What is not real is the idea that you can satisfy Article 12 by pointing Datadog at your agent and calling it done.
+What is not real is the idea that you can satisfy Article 12 by pointing Datadog at your agent and calling it done. And every month of agent operation without compliant logging is a month of unauditable behavioral history that regulators may eventually ask about.
 
-The infrastructure required is specific. Build it correctly or find infrastructure that already satisfies it — but make the decision now, not in July.
+The infrastructure required is specific. Build it correctly or find infrastructure that already satisfies it. The 16-month extension is runway to build right, not permission to wait.
 
 ---
 

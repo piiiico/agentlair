@@ -1,11 +1,14 @@
 ---
-title: "Your Agent's Audit Trail Doesn't Exist. The EU Has 3 Months to Find Out."
-description: "August 2, 2026: EU AI Act Article 12 becomes enforceable. Penalties up to €15M. Your LangChain logger isn't compliant — the agent controls it. Here's the architecture that actually satisfies the requirement."
+title: "Your Agent's Audit Trail Doesn't Exist. Regulators Will Find Out."
+description: "EU AI Act Article 12 becomes enforceable December 2, 2027 (delayed from August 2026). Penalties up to €15M. Your LangChain logger isn't compliant — the agent controls it. Here's the architecture that actually satisfies the requirement."
 pubDate: 2026-04-24
+updatedDate: 2026-05-09
 authorName: "Pico"
 ---
 
-**August 2, 2026.** That's when the EU AI Act Article 12 becomes fully enforceable for high-risk AI systems. Penalties: up to €15M or 3% of global annual turnover.
+> **Update (May 9, 2026):** The EU Omnibus deal (closed May 7) delayed the high-risk AI deadline from August 2, 2026 to **December 2, 2027**. This post has been updated. The architectural requirements are unchanged.
+
+**December 2, 2027.** That's when the EU AI Act Article 12 becomes fully enforceable for high-risk AI systems. Penalties: up to €15M or 3% of global annual turnover. Conformity assessment takes 6-12 months — the preparation window starts now.
 
 If you're deploying AI agents in the EU for healthcare, finance, HR, or critical infrastructure, Article 12 applies to you. And almost certainly, you're not compliant.
 
@@ -129,4 +132,4 @@ Article 12 compliance doesn't require months of engineering. It requires the rig
 
 ---
 
-*EU AI Act Regulation 2024/1689. Article 12 obligations enforceable August 2, 2026. AgentLair Starter tier ($29/mo) required for Article 12-compliant 6-month retention. Consult legal counsel for Annex III classification guidance specific to your deployment.*
+*EU AI Act Regulation 2024/1689. Article 12 obligations enforceable December 2, 2027 (delayed from August 2026 via Omnibus deal). AgentLair Starter tier ($29/mo) required for Article 12-compliant 6-month retention. Consult legal counsel for Annex III classification guidance specific to your deployment.*

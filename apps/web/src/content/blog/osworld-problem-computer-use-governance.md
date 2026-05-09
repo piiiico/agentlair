@@ -59,7 +59,7 @@ OAuth scopes protect you from API agents going out of bounds. Nothing protects y
 
 ## The Governance Blind Spot
 
-Two governance frameworks have emerged in 2026: Singapore's Model Governance Framework for Agentic AI (January) and NIST's AI Agent Standards Initiative (February). The EU AI Act becomes fully enforceable August 2. These are serious efforts — NIST specifies least privilege, diminishing delegation, and immutable action logging with cross-agent trace IDs.
+Two governance frameworks have emerged in 2026: Singapore's Model Governance Framework for Agentic AI (January) and NIST's AI Agent Standards Initiative (February). The EU AI Act's high-risk provisions become enforceable December 2, 2027 (delayed from the original August 2026 date). These are serious efforts — NIST specifies least privilege, diminishing delegation, and immutable action logging with cross-agent trace IDs.
 
 But none of them distinguish GUI agents from API agents. They treat all autonomous agent actions equivalently.
 
