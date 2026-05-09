@@ -395,7 +395,7 @@ export function decodeBase64UrlCardUrl(encoded: string): string | null {
 }
 
 /** True when the URL points to agentlair.dev — CF Workers can't fetch their own origin. */
-function isSelfUrl(url: string): boolean {
+export function isSelfUrl(url: string): boolean {
   try {
     return new URL(url).hostname === 'agentlair.dev';
   } catch {

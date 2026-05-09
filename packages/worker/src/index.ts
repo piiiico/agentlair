@@ -46,6 +46,8 @@ import { trustRoutes, publicTrustRoutes } from './routes/trust.js';
 import { discoveryRoutes } from './routes/discovery.js';
 import { memoryTrustRoutes } from './routes/memory-trust.js';
 import { badgeRoutes } from './routes/badge.js';
+import { a2aCardRoutes } from './routes/a2a-cards.js';
+import { sitemapA2aRoutes } from './routes/sitemap-a2a.js';
 import { handleTaskRoutes } from './routes/tasks.js';
 import { telemetryRoutes } from './routes/telemetry.js';
 import { eventRoutes } from './routes/events.js';
@@ -349,6 +351,12 @@ app.route('/spec', specRoutes);
 
 // Trust badges — public SVG images for embedding in READMEs (no auth — img tags can't carry headers)
 app.route('/badge', badgeRoutes);
+
+// Per-A2A-card landing pages — public HTML/JSON trust reports
+app.route('/a2a', a2aCardRoutes);
+
+// Dynamic A2A sitemap — /sitemap-a2a.xml lives at root
+app.route('/', sitemapA2aRoutes);
 
 app.on(['GET', 'HEAD'], '/docs', () =>
   new Response(SCALAR_DOCS_HTML, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=3600', 'X-Powered-By': 'AgentLair' } })

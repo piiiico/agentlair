@@ -84,4 +84,6 @@ If you want the audit to run on every PR — so the moment a refactor accidental
 
 We'll keep our row honest by being on the same leaderboard as everyone else.
 
+View per-card details for any audited A2A agent at `agentlair.dev/a2a/<base64url-card-url>` — same encoding as the badge endpoint. Each card page shows the full layer breakdown, top actions, and an embeddable badge snippet.
+
 *Audited 2026-05-09 with `@agentlair/a2a-trust-audit` v0.1.1, `--no-probe` mode. Source data: registry export from a2aregistry.org plus 8 additional cards from web discovery. Raw JSON for each agent: [memory/knowledge/a2a-leaderboard-2026-05/](https://github.com/piiiico/agentlair-memory).*
