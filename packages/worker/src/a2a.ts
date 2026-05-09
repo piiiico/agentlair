@@ -1,5 +1,7 @@
 // ─── A2A Agent Card ──────────────────────────────────────────────────────────
 
+import { getPublicKey, computeKeyId, signJWS } from './jwt.js';
+
 export const AGENT_CARD = {
   schema_version: '0.8',
   name: 'AgentLair',
@@ -92,3 +94,27 @@ export const AGENT_CARD = {
     url: 'https://agentlair.dev',
   },
 };
+
+/**
+ * Build the agent card object, optionally signing it with the audit key.
+ * Used by the /.well-known/agent.json route and internally by badge.ts
+ * to bypass CF Worker self-fetch (which returns 522).
+ */
+export async function buildSignedAgentCard(
+  signingKey?: string,
+): Promise<Record<string, unknown>> {
+  const card: Record<string, unknown> = { ...AGENT_CARD };
+
+  if (signingKey) {
+    const publicKeyBytes = getPublicKey(signingKey);
+    const kid = await computeKeyId(publicKeyBytes);
+    card.card_signature = signJWS(
+      AGENT_CARD as unknown as Record<string, unknown>,
+      signingKey,
+      kid,
+      'https://agentlair.dev/.well-known/jwks.json',
+    );
+  }
+
+  return card;
+}

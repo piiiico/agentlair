@@ -9,11 +9,11 @@ import { nanoid, sha256hex, hmacSha256, json, err, VERBOSE_ONLY_FIELDS } from '.
 import type { Env, Account, RouteContext, RouteHandler } from './types.js';
 import { InboxNotifier } from './durable-objects/inbox-notifier.js';
 import { API_DISCOVERY, OPENAPI_SPEC, SCALAR_DOCS_HTML } from './openapi.js';
-import { AGENT_CARD } from './a2a.js';
+import { AGENT_CARD, buildSignedAgentCard } from './a2a.js';
 import { LLMS_TXT } from './llms-txt.js';
 import { RSL_XML, AGENTS_JSON } from './well-known-extras.js';
 import { authenticateAny } from './middleware/auth.js';
-import { buildJWKS, getPublicKey, computeKeyId, publicKeyToJWK, signJWS } from './jwt.js';
+import { buildJWKS, getPublicKey, computeKeyId, publicKeyToJWK } from './jwt.js';
 import { checkRateLimit, checkPodRateLimit } from './middleware/ratelimit.js';
 import { detectAgent, AGENTLAIR_MANIFEST } from './middleware/agent-detect.js';
 import { securityHeaders } from './middleware/security-headers.js';
@@ -355,18 +355,7 @@ app.on(['GET', 'HEAD'], '/docs', () =>
 );
 
 app.get('/.well-known/agent.json', async (c) => {
-  const card: Record<string, unknown> = { ...AGENT_CARD };
-
-  if (c.env.AUDIT_SIGNING_KEY) {
-    const publicKeyBytes = getPublicKey(c.env.AUDIT_SIGNING_KEY);
-    const kid = await computeKeyId(publicKeyBytes);
-    card.card_signature = signJWS(
-      AGENT_CARD as unknown as Record<string, unknown>,
-      c.env.AUDIT_SIGNING_KEY,
-      kid,
-      'https://agentlair.dev/.well-known/jwks.json',
-    );
-  }
+  const card = await buildSignedAgentCard(c.env.AUDIT_SIGNING_KEY);
 
   return new Response(JSON.stringify(card, null, 2), {
     status: 200,

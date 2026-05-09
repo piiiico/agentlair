@@ -22,6 +22,7 @@ import type { HonoEnv } from '../types.js';
 import type { ATFLevel, TrustProfile } from '../trust-engine.js';
 import { computeTrustScore } from '../trust-engine.js';
 import { auditCardUrl, gradeColor, type Grade } from '../lib/a2a-audit.js';
+import { buildSignedAgentCard } from '../a2a.js';
 
 export const badgeRoutes = new Hono<HonoEnv>();
 
@@ -393,6 +394,15 @@ export function decodeBase64UrlCardUrl(encoded: string): string | null {
   }
 }
 
+/** True when the URL points to agentlair.dev — CF Workers can't fetch their own origin. */
+function isSelfUrl(url: string): boolean {
+  try {
+    return new URL(url).hostname === 'agentlair.dev';
+  } catch {
+    return false;
+  }
+}
+
 async function handleA2ABadgeRequest(c: any): Promise<Response> {
   const encoded = c.req.param('encoded') || '';
   const style = parseStyle(c.req.query('style'));
@@ -416,7 +426,20 @@ async function handleA2ABadgeRequest(c: any): Promise<Response> {
   }
 
   try {
-    const result = await auditCardUrl(cardUrl);
+    // Bypass CF Worker self-fetch (returns 522) by building the card in-memory.
+    // Guard: only bypass when AUDIT_SIGNING_KEY is set (always in production,
+    // never in tests) — this ensures test mocks via globalThis.fetch still work.
+    let fetchImpl: typeof fetch | undefined;
+    if (isSelfUrl(cardUrl) && c.env?.AUDIT_SIGNING_KEY) {
+      const card = await buildSignedAgentCard(c.env?.AUDIT_SIGNING_KEY);
+      fetchImpl = (async () =>
+        new Response(JSON.stringify(card), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })) as unknown as typeof fetch;
+    }
+
+    const result = await auditCardUrl(cardUrl, fetchImpl);
     const overall = result.scores.overall;
     const value = `${result.grade} ${overall}`;
     const color = gradeColor(result.grade as Grade);
@@ -448,7 +471,18 @@ async function handleA2AScoreJsonRequest(c: any): Promise<Response> {
     return jsonResponse({ error: 'Invalid base64url card URL.' }, 400, 60);
   }
   try {
-    const result = await auditCardUrl(cardUrl);
+    // Bypass CF Worker self-fetch (returns 522) by building the card in-memory.
+    let fetchImpl: typeof fetch | undefined;
+    if (isSelfUrl(cardUrl) && c.env?.AUDIT_SIGNING_KEY) {
+      const card = await buildSignedAgentCard(c.env?.AUDIT_SIGNING_KEY);
+      fetchImpl = (async () =>
+        new Response(JSON.stringify(card), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })) as unknown as typeof fetch;
+    }
+
+    const result = await auditCardUrl(cardUrl, fetchImpl);
     return jsonResponse({
       target: result.target,
       fetched_from: result.fetched_from,
