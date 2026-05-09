@@ -57,6 +57,76 @@ Drop into CI:
   run: npx -y @agentlair/spa-verifier ./skills/my-skill
 ```
 
+## CI Integration
+
+Block unsigned or tampered skills on every PR — five lines of workflow:
+
+```yaml
+- uses: oven-sh/setup-bun@v2
+- name: Verify skill provenance
+  run: bunx --bun @agentlair/spa-verifier ./skills/my-skill --json
+```
+
+Exit code `1` fails the step; structured JSON goes to your logs. For a full workflow that detects which skills changed in a PR, posts a comment summary, and blocks merge on any failure:
+
+```yaml
+name: Verify skill provenance
+
+on:
+  pull_request:
+    paths:
+      - 'skills/**'
+
+jobs:
+  spa-verify:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Verify changed skills
+        id: verify
+        run: |
+          CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...HEAD \
+            | grep '^skills/' | cut -d/ -f1-2 | sort -u)
+
+          FAILED=0
+          while IFS= read -r skill_dir; do
+            [ -d "$skill_dir" ] || continue
+            bunx --bun @agentlair/spa-verifier "$skill_dir" --json || FAILED=1
+          done <<< "$CHANGED"
+          exit $FAILED
+```
+
+Full example with PR comments: [`examples/github-actions/verify-skill.yml`](./examples/github-actions/verify-skill.yml)
+
+<details>
+<summary>GitLab CI equivalent</summary>
+
+```yaml
+spa-verify:
+  stage: test
+  image: oven/bun:latest
+  script:
+    - |
+      CHANGED=$(git diff --name-only $CI_MERGE_REQUEST_DIFF_BASE_SHA...HEAD \
+        | grep '^skills/' | cut -d/ -f1-2 | sort -u)
+      for skill_dir in $CHANGED; do
+        [ -d "$skill_dir" ] || continue
+        bunx --bun @agentlair/spa-verifier "$skill_dir" --json
+      done
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes:
+        - skills/**/*
+```
+
+</details>
+
 ## API
 
 ### `verifySpa(skillDir, options?) → Promise<SpaVerifyResult & { sig_present }>`

@@ -1,0 +1,68 @@
+name: Verify skill provenance
+
+on:
+  pull_request:
+    paths:
+      - 'skills/**'
+
+jobs:
+  spa-verify:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Verify changed skills
+        id: verify
+        run: |
+          # Find skill directories that changed in this PR
+          CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...HEAD \
+            | grep '^skills/' | cut -d/ -f1-2 | sort -u)
+
+          if [ -z "$CHANGED" ]; then
+            echo "No skill directories changed."
+            exit 0
+          fi
+
+          RESULTS=()
+          FAILED=0
+
+          while IFS= read -r skill_dir; do
+            if [ ! -d "$skill_dir" ]; then continue; fi
+
+            # Run verifier — exit code 0 = verified, 1 = failed, 2 = unsigned
+            OUTPUT=$(bunx --bun @agentlair/spa-verifier "$skill_dir" --json 2>&1) || true
+            CODE=$?
+
+            if [ $CODE -eq 0 ]; then
+              RESULTS+=("✅ \`$skill_dir\` — verified")
+            elif [ $CODE -eq 2 ]; then
+              RESULTS+=("⚠️ \`$skill_dir\` — no SKILL.sig (unsigned)")
+              FAILED=1
+            else
+              RESULTS+=("❌ \`$skill_dir\` — tampered or invalid SPA")
+              FAILED=1
+            fi
+          done <<< "$CHANGED"
+
+          # Write summary to $GITHUB_STEP_SUMMARY
+          printf "## Skill Provenance Check\n\n" >> $GITHUB_STEP_SUMMARY
+          for r in "${RESULTS[@]}"; do
+            echo "- $r" >> $GITHUB_STEP_SUMMARY
+          done
+
+          # Post results as PR comment via gh CLI
+          BODY="**Skill Provenance Check**\n\n"
+          for r in "${RESULTS[@]}"; do
+            BODY+="- $r\n"
+          done
+          gh pr comment ${{ github.event.pull_request.number }} --body "$(printf "$BODY")" || true
+
+          exit $FAILED
+        env:
+          GH_TOKEN: ${{ github.token }}

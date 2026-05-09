@@ -1,6 +1,6 @@
 {
   "name": "@agentlair/spa-verifier",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Verify Skill Provenance Attestations (SPA) for AI agent skill directories. Drop-in tamper-evidence for any registry, runner, or installer. Zero-deps, Web Crypto, Ed25519/JWS.",
   "type": "module",
   "main": "./dist/index.js",
@@ -21,7 +21,8 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "examples"
   ],
   "scripts": {
     "build": "tsc",

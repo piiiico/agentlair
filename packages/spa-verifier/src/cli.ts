@@ -19,7 +19,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { verifySpa, type Jwks } from './index.js';
 
-const VERSION = '0.1.0';
+const VERSION = '0.2.0';
 
 const HELP = `spa-verify — verify a Skill Provenance Attestation
 
