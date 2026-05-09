@@ -17,28 +17,28 @@ The 18th was ours. Disclosure goes first.
 
 ## The leaderboard
 
-Sorted by overall score. Domain links resolve to a live `agent.json` or `agent-card.json` at the time of audit. All scores are from `--no-probe` mode — the structural audit of the card itself, no runtime endpoint behavior factored in. (Probe mode would add roughly five points to AgentLair for returning a 402 Payment Required on unauth — fairer to compare cards as cards.)
+Sorted by overall score. Domain links resolve to a live `agent.json` or `agent-card.json` at the time of audit. All scores are from `--no-probe` mode — the structural audit of the card itself, no runtime endpoint behavior factored in. (Probe mode would add roughly five points to AgentLair for returning a 402 Payment Required on unauth — fairer to compare cards as cards.) The *Live* column pulls the current grade from [`/badge/a2a`](https://github.com/piiiico/a2a-trust-audit#get-a-badge) — if an agent's card has improved since audit day, that badge is where you'll see it.
 
-| # | Agent | Domain | L1 | L2 | L3 | L4 | Overall | Grade |
-|---|-------|--------|---:|---:|---:|---:|--------:|:-----:|
-| 1 | **AgentLair** *(reference impl, audit author)* | agentlair.dev | 100 | 71 | 100 | 87 | **87** | **B** |
-| 2 | Microquery | microquery.dev | 85 | 44 | 100 | 0 | 45 | F |
-| 3 | AlgoVoi Payment Agent | api1.ilovechicken.co.uk | 85 | 27 | 100 | 0 | 40 | F |
-| 4 | HexNest Machine Reasoning Network | hex-nest.com | 85 | 27 | 100 | 0 | 40 | F |
-| 5 | Lexicon — Comparison Intelligence Engine | dbssearch.today | 85 | 27 | 100 | 0 | 40 | F |
-| 6 | TrySpansa | tryspansa.com | 85 | 27 | 100 | 0 | 40 | F |
-| 7 | Zee | p0stman.com | 85 | 27 | 100 | 0 | 40 | F |
-| 8 | DeepBlue Trading API | api.deepbluebase.xyz | 85 | 16 | 100 | 0 | 37 | F |
-| 9 | BuyWhere | buywhere.ai | 88 | 0 | 100 | 0 | 33 | F |
-| 10 | GitDealFlow Signal Agent | signals.gitdealflow.com | 85 | 0 | 100 | 0 | 32 | F |
-| 11 | Graph Advocate | graph-advocate-production.up.railway.app | 85 | 0 | 100 | 0 | 32 | F |
-| 12 | Hive Civilization | thehiveryiq.com | 85 | 0 | 100 | 0 | 32 | F |
-| 13 | Moirai Agents API | moirailabs.com | 45 | 27 | 100 | 0 | 32 | F |
-| 14 | Perkoon — Agent Data Layer | perkoon.com | 85 | 0 | 100 | 0 | 32 | F |
-| 15 | SwarmSync Commerce Demo Agent | swarmsync-agents.onrender.com | 85 | 0 | 100 | 0 | 32 | F |
-| 16 | Torify | torify.dev | 85 | 0 | 100 | 0 | 32 | F |
-| 17 | Pictomancer.ai | api.pictomancer.ai | 79 | 0 | 100 | 0 | 31 | F |
-| 18 | DocuSeal | www.docuseal.com | 45 | 0 | 100 | 0 | 24 | F |
+| # | Agent | Domain | L1 | L2 | L3 | L4 | Overall | Grade | Live |
+|---|-------|--------|---:|---:|---:|---:|--------:|:-----:|:----:|
+| 1 | **AgentLair** *(reference impl, audit author)* | agentlair.dev | 100 | 71 | 100 | 87 | **87** | **B** | ![A2A Trust](https://agentlair.dev/badge/a2a/aHR0cHM6Ly9hZ2VudGxhaXIuZGV2Ly53ZWxsLWtub3duL2FnZW50Lmpzb24) |
+| 2 | Microquery | microquery.dev | 85 | 44 | 100 | 0 | 45 | F | ![A2A Trust](https://agentlair.dev/badge/a2a/aHR0cHM6Ly9taWNyb3F1ZXJ5LmRldi8ud2VsbC1rbm93bi9hZ2VudC5qc29u) |
+| 3 | AlgoVoi Payment Agent | api1.ilovechicken.co.uk | 85 | 27 | 100 | 0 | 40 | F | ![A2A Trust](https://agentlair.dev/badge/a2a/aHR0cHM6Ly9hcGkxLmlsb3ZlY2hpY2tlbi5jby51ay8ud2VsbC1rbm93bi9hZ2VudC5qc29u) |
+| 4 | HexNest Machine Reasoning Network | hex-nest.com | 85 | 27 | 100 | 0 | 40 | F | ![A2A Trust](https://agentlair.dev/badge/a2a/aHR0cHM6Ly9oZXgtbmVzdC5jb20vLndlbGwta25vd24vYWdlbnQuanNvbg) |
+| 5 | Lexicon — Comparison Intelligence Engine | dbssearch.today | 85 | 27 | 100 | 0 | 40 | F | ![A2A Trust](https://agentlair.dev/badge/a2a/aHR0cHM6Ly9kYnNzZWFyY2gudG9kYXkvLndlbGwta25vd24vYWdlbnQuanNvbg) |
+| 6 | TrySpansa | tryspansa.com | 85 | 27 | 100 | 0 | 40 | F | ![A2A Trust](https://agentlair.dev/badge/a2a/aHR0cHM6Ly90cnlzcGFuc2EuY29tLy53ZWxsLWtub3duL2FnZW50Lmpzb24) |
+| 7 | Zee | p0stman.com | 85 | 27 | 100 | 0 | 40 | F | ![A2A Trust](https://agentlair.dev/badge/a2a/aHR0cHM6Ly9wMHN0bWFuLmNvbS8ud2VsbC1rbm93bi9hZ2VudC5qc29u) |
+| 8 | DeepBlue Trading API | api.deepbluebase.xyz | 85 | 16 | 100 | 0 | 37 | F | ![A2A Trust](https://agentlair.dev/badge/a2a/aHR0cHM6Ly9hcGkuZGVlcGJsdWViYXNlLnh5ei8ud2VsbC1rbm93bi9hZ2VudC5qc29u) |
+| 9 | BuyWhere | buywhere.ai | 88 | 0 | 100 | 0 | 33 | F | ![A2A Trust](https://agentlair.dev/badge/a2a/aHR0cHM6Ly9idXl3aGVyZS5haS8ud2VsbC1rbm93bi9hZ2VudC5qc29u) |
+| 10 | GitDealFlow Signal Agent | signals.gitdealflow.com | 85 | 0 | 100 | 0 | 32 | F | ![A2A Trust](https://agentlair.dev/badge/a2a/aHR0cHM6Ly9zaWduYWxzLmdpdGRlYWxmbG93LmNvbS8ud2VsbC1rbm93bi9hZ2VudC5qc29u) |
+| 11 | Graph Advocate | graph-advocate-production.up.railway.app | 85 | 0 | 100 | 0 | 32 | F | ![A2A Trust](https://agentlair.dev/badge/a2a/aHR0cHM6Ly9ncmFwaC1hZHZvY2F0ZS1wcm9kdWN0aW9uLnVwLnJhaWx3YXkuYXBwLy53ZWxsLWtub3duL2FnZW50Lmpzb24) |
+| 12 | Hive Civilization | thehiveryiq.com | 85 | 0 | 100 | 0 | 32 | F | ![A2A Trust](https://agentlair.dev/badge/a2a/aHR0cHM6Ly90aGVoaXZlcnlpcS5jb20vLndlbGwta25vd24vYWdlbnQuanNvbg) |
+| 13 | Moirai Agents API | moirailabs.com | 45 | 27 | 100 | 0 | 32 | F | ![A2A Trust](https://agentlair.dev/badge/a2a/aHR0cHM6Ly9tb2lyYWlsYWJzLmNvbS8ud2VsbC1rbm93bi9hZ2VudC5qc29u) |
+| 14 | Perkoon — Agent Data Layer | perkoon.com | 85 | 0 | 100 | 0 | 32 | F | ![A2A Trust](https://agentlair.dev/badge/a2a/aHR0cHM6Ly9wZXJrb29uLmNvbS8ud2VsbC1rbm93bi9hZ2VudC5qc29u) |
+| 15 | SwarmSync Commerce Demo Agent | swarmsync-agents.onrender.com | 85 | 0 | 100 | 0 | 32 | F | ![A2A Trust](https://agentlair.dev/badge/a2a/aHR0cHM6Ly9zd2FybXN5bmMtYWdlbnRzLm9ucmVuZGVyLmNvbS8ud2VsbC1rbm93bi9hZ2VudC5qc29u) |
+| 16 | Torify | torify.dev | 85 | 0 | 100 | 0 | 32 | F | ![A2A Trust](https://agentlair.dev/badge/a2a/aHR0cHM6Ly90b3JpZnkuZGV2Ly53ZWxsLWtub3duL2FnZW50Lmpzb24) |
+| 17 | Pictomancer.ai | api.pictomancer.ai | 79 | 0 | 100 | 0 | 31 | F | ![A2A Trust](https://agentlair.dev/badge/a2a/aHR0cHM6Ly9hcGkucGljdG9tYW5jZXIuYWkvLndlbGwta25vd24vYWdlbnQuanNvbg) |
+| 18 | DocuSeal | www.docuseal.com | 45 | 0 | 100 | 0 | 24 | F | ![A2A Trust](https://agentlair.dev/badge/a2a/aHR0cHM6Ly93d3cuZG9jdXNlYWwuY29tLy53ZWxsLWtub3duL2FnZW50Lmpzb24) |
 
 **Averages across 17 non-AgentLair agents:** L1 = 80.1 · L2 = 13.1 · L3 = 100.0 · L4 = 0.0 · Overall = 34.9.
 
