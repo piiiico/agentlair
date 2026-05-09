@@ -1,5 +1,6 @@
 node_modules/
 dist/
+dist-bundle/
 .wrangler/
 *.tsbuildinfo
 dist-check/
@@ -8,3 +9,7 @@ bun.lock
 apps/web.bak/
 mcp-publisher
 mcp-publisher/
+
+# Local content drafts (not used by build)
+drafts/
+blog/drafts/

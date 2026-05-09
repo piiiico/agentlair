@@ -22,6 +22,11 @@ import {
   runFreshnessGate,
   parseGateMode,
 } from "/workspace/tools/dist-freshness-gate/dist-freshness-gate.ts";
+import {
+  runBlogDeployGate,
+  commitDeploySnapshot,
+  parseOverrideMoratorium,
+} from "/workspace/tools/blog-deploy-gate/blog-deploy-gate.ts";
 
 // --- Configuration ---
 const SECRETS_PATH = "/workspace/.secrets/cloudflare.env";
@@ -297,6 +302,30 @@ async function main() {
     }
   }
 
+  // Blog deploy gate — blocks NEW blog posts when SOCIAL thermostat is dampened.
+  // Runs after the freshness gate so we evaluate post-rebuild dist/blog/ slugs.
+  // Override: --override-moratorium="<reason>". Reason logged to
+  // /workspace/memory/state/moratorium-overrides.jsonl. See:
+  //   /workspace/tools/blog-deploy-gate/blog-deploy-gate.ts
+  // for the recurrence data motivating this gate (3 violations of the
+  // 2026-05-06 blog moratorium across 2 days, per CLAUDE.md "Recurring
+  // failures need skills … escalate to code enforcement").
+  {
+    const override = parseOverrideMoratorium(process.argv);
+    const gate = await runBlogDeployGate({
+      distDir: DIST_DIR,
+      override,
+    });
+    if (gate.blocked) {
+      console.error("\n🔴 BLOG-DEPLOY GATE: " + gate.reason + "\n");
+      process.exit(1);
+    } else if (gate.bypassed) {
+      console.log("\n⚠️  BLOG-DEPLOY GATE: " + gate.reason + "\n");
+    } else {
+      console.log("✅ BLOG-DEPLOY GATE: " + gate.reason);
+    }
+  }
+
   console.log(`Deploying ${DIST_DIR} to CF Pages project "${PROJECT_NAME}"...\n`);
 
   // 1. Discover and hash files
@@ -340,6 +369,21 @@ async function main() {
   if (deployment.aliases?.length) {
     console.log(`  Aliases: ${deployment.aliases.join(", ")}`);
   }
+
+  // Persist the blog-slug snapshot AFTER successful deploy. Next deploy
+  // diffs against this baseline. Failed deploys (any error before this point)
+  // leave the snapshot untouched so a retry sees the same "new" posts.
+  try {
+    commitDeploySnapshot({ distDir: DIST_DIR });
+    console.log("  Blog-deploy snapshot updated.");
+  } catch (err: any) {
+    console.error(
+      "  (warning: failed to update blog-deploy snapshot:",
+      err?.message ?? err,
+      "— next deploy may re-flag the same posts)"
+    );
+  }
+
   console.log("\nDone!");
 }
 

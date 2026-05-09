@@ -16,9 +16,20 @@
  * the live sitemap. This guard catches it *before* the upload happens, by
  * inspecting the local working tree against git.
  *
- * What this checks (only files that produce a public route):
- *   - apps/web/src/pages/**\/*.{astro,mdx,md}
- *   - apps/web/src/content/{blog,learn,whitepaper}/**\/*.{md,mdx}
+ * What this checks (every source file whose change can ship to production):
+ *   - apps/web/src/pages/**\/*.{astro,mdx,md,tsx,ts}
+ *   - apps/web/src/components/**\/*.{astro,mdx,md,tsx,ts}
+ *   - apps/web/src/layouts/**\/*.{astro,mdx,md,tsx,ts}
+ *   - apps/web/src/content/{blog,learn,whitepaper}/**\/*.{astro,mdx,md,tsx,ts}
+ *
+ * The components/layouts coverage and .tsx/.ts extensions exist because
+ * Astro's `client:only="react"` islands ship as separate JS bundles. The
+ * importing .astro page's source — and therefore its HTML hash — does not
+ * change when the .tsx component changes, so a route-only surface lets
+ * island edits deploy with no git commit. Concrete failure (2026-05-08):
+ * editing apps/web/src/components/blocks/faq.tsx alone passed the guard
+ * with no divergence, even though dist/_astro/faq.*.js shipped new content.
+ * Same audit-divergence class as the May 3 incident, one directory deeper.
  *
  * Two failure classes:
  *   UNTRACKED — file exists locally, has zero git history (was never
@@ -44,18 +55,24 @@ import { execSync } from "node:child_process";
 
 const REPO_ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
 
-// Paths whose contents become public routes. Everything else (components,
-// layouts, lib code) is consumed *by* these and shows up in the build via
-// imports — so any divergence there will manifest in the route files'
-// bundle hashes; we keep the surface narrow on purpose.
-const ROUTE_SOURCE_DIRS = [
+// Paths whose contents — directly or via a client:only React island — can
+// reach the production deploy. The original surface excluded components and
+// layouts on the theory that imports manifest in route bundle hashes. That
+// theory holds for SSR / static .astro renders but breaks for client:only
+// islands, whose JS bundle is a separate artifact. Widening the surface is
+// noisier (every component edit becomes a divergence trigger) but keeps the
+// gate honest. If the noise becomes painful, replace with an import-graph
+// walker that resolves only the deps each route actually pulls in.
+export const ROUTE_SOURCE_DIRS = [
   "apps/web/src/pages",
+  "apps/web/src/components",
+  "apps/web/src/layouts",
   "apps/web/src/content/blog",
   "apps/web/src/content/learn",
   "apps/web/src/content/whitepaper",
 ];
 
-const ROUTE_EXTS = /\.(astro|mdx|md)$/;
+export const ROUTE_EXTS = /\.(astro|mdx|md|tsx|ts)$/;
 
 function sh(cmd: string): string {
   return execSync(cmd, { cwd: REPO_ROOT, stdio: ["ignore", "pipe", "pipe"] })
@@ -136,4 +153,6 @@ function main(): number {
   return 1;
 }
 
-process.exit(main());
+if (import.meta.main) {
+  process.exit(main());
+}
