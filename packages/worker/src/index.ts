@@ -48,6 +48,7 @@ import { discoveryRoutes } from './routes/discovery.js';
 import { memoryTrustRoutes } from './routes/memory-trust.js';
 import { badgeRoutes } from './routes/badge.js';
 import { a2aCardRoutes } from './routes/a2a-cards.js';
+import { ogA2aRoutes } from './routes/og-a2a.js';
 import { sitemapA2aRoutes } from './routes/sitemap-a2a.js';
 import { handleTaskRoutes } from './routes/tasks.js';
 import { telemetryRoutes } from './routes/telemetry.js';
@@ -355,6 +356,9 @@ app.route('/badge', badgeRoutes);
 
 // Per-A2A-card landing pages — public HTML/JSON trust reports
 app.route('/a2a', a2aCardRoutes);
+
+// OG card images for per-A2A-card pages
+app.route('/og/a2a', ogA2aRoutes);
 
 // Dynamic A2A sitemap — /sitemap-a2a.xml lives at root
 app.route('/', sitemapA2aRoutes);

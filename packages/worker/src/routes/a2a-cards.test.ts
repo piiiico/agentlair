@@ -210,7 +210,25 @@ describe('GET /a2a/:thumbprint', () => {
     expect(json.error).toBe('invalid url');
   });
 
-  test('12. <script> in name field is HTML-escaped, not literal', async () => {
+  test('12. rendered HTML contains og:image meta tags for OG sharing', async () => {
+    const app = makeApp();
+    const encoded = b64url('https://agentlair.dev/.well-known/agent.json');
+    const res = await app.request(`/a2a/${encoded}`);
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    // og:image must point to /og/a2a/<thumbprint>.png
+    expect(body).toContain('og:image');
+    expect(body).toContain(`/og/a2a/${encodeURIComponent(encoded)}.png`);
+    expect(body).toContain('og:image:width');
+    expect(body).toContain('1200');
+    expect(body).toContain('og:image:height');
+    expect(body).toContain('630');
+    expect(body).toContain('twitter:card');
+    expect(body).toContain('summary_large_image');
+    expect(body).toContain('twitter:image');
+  });
+
+  test('13. <script> in name field is HTML-escaped, not literal', async () => {
     // Override fetch for this test only — return a card with malicious name.
     globalThis.fetch = (async (input: any) => {
       const url = typeof input === 'string' ? input : input?.url ?? '';

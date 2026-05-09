@@ -106,6 +106,14 @@ function renderHtml(
   <meta property="og:title" content="${escapeHtml(name)} — A2A trust report">
   <meta property="og:description" content="Grade ${grade} (${overall}/100). Free per-card analysis.">
   <meta property="og:url" content="https://agentlair.dev/a2a/${encodeURIComponent(thumbprint)}">
+  <!-- OG image: SVG-only (Option B) — LinkedIn/Slack/Discord/Mastodon/BlueSky support SVG.
+       Twitter does NOT preview SVG og:image. Follow-up: add PNG via cdn-cgi/image proxy. -->
+  <meta property="og:image" content="https://agentlair.dev/og/a2a/${encodeURIComponent(thumbprint)}.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="${escapeHtml(name)} — A2A trust report — Grade ${grade} (${overall}/100)">
+  <meta property="twitter:card" content="summary_large_image">
+  <meta property="twitter:image" content="https://agentlair.dev/og/a2a/${encodeURIComponent(thumbprint)}.png">
   <style>
     *{margin:0;padding:0;box-sizing:border-box}
     body{font-family:system-ui,-apple-system,sans-serif;line-height:1.6;color:#1a1a2e;background:#fafafa;max-width:720px;margin:0 auto;padding:1.5rem}
