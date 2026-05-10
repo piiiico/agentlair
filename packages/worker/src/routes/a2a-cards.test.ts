@@ -251,4 +251,74 @@ describe('GET /a2a/:thumbprint', () => {
     // Escaped form MUST appear (proves escapeHtml ran on this field)
     expect(body).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
   });
+
+  test('14. rendered HTML contains exactly one <script type="application/ld+json"> block', async () => {
+    const app = makeApp();
+    const encoded = b64url('https://agentlair.dev/.well-known/agent.json');
+    const res = await app.request(`/a2a/${encoded}`);
+    const body = await res.text();
+    const matches = body.match(/<script\s+type="application\/ld\+json">/g) ?? [];
+    expect(matches.length).toBe(1);
+  });
+
+  test('15. JSON-LD body parses as JSON and declares Schema.org AnalysisNewsArticle', async () => {
+    const app = makeApp();
+    const encoded = b64url('https://agentlair.dev/.well-known/agent.json');
+    const res = await app.request(`/a2a/${encoded}`);
+    const body = await res.text();
+    const m = body.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/);
+    expect(m).not.toBeNull();
+    const parsed = JSON.parse(m![1]);
+    expect(parsed['@context']).toBe('https://schema.org');
+    expect(parsed['@type']).toBe('AnalysisNewsArticle');
+    expect(parsed.headline).toContain('A2A trust audit');
+    expect(parsed.about['@type']).toBe('SoftwareApplication');
+    expect(parsed.publisher.name).toBe('AgentLair');
+  });
+
+  test('16. JSON-LD about.url equals the decoded cardUrl from the URL parameter', async () => {
+    const app = makeApp();
+    const cardUrl = 'https://synligdigital.no/.well-known/agent.json';
+    const encoded = b64url(cardUrl);
+    const res = await app.request(`/a2a/${encoded}`);
+    const body = await res.text();
+    const m = body.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/);
+    const parsed = JSON.parse(m![1]);
+    expect(parsed.about.url).toBe(cardUrl);
+    expect(parsed.url).toBe(`https://agentlair.dev/a2a/${encodeURIComponent(encoded)}`);
+  });
+
+  test('17. hostile name with </script> payload does not break out of the JSON-LD <script>', async () => {
+    globalThis.fetch = (async (input: any) => {
+      const url = typeof input === 'string' ? input : input?.url ?? '';
+      if (url.includes('agentlair.dev')) {
+        return new Response(JSON.stringify({
+          ...A_CARD,
+          name: '</script><script>alert(1)</script>',
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response('not found', { status: 404 });
+    }) as any;
+
+    const app = makeApp();
+    const encoded = b64url('https://agentlair.dev/.well-known/agent.json');
+    const res = await app.request(`/a2a/${encoded}`);
+    const body = await res.text();
+
+    // Extract everything between <script type="application/ld+json"> and the FIRST </script>.
+    const m = body.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/);
+    expect(m).not.toBeNull();
+    const jsonLdRaw = m![1];
+
+    // The literal "</script>" must NOT appear inside the JSON-LD body —
+    // if it did, the host <script> would have closed early.
+    expect(jsonLdRaw).not.toContain('</script>');
+
+    // The escaped form must appear (proves escapeJsonForScript ran on the name).
+    expect(jsonLdRaw).toContain('\\u003c/script');
+
+    // And the JSON-LD must still parse (the escape pattern is JSON-roundtrip-safe).
+    const parsed = JSON.parse(jsonLdRaw);
+    expect(parsed.about.name).toContain('</script>'); // round-tripped name
+  });
 });

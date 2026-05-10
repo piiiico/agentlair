@@ -28,6 +28,32 @@ function escapeHtml(s: string): string {
     .replace(/'/g, '&#39;');
 }
 
+function escapeJsonForScript(data: unknown): string {
+  return JSON.stringify(data)
+    .replace(/</g, '\\u003c')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+}
+
+function buildJsonLd(
+  name: string, grade: string, overall: number,
+  cardUrl: string, pageUrl: string, imageUrl: string, publishedAt: string,
+): object {
+  const n = name.length > 50 ? name.slice(0, 49) + '…' : name;
+  const org = { '@type': 'Organization', name: 'AgentLair', url: 'https://agentlair.dev' };
+  return {
+    '@context': 'https://schema.org', '@type': 'AnalysisNewsArticle',
+    headline: `${n} — A2A trust audit — Grade ${grade} (${overall}/100)`,
+    description: `Independent A2A trust audit for ${n}: grade ${grade}, score ${overall}/100. L1 provenance / L2 fitness / L3 behavior / L4 operational checks.`,
+    datePublished: publishedAt, dateModified: publishedAt,
+    url: pageUrl, image: imageUrl,
+    author: org,
+    publisher: { ...org, logo: { '@type': 'ImageObject', url: 'https://agentlair.dev/logo.svg' } },
+    about: { '@type': 'SoftwareApplication', name, url: cardUrl, applicationCategory: 'AI Agent' },
+    isAccessibleForFree: true,
+  };
+}
+
 const SEVERITY_RANK: Record<Severity, number> = {
   critical: 0,
   high: 1,
@@ -95,6 +121,15 @@ function renderHtml(
       ).join('\n        ')
     : '<li>No failing checks found.</li>';
 
+  const enc = encodeURIComponent(thumbprint);
+  const jsonLd = buildJsonLd(
+    name, grade, overall, cardUrl,
+    `https://agentlair.dev/a2a/${enc}`,
+    `https://agentlair.dev/og/a2a/${enc}.png`,
+    new Date().toISOString(),
+  );
+  const jsonLdScript = `<script type="application/ld+json">${escapeJsonForScript(jsonLd)}</script>`;
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -102,18 +137,19 @@ function renderHtml(
   <title>${escapeHtml(name)} — A2A trust report — agentlair.dev</title>
   <meta name="description" content="Trust audit for ${escapeHtml(name)}: grade ${grade}, score ${overall}/100. Free per-card analysis from agentlair.dev.">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="canonical" href="https://agentlair.dev/a2a/${encodeURIComponent(thumbprint)}">
+  <link rel="canonical" href="https://agentlair.dev/a2a/${enc}">
   <meta property="og:title" content="${escapeHtml(name)} — A2A trust report">
   <meta property="og:description" content="Grade ${grade} (${overall}/100). Free per-card analysis.">
-  <meta property="og:url" content="https://agentlair.dev/a2a/${encodeURIComponent(thumbprint)}">
+  <meta property="og:url" content="https://agentlair.dev/a2a/${enc}">
   <!-- OG image: SVG-only (Option B) — LinkedIn/Slack/Discord/Mastodon/BlueSky support SVG.
        Twitter does NOT preview SVG og:image. Follow-up: add PNG via cdn-cgi/image proxy. -->
-  <meta property="og:image" content="https://agentlair.dev/og/a2a/${encodeURIComponent(thumbprint)}.png">
+  <meta property="og:image" content="https://agentlair.dev/og/a2a/${enc}.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta property="og:image:alt" content="${escapeHtml(name)} — A2A trust report — Grade ${grade} (${overall}/100)">
   <meta property="twitter:card" content="summary_large_image">
-  <meta property="twitter:image" content="https://agentlair.dev/og/a2a/${encodeURIComponent(thumbprint)}.png">
+  <meta property="twitter:image" content="https://agentlair.dev/og/a2a/${enc}.png">
+  ${jsonLdScript}
   <style>
     *{margin:0;padding:0;box-sizing:border-box}
     body{font-family:system-ui,-apple-system,sans-serif;line-height:1.6;color:#1a1a2e;background:#fafafa;max-width:720px;margin:0 auto;padding:1.5rem}
