@@ -4,6 +4,12 @@ compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
 account_id = "1e3b03e4a8d2514f89998dbdda7d5140"
 
+# Binary imports for font files (used by OG image generation)
+[[rules]]
+type = "Data"
+globs = ["**/*.woff2"]
+fallthrough = true
+
 [[kv_namespaces]]
 binding = "KEYS"
 id = "e7125ab59c3e44e68e9b6496d47ac83d"

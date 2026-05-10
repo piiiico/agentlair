@@ -1,9 +1,18 @@
 // ─── Per-A2A-card OG Image — Unit Tests ───────────────────────────────────────
-// Exercises GET /og/a2a/:thumbprint[.png] — SVG OG image generation (Option B).
+// Exercises GET /og/a2a/:thumbprint[.png] — PNG OG image generation via resvg-wasm.
+// WASM works in Bun, so tests get real PNG responses.
 
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { Hono } from 'hono';
-import { ogA2aRoutes } from './og-a2a.js';
+import { ogA2aRoutes, renderOgSvg, renderErrorOgSvg } from './og-a2a.js';
+
+// ─── PNG magic bytes: 89 50 4E 47 0D 0A 1A 0A ─────────────────────────────
+const PNG_MAGIC = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+function hasPngMagic(buf: ArrayBuffer): boolean {
+  const view = new Uint8Array(buf);
+  return PNG_MAGIC.every((byte, i) => view[i] === byte);
+}
 
 // ─── Test fixtures ──────────────────────────────────────────────────────────
 
@@ -82,17 +91,15 @@ function b64url(s: string): string {
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
 describe('GET /og/a2a/:thumbprint[.png]', () => {
-  test('1. valid AgentLair card returns 200 SVG with substantial body', async () => {
+  test('1. valid AgentLair card returns 200 PNG with substantial body', async () => {
     const app = makeApp();
     const encoded = b64url('https://agentlair.dev/.well-known/agent.json');
     const res = await app.request(`/og/a2a/${encoded}.png`);
     expect(res.status).toBe(200);
-    expect(res.headers.get('Content-Type')).toContain('image/svg+xml');
-    const body = await res.text();
-    expect(body.length).toBeGreaterThan(500);
-    expect(body).toContain('<svg');
-    expect(body).toContain('agentlair.dev');
-    expect(body).toContain('AgentLair');
+    expect(res.headers.get('Content-Type')).toBe('image/png');
+    const buf = await res.arrayBuffer();
+    expect(buf.byteLength).toBeGreaterThan(5000);
+    expect(hasPngMagic(buf)).toBe(true);
   });
 
   test('2. SynligDigital card returns 200 with different body than AgentLair', async () => {
@@ -106,27 +113,27 @@ describe('GET /og/a2a/:thumbprint[.png]', () => {
     expect(resA.status).toBe(200);
     expect(resB.status).toBe(200);
 
-    const bodyA = await resA.text();
-    const bodyB = await resB.text();
+    const bufA = await resA.arrayBuffer();
+    const bufB = await resB.arrayBuffer();
 
-    // Different cards produce different images
-    expect(bodyA).not.toBe(bodyB);
-    // Each contains its own agent name
-    expect(bodyA).toContain('AgentLair');
-    expect(bodyB).toContain('SynligDigital');
+    // Different cards produce different images (different byte lengths or content)
+    const bytesA = new Uint8Array(bufA);
+    const bytesB = new Uint8Array(bufB);
+    const areDifferent = bytesA.length !== bytesB.length ||
+      bytesA.some((b, i) => b !== bytesB[i]);
+    expect(areDifferent).toBe(true);
   });
 
-  test('3. malformed thumbprint returns 400 SVG (not empty)', async () => {
+  test('3. malformed thumbprint returns 400 PNG (not empty)', async () => {
     const app = makeApp();
     const res = await app.request('/og/a2a/malformed.png');
     expect(res.status).toBe(400);
-    expect(res.headers.get('Content-Type')).toContain('image/svg+xml');
+    expect(res.headers.get('Content-Type')).toBe('image/png');
     const cc = res.headers.get('Cache-Control') || '';
     expect(cc).toContain('max-age=60');
-    const body = await res.text();
-    expect(body.length).toBeGreaterThan(500);
-    expect(body).toContain('<svg');
-    expect(body).toContain('Unknown card');
+    const buf = await res.arrayBuffer();
+    expect(buf.byteLength).toBeGreaterThan(500);
+    expect(hasPngMagic(buf)).toBe(true);
   });
 
   test('4. no extension also returns the image', async () => {
@@ -134,7 +141,7 @@ describe('GET /og/a2a/:thumbprint[.png]', () => {
     const encoded = b64url('https://agentlair.dev/.well-known/agent.json');
     const res = await app.request(`/og/a2a/${encoded}`);
     expect(res.status).toBe(200);
-    expect(res.headers.get('Content-Type')).toContain('image/svg+xml');
+    expect(res.headers.get('Content-Type')).toBe('image/png');
   });
 
   test('5. cache-control on success has max-age=86400', async () => {
@@ -146,12 +153,12 @@ describe('GET /og/a2a/:thumbprint[.png]', () => {
     expect(cc).toContain('max-age=86400');
   });
 
-  test('6. rendered body does NOT contain banned tone words', async () => {
-    const app = makeApp();
-    const encoded = b64url('https://synligdigital.no/.well-known/agent.json');
-    const res = await app.request(`/og/a2a/${encoded}.png`);
-    const body = await res.text();
-    expect(body).not.toMatch(/shocking|embarrassing|terrible|awful|dangerous|risky/i);
+  test('6. SVG template does NOT contain banned tone words', () => {
+    // Test the SVG template directly (PNG binary wouldn't contain readable text)
+    const svg = renderOgSvg('Test Agent', 'F', 15, '#e53935');
+    expect(svg).not.toMatch(/shocking|embarrassing|terrible|awful|dangerous|risky/i);
+    const errorSvg = renderErrorOgSvg();
+    expect(errorSvg).not.toMatch(/shocking|embarrassing|terrible|awful|dangerous|risky/i);
   });
 
   test('7. SSRF: localhost URL returns 400 fallback image', async () => {
@@ -159,10 +166,19 @@ describe('GET /og/a2a/:thumbprint[.png]', () => {
     const encoded = b64url('http://localhost:8080/');
     const res = await app.request(`/og/a2a/${encoded}.png`);
     expect(res.status).toBe(400);
-    expect(res.headers.get('Content-Type')).toContain('image/svg+xml');
+    expect(res.headers.get('Content-Type')).toBe('image/png');
   });
 
-  test('8. XSS in name field is escaped in SVG output', async () => {
+  test('8. XSS in name field is escaped in SVG template', () => {
+    // Test the SVG template directly for proper escaping
+    const svg = renderOgSvg('<script>alert(1)</script>', 'A', 92, '#22c55e');
+    // Literal <script> must NOT appear
+    expect(svg).not.toContain('<script>alert(1)</script>');
+    // Escaped form must appear
+    expect(svg).toContain('&lt;script&gt;');
+  });
+
+  test('9. XSS name still produces valid PNG', async () => {
     globalThis.fetch = (async (input: any) => {
       const url = typeof input === 'string' ? input : input?.url ?? '';
       if (url.includes('agentlair.dev')) {
@@ -178,10 +194,8 @@ describe('GET /og/a2a/:thumbprint[.png]', () => {
     const encoded = b64url('https://agentlair.dev/.well-known/agent.json');
     const res = await app.request(`/og/a2a/${encoded}.png`);
     expect(res.status).toBe(200);
-    const body = await res.text();
-    // Literal <script> must NOT appear
-    expect(body).not.toContain('<script>alert(1)</script>');
-    // Escaped form must appear
-    expect(body).toContain('&lt;script&gt;');
+    expect(res.headers.get('Content-Type')).toBe('image/png');
+    const buf = await res.arrayBuffer();
+    expect(hasPngMagic(buf)).toBe(true);
   });
 });
