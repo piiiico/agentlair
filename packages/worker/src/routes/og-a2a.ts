@@ -52,8 +52,14 @@ async function ensureWasm(): Promise<boolean> {
   }
   wasmInitPromise = (async () => {
     try {
-      const wasmBinary = await loadBinary(resvgWasm);
-      await initWasm(wasmBinary);
+      // In CF Workers, WASM import is a WebAssembly.Module — pass directly.
+      // In Bun, it's a file path string — read the file first.
+      let wasmInput: any = resvgWasm;
+      if (typeof wasmInput === 'string') {
+        const { readFileSync } = await import('fs');
+        wasmInput = readFileSync(wasmInput);
+      }
+      await initWasm(wasmInput);
     } catch (e: unknown) {
       // "Already initialized" means another module/test already called initWasm
       if (!(e instanceof Error && e.message.includes('Already initialized'))) {
