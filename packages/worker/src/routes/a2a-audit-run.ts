@@ -60,6 +60,31 @@ a2aAuditRunRoutes.get('/', async (c) => {
     footer{margin-top:2rem;font-size:.8rem;color:#999;border-top:1px solid #eee;padding-top:.75rem}
     footer a{color:#999;text-decoration:none}
     footer a:hover{text-decoration:underline}
+    #grade-card{display:flex;align-items:center;gap:.75rem;padding:.75rem;background:#fff;border:1px solid #ddd;border-radius:4px;margin-bottom:.75rem}
+    #grade-card .grade{font-size:2rem;font-weight:700;line-height:1;padding:.25rem .5rem;border-radius:4px;color:#fff}
+    #grade-card .grade-A{background:#4caf50}
+    #grade-card .grade-B{background:#8bc34a}
+    #grade-card .grade-C{background:#ff9800}
+    #grade-card .grade-D{background:#ff5722}
+    #grade-card .grade-F{background:#f44336}
+    #grade-card .summary{font-size:.95rem}
+    #grade-card .summary strong{font-size:1.1rem}
+    #grade-card .breakdown{display:block;margin-top:.25rem;font-size:.8rem;color:#666;font-variant-numeric:tabular-nums}
+    #permalink-row{margin-bottom:.5rem;font-size:.9rem}
+    #permalink-row a{color:#1a1a1a;text-decoration:underline;margin-right:.5rem}
+    #share-row{display:flex;gap:.5rem;margin-bottom:1rem}
+    .share-btn{padding:.5rem .75rem;border-radius:4px;text-decoration:none;font-size:.85rem;color:#fff;display:inline-block}
+    .share-x{background:#000}
+    .share-fc{background:#7c65c1}
+    .copy-btn{padding:.25rem .5rem;background:#eee;border:1px solid #ccc;border-radius:4px;font-size:.8rem;cursor:pointer}
+    .copy-btn:hover{background:#ddd}
+    .embed-row{margin:.5rem 0;display:flex;align-items:center;gap:.5rem;flex-wrap:wrap}
+    .embed-row label{font-size:.8rem;font-weight:600;width:5rem;flex-shrink:0;margin-bottom:0}
+    .embed-row code{flex:1;font-size:.75rem;background:#f5f5f5;padding:.4rem;border-radius:4px;word-break:break-all;min-width:0}
+    #audit-another{margin-top:.75rem;background:#1a1a1a;color:#fff;padding:.5rem 1rem;border:none;border-radius:4px;cursor:pointer;font-size:.9rem}
+    #audit-another:hover{background:#000}
+    details summary{cursor:pointer;font-size:.9rem;font-weight:600;padding:.25rem 0;color:#555}
+    #copy-toast{position:fixed;bottom:1rem;left:50%;transform:translateX(-50%);background:#1a1a1a;color:#fff;padding:.5rem 1rem;border-radius:4px;font-size:.85rem;z-index:1000}
   </style>
 </head>
 <body>
@@ -76,10 +101,40 @@ a2aAuditRunRoutes.get('/', async (c) => {
       <button type="button" id="demo-btn">Try demo (agentlair.dev)</button>
     </form>
     <section id="result" hidden>
-      <h2>Result</h2>
-      <pre id="result-json"></pre>
-      <h3>Embed badge</h3>
-      <code id="embed-snippet"></code>
+      <h2 id="result-heading">Result</h2>
+      <div id="grade-card"><!-- runAudit fills this --></div>
+      <div id="permalink-row">
+        <a id="permalink-link" href="" target="_blank" rel="noopener">View on AgentLair</a>
+        <button type="button" id="copy-permalink" class="copy-btn">Copy link</button>
+      </div>
+      <div id="share-row">
+        <a id="share-x" href="" target="_blank" rel="noopener" class="share-btn share-x">Share on X</a>
+        <a id="share-fc" href="" target="_blank" rel="noopener" class="share-btn share-fc">Cast on Farcaster</a>
+      </div>
+      <details id="embed-panel">
+        <summary>Embed your badge</summary>
+        <div class="embed-row">
+          <label>Markdown</label>
+          <code id="embed-md"></code>
+          <button type="button" data-copy-target="embed-md" class="copy-btn">Copy</button>
+        </div>
+        <div class="embed-row">
+          <label>HTML</label>
+          <code id="embed-html"></code>
+          <button type="button" data-copy-target="embed-html" class="copy-btn">Copy</button>
+        </div>
+        <div class="embed-row">
+          <label>SVG</label>
+          <code id="embed-svg"></code>
+          <button type="button" data-copy-target="embed-svg" class="copy-btn">Copy</button>
+        </div>
+      </details>
+      <details id="raw-json-panel">
+        <summary>Raw audit JSON</summary>
+        <pre id="result-json"></pre>
+      </details>
+      <button type="button" id="audit-another">Audit another card</button>
+      <div id="copy-toast" hidden></div>
     </section>
     <div id="error-panel" hidden></div>
     <section id="x402-help">
@@ -97,14 +152,92 @@ a2aAuditRunRoutes.get('/', async (c) => {
   var demoBtn=document.getElementById('demo-btn');
   var resultEl=document.getElementById('result');
   var jsonEl=document.getElementById('result-json');
-  var embedEl=document.getElementById('embed-snippet');
+  var gradeCardEl=document.getElementById('grade-card');
+  var permaEl=document.getElementById('permalink-link');
+  var shareXEl=document.getElementById('share-x');
+  var shareFcEl=document.getElementById('share-fc');
+  var embedMdEl=document.getElementById('embed-md');
+  var embedHtmlEl=document.getElementById('embed-html');
+  var embedSvgEl=document.getElementById('embed-svg');
+  var auditAnotherBtn=document.getElementById('audit-another');
+  var copyPermalinkBtn=document.getElementById('copy-permalink');
+  var copyToast=document.getElementById('copy-toast');
   var errorEl=document.getElementById('error-panel');
   var submitBtn=form.querySelector('button[type=submit]');
 
   function b64url(s){return btoa(s).replace(/=+$/,'').replace(/\\+/g,'-').replace(/\\//g,'_')}
+  function escHtml(s){return String(s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+
+  function showToast(msg){
+    copyToast.textContent=msg;copyToast.hidden=false;
+    setTimeout(function(){copyToast.hidden=true},1200);
+  }
+
+  function copyText(text){
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(text).then(
+        function(){showToast('Copied!');},
+        function(){fallbackCopy(text);}
+      );
+    }else{fallbackCopy(text);}
+  }
+  function fallbackCopy(text){
+    var ta=document.createElement('textarea');
+    ta.value=text;ta.style.position='fixed';ta.style.left='-9999px';
+    document.body.appendChild(ta);ta.select();
+    try{document.execCommand('copy');showToast('Copied!');}
+    catch(e){showToast('Copy failed — select and Cmd+C');}
+    finally{document.body.removeChild(ta);}
+  }
 
   function showError(msg){
     errorEl.textContent=msg;errorEl.hidden=false;resultEl.hidden=true;
+  }
+
+  function getDomain(url){
+    try{return new URL(url).hostname.toLowerCase();}catch(e){return url;}
+  }
+
+  function renderSuccess(audit,originalUrl){
+    var grade=audit.grade||'F';
+    var score=(audit.scores&&audit.scores.overall!=null)?audit.scores.overall:0;
+    var l1=(audit.scores&&audit.scores.L1_identity!=null)?audit.scores.L1_identity:0;
+    var l2=(audit.scores&&audit.scores.L2_authentication!=null)?audit.scores.L2_authentication:0;
+    var l3=(audit.scores&&audit.scores.L3_authorization!=null)?audit.scores.L3_authorization:0;
+    var l4=(audit.scores&&audit.scores.L4_behavioral!=null)?audit.scores.L4_behavioral:0;
+    var domain=getDomain(originalUrl);
+    var encoded=b64url(originalUrl);
+    var permalink='https://agentlair.dev/a2a/'+encoded;
+    var badgeUrl='https://agentlair.dev/badge/a2a/'+encoded;
+
+    gradeCardEl.innerHTML=
+      '<span class="grade grade-'+escHtml(grade)+'">'+escHtml(grade)+'</span>'+
+      '<div class="summary"><strong>'+escHtml(score)+'/100</strong> overall'+
+      '<span class="breakdown">L1='+escHtml(l1)+' L2='+escHtml(l2)+' L3='+escHtml(l3)+' L4='+escHtml(l4)+'</span></div>';
+
+    permaEl.href=permalink;
+    permaEl.textContent='View on AgentLair';
+    copyPermalinkBtn.onclick=function(){copyText(permalink);};
+
+    var xText='I audited my A2A agent card on @agentlair_dev — grade '+grade+', '+score+'/100. Audit yours: agentlair.dev/a2a-audit';
+    var fcText='Audited '+domain+' — A2A trust grade '+grade+', '+score+'/100, L1 to L4 broken down. Run yours at agentlair.dev/a2a-audit';
+    shareXEl.href='https://twitter.com/intent/tweet?text='+encodeURIComponent(xText);
+    shareFcEl.href='https://warpcast.com/~/compose?text='+encodeURIComponent(fcText)+'&embeds[]='+encodeURIComponent(permalink);
+
+    embedMdEl.textContent='![A2A Trust]('+badgeUrl+')';
+    embedHtmlEl.textContent='<img src="'+badgeUrl+'" alt="A2A Trust audit badge">';
+    embedSvgEl.textContent='<object data="'+badgeUrl+'" type="image/svg+xml" aria-label="A2A Trust audit badge"></object>';
+
+    jsonEl.textContent=JSON.stringify(audit,null,2);
+
+    resultEl.hidden=false;
+  }
+
+  function resetForm(){
+    resultEl.hidden=true;errorEl.hidden=true;
+    input.value='';
+    window.scrollTo(0,0);
+    input.focus();
   }
 
   async function runAudit(url){
@@ -114,9 +247,7 @@ a2aAuditRunRoutes.get('/', async (c) => {
       var res=await fetch('/a2a-audit/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:url})});
       var data=await res.json();
       if(res.status===200){
-        jsonEl.textContent=JSON.stringify(data.audit||data,null,2);
-        embedEl.textContent='![A2A Trust](https://agentlair.dev/badge/a2a/'+b64url(url)+')';
-        resultEl.hidden=false;
+        renderSuccess(data.audit||data,url);
       }else if(res.status===402){
         showError('This audit requires 0.001 USDC payment. Use an x402-capable client to retry:\\nnpx @agentlair/a2a-trust-audit '+url);
       }else if(res.status===429){
@@ -129,6 +260,14 @@ a2aAuditRunRoutes.get('/', async (c) => {
     finally{submitBtn.disabled=false;demoBtn.disabled=false;}
   }
 
+  document.querySelectorAll('.copy-btn[data-copy-target]').forEach(function(btn){
+    btn.addEventListener('click',function(){
+      var t=document.getElementById(btn.getAttribute('data-copy-target'));
+      if(t)copyText(t.textContent);
+    });
+  });
+
+  auditAnotherBtn.addEventListener('click',resetForm);
   form.addEventListener('submit',function(e){e.preventDefault();var v=input.value.trim();if(v)runAudit(v);});
   demoBtn.addEventListener('click',function(){input.value='https://agentlair.dev/.well-known/agent.json';runAudit(input.value);});
 })();

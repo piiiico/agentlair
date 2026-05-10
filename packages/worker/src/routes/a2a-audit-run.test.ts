@@ -254,4 +254,74 @@ describe('A2A Audit Run Routes', () => {
     const html = await res.text();
     expect(html).not.toMatch(/shocking|embarrassing|terrible|awful|dangerous|risky/i);
   });
+
+  // 10. Share buttons exist in the HTML (DOM markup check)
+  test('GET / contains share button and viral flow markup', async () => {
+    const app = makeApp();
+    const res = await doFetch(app, new Request('http://localhost/a2a-audit'));
+    const html = await res.text();
+    expect(html).toContain('id="share-x"');
+    expect(html).toContain('id="share-fc"');
+    expect(html).toContain('id="audit-another"');
+    expect(html).toContain('id="permalink-link"');
+    expect(html).toContain('<details id="embed-panel">');
+    expect(html).toContain('id="copy-permalink"');
+  });
+
+  // 11. Share copy templates literally present in HTML JS
+  test('GET / contains voice-checked share copy templates', async () => {
+    const app = makeApp();
+    const res = await doFetch(app, new Request('http://localhost/a2a-audit'));
+    const html = await res.text();
+    expect(html).toContain('I audited my A2A agent card on @agentlair_dev — grade ');
+    expect(html).toContain('/100. Audit yours: agentlair.dev/a2a-audit');
+    expect(html).toContain('Audited ');
+    expect(html).toContain(' — A2A trust grade ');
+    expect(html).toContain(', L1 to L4 broken down. Run yours at agentlair.dev/a2a-audit');
+    expect(html).toContain('View on AgentLair');
+    expect(html).toContain('Audit another card');
+    expect(html).toContain('Embed your badge');
+  });
+
+  // 12. Share URLs construct correctly (intent URL formats)
+  test('GET / contains correct share intent URL prefixes', async () => {
+    const app = makeApp();
+    const res = await doFetch(app, new Request('http://localhost/a2a-audit'));
+    const html = await res.text();
+    expect(html).toContain('https://twitter.com/intent/tweet?text=');
+    expect(html).toContain('https://warpcast.com/~/compose?text=');
+    expect(html).toContain('&embeds[]=');
+    expect(html).toContain('https://agentlair.dev/a2a/');
+    expect(html).toContain('https://agentlair.dev/badge/a2a/');
+  });
+
+  // 13. Banned voice words absent (extended set)
+  test('GET / response has no banned voice words (extended set)', async () => {
+    const app = makeApp();
+    const res = await doFetch(app, new Request('http://localhost/a2a-audit'));
+    const html = await res.text();
+    expect(html).not.toMatch(/shocking|embarrassing|terrible|awful|dangerous|risky|cringe|lame|stupid/i);
+  });
+
+  // 14. b64url helper unchanged & reused (exactly one definition)
+  test('GET / contains exactly one b64url helper definition', async () => {
+    const app = makeApp();
+    const res = await doFetch(app, new Request('http://localhost/a2a-audit'));
+    const html = await res.text();
+    const matches = html.match(/function b64url\(s\)\{/g);
+    expect(matches).not.toBeNull();
+    expect(matches!.length).toBe(1);
+  });
+
+  // 15. Pre-existing assertions still pass (implicit via test 1, explicit check here)
+  test('GET / still contains pre-existing form elements and pricing', async () => {
+    const app = makeApp();
+    const res = await doFetch(app, new Request('http://localhost/a2a-audit'));
+    const html = await res.text();
+    expect(html).toContain('agentlair.dev');
+    expect(html).toContain('<input type="url"');
+    expect(html).toContain('0.001 USDC');
+    expect(html).toContain('id="audit-form"');
+    expect(html).toContain('id="demo-btn"');
+  });
 });
