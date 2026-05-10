@@ -50,6 +50,7 @@ import { badgeRoutes } from './routes/badge.js';
 import { a2aCardRoutes } from './routes/a2a-cards.js';
 import { ogA2aRoutes } from './routes/og-a2a.js';
 import { sitemapA2aRoutes } from './routes/sitemap-a2a.js';
+import { a2aAuditRunRoutes } from './routes/a2a-audit-run.js';
 import { handleTaskRoutes } from './routes/tasks.js';
 import { telemetryRoutes } from './routes/telemetry.js';
 import { eventRoutes } from './routes/events.js';
@@ -359,6 +360,9 @@ app.route('/a2a', a2aCardRoutes);
 
 // OG card images for per-A2A-card pages
 app.route('/og/a2a', ogA2aRoutes);
+
+// Public x402-paywalled audit form + POST endpoint
+app.route('/a2a-audit', a2aAuditRunRoutes);
 
 // Dynamic A2A sitemap — /sitemap-a2a.xml lives at root
 app.route('/', sitemapA2aRoutes);

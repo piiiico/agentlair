@@ -284,6 +284,34 @@ export const SERVICE_PRICES: Record<string, ServicePaymentConfig> = {
   },
   // ─── Anonymous (no API key) x402-gated endpoints ─────────────────────────────
   // These are accessible without an AgentLair account — payment IS the authentication.
+  a2a_audit_run: {
+    amount: '1000', // 0.001 USDC — confirm: NOT '10000' (that's 0.01) and NOT '1000000' (that's 1.00)
+    resource: 'https://agentlair.dev/a2a-audit/run',
+    description: 'AgentLair A2A trust audit — 0.001 USDC per run. Anonymous (no API key); payment IS authentication.',
+    mimeType: 'application/json',
+    discovery: {
+      bodyType: 'json',
+      input: { url: 'https://example.com/.well-known/agent.json' },
+      inputSchema: {
+        properties: {
+          url: { type: 'string', description: 'A2A AgentCard URL (http(s) absolute, public host only — no private/loopback IPs)' },
+        },
+        required: ['url'],
+      },
+      output: {
+        example: {
+          audit: {
+            target: 'https://example.com/.well-known/agent.json',
+            fetched_from: 'https://example.com/.well-known/agent.json',
+            scores: { L1_identity: 80, L2_authentication: 50, L3_authorization: 60, L4_behavioral: 0, overall: 50 },
+            grade: 'D',
+          },
+          payment_receipt: '<base64 receipt>',
+          demo: false,
+        },
+      },
+    },
+  },
   trust_query: {
     amount: '10000', // 0.01 USDC
     resource: 'https://agentlair.dev/v1/trust',
