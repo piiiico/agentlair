@@ -6,7 +6,7 @@
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro preview",
-    "deploy": "bun ../../tools/preflight-deploy-guard.ts && bun ../../tools/check-stale-state.ts && bun run build && bun deploy.ts"
+    "deploy": "bun ../../tools/preflight-deploy-guard.ts && bun ../../tools/check-stale-state.ts && bun ../../tools/check-cf-self-fetch.ts && bun run build && bun deploy.ts"
   },
   "dependencies": {
     "@agentlair/popa": "0.1.0",
