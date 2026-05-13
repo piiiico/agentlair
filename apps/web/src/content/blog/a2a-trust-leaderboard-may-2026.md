@@ -9,6 +9,8 @@ related:
   - agentlair-primitives-v0-1-0
 ---
 
+> **Live, auto-updating version:** [agentlair.dev/leaderboard/a2a](https://agentlair.dev/leaderboard/a2a). This post snapshots one moment — the live page is what to bookmark.
+
 We audited 18 public A2A agent cards with `@agentlair/a2a-trust-audit` v0.1.1.
 
 17 graded F.
