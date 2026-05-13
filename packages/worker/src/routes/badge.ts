@@ -128,6 +128,7 @@ export function renderBadgeSVG(
   const letterSpacing = isForTheBadge ? '.6' : '.5';
 
   return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${totalWidth}" height="${height}" role="img" aria-label="${escapeXml(label)}: ${escapeXml(value)}">
+  <!-- Live leaderboard: https://agentlair.dev/leaderboard/a2a -->
   <title>${escapeXml(label)}: ${escapeXml(value)}</title>
   ${gradientDef}
   <clipPath id="r">

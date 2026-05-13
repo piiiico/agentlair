@@ -51,6 +51,8 @@ import { a2aCardRoutes } from './routes/a2a-cards.js';
 import { ogA2aRoutes } from './routes/og-a2a.js';
 import { sitemapA2aRoutes } from './routes/sitemap-a2a.js';
 import { a2aAuditRunRoutes } from './routes/a2a-audit-run.js';
+import { leaderboardA2ARoutes } from './routes/leaderboard.a2a.js';
+import { runLeaderboardRefresh } from './lib/a2a-leaderboard-job.js';
 import { handleTaskRoutes } from './routes/tasks.js';
 import { telemetryRoutes } from './routes/telemetry.js';
 import { eventRoutes } from './routes/events.js';
@@ -363,6 +365,9 @@ app.route('/og/a2a', ogA2aRoutes);
 
 // Public x402-paywalled audit form + POST endpoint
 app.route('/a2a-audit', a2aAuditRunRoutes);
+
+// A2A Trust Leaderboard — live public page + JSON API + manual refresh endpoint
+app.route('/leaderboard', leaderboardA2ARoutes);
 
 // Dynamic A2A sitemap — /sitemap-a2a.xml lives at root
 app.route('/', sitemapA2aRoutes);
@@ -2141,6 +2146,11 @@ export default {
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
     if (event.cron === '0 0 * * *') {
       ctx.waitUntil(runPoPADaily(env));
+    }
+    if (event.cron === '0 4 * * *') {
+      if (env.A2A_LEADERBOARD) {
+        ctx.waitUntil(runLeaderboardRefresh({ A2A_LEADERBOARD: env.A2A_LEADERBOARD }));
+      }
     }
   },
 };

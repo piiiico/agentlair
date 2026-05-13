@@ -22,6 +22,10 @@ id = "0c16b7fe8a09430fb3e7c21c70f9544f"
 binding = "VAULT"
 id = "5eb916dd7125415da51c15cd85c3b761"
 
+[[kv_namespaces]]
+binding = "A2A_LEADERBOARD"
+id = "0d8118945ba44294a5a6e76b1ef6122a"
+
 # Secrets (set via wrangler secret put — NOT stored here):
 #   PLATFORM_ENCRYPTION_KEY  — base64-encoded 32-byte AES-256 key for email body encryption at rest
 #                              Generate: openssl rand -base64 32
@@ -82,4 +86,4 @@ database_id = "7e358e12-9c65-4803-9d1d-298fec510099"
 # Deploy stage MUST verify via GET /accounts/{id}/workers/scripts/agentlair-api/schedules
 # and PUT it explicitly if absent (per agentlair-pipeline.md napkin entry 2026-04-24).
 [triggers]
-crons = ["0 0 * * *"]
+crons = ["0 0 * * *", "0 4 * * *"]

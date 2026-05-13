@@ -14,6 +14,9 @@ export interface Env {
   KEYS: KVNamespace;
   EMAILS: KVNamespace;
   VAULT: KVNamespace;
+  A2A_LEADERBOARD?: KVNamespace;
+  // Shared secret for POST /leaderboard/a2a/refresh (set via wrangler secret put)
+  LEADERBOARD_REFRESH_SECRET?: string;
   AE_ANALYTICS: AnalyticsEngineDataset;
   INBOX_NOTIFIER: DurableObjectNamespace;
   // SCITT Transparency Service Durable Object (serialized Merkle tree)
