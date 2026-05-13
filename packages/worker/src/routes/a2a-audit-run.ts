@@ -45,6 +45,7 @@ a2aAuditRunRoutes.get('/', async (c) => {
     h2{font-size:1.1rem;margin:1rem 0 .5rem}
     h3{font-size:.95rem;margin:.75rem 0 .25rem}
     p{margin-bottom:.75rem;font-size:.95rem}
+    p.lede{font-size:1rem;background:#f5f7ff;border-left:3px solid #4c6ef5;padding:.75rem;border-radius:0 4px 4px 0;margin-bottom:1rem}
     label{display:block;font-weight:600;margin-bottom:.25rem;font-size:.9rem}
     input[type=url]{width:100%;padding:.5rem;border:1px solid #ccc;border-radius:4px;font-size:.9rem;margin-bottom:.5rem}
     button{padding:.5rem 1rem;border:none;border-radius:4px;cursor:pointer;font-size:.9rem;margin-right:.5rem}
@@ -89,10 +90,11 @@ a2aAuditRunRoutes.get('/', async (c) => {
 </head>
 <body>
   <header>
-    <a href="/">agentlair.dev</a> · <a href="/a2a">per-card pages</a> · <a href="/leaderboard/a2a">leaderboard</a>
+    <a href="/">agentlair.dev</a> · <a href="/blog/a2a-trust-leaderboard-may-2026/">leaderboard</a> · <a href="/blog/payment-rails-trust-rails/">why x402</a>
   </header>
   <main>
     <h1>A2A Trust Audit</h1>
+    <p class="lede"><strong>Your AgentCard is your skin in the game.</strong> Integrators check it before they trust your agent. The audit grades L1 identity, L2 authentication, L3 authorization, and L4 behavioral — and gives you an embeddable badge so integrators can see the score at a glance.</p>
     <p>Paste an A2A AgentCard URL. Get an L1–L4 audit with grade, score, and badge embed code. <strong>0.001 USDC per run</strong> via x402. The agentlair.dev self-card is a free demo.</p>
     <form id="audit-form">
       <label for="card-url">AgentCard URL</label>
@@ -139,11 +141,11 @@ a2aAuditRunRoutes.get('/', async (c) => {
     <div id="error-panel" hidden></div>
     <section id="x402-help">
       <h2>About x402 payments</h2>
-      <p>x402 is the HTTP 402 Payment Required protocol — agents pay USDC on Base in response to a 402 challenge. Browsers can't pay x402 today; this form is for agents and CLI clients with a wallet. <a href="/blog/x402">Learn more</a></p>
+      <p>x402 is the HTTP 402 Payment Required protocol — agents pay USDC on Base in response to a 402 challenge. Browsers can't pay x402 today; this form is for agents and CLI clients with a wallet. <a href="/blog/x402-settles-payment-agentlair-answers-who-pays/">Learn more</a></p>
     </section>
   </main>
   <footer>
-    <a href="/a2a">All audited cards</a> · <a href="/blog/a2a-trust-leaderboard-may-2026/">Why we built this</a>
+    <a href="/blog/a2a-trust-leaderboard-may-2026/">All audited cards · methodology</a>
   </footer>
   <script>
 (function(){

@@ -324,4 +324,13 @@ describe('A2A Audit Run Routes', () => {
     expect(html).toContain('id="audit-form"');
     expect(html).toContain('id="demo-btn"');
   });
+
+  // 16. WHY-CARE lede present + broken /blog/x402 link absent
+  test('GET / contains WHY-CARE lede and has no bare /blog/x402 link', async () => {
+    const app = makeApp();
+    const res = await doFetch(app, new Request('http://localhost/a2a-audit'));
+    const html = await res.text();
+    expect(html).toContain('skin in the game');
+    expect(html).not.toContain('href="/blog/x402"');
+  });
 });
