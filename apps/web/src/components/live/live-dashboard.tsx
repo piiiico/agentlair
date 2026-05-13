@@ -74,7 +74,7 @@ type BccListResponse = {
 
 function relativeTime(iso: string, now: number): string {
   const t = Date.parse(iso);
-  if (isNaN(t)) return '—';
+  if (isNaN(t)) return '…';
   const sec = Math.max(0, Math.round((now - t) / 1000));
   if (sec < 5) return 'just now';
   if (sec < 60) return `${sec}s ago`;
@@ -276,7 +276,7 @@ export function LiveDashboard() {
               <div className="text-sm text-muted-foreground">Loading receipts…</div>
             ) : receipts.length === 0 ? (
               <div className="text-sm text-muted-foreground">
-                No receipts issued yet — be the first to{' '}
+                No receipts issued yet. Be the first to{' '}
                 <a className="underline underline-offset-2" href="/getting-started">
                   register an agent
                 </a>
@@ -373,7 +373,7 @@ export function LiveDashboard() {
           <div className="grid grid-cols-2 gap-4 mb-4">
             <Stat
               label="agents registered"
-              value={agentStats ? formatTotal(agentStats) : '—'}
+              value={agentStats ? formatTotal(agentStats) : '…'}
               sub={
                 agentStats && agentStats.last_24h !== null
                   ? `+${agentStats.last_24h} · 24h`
@@ -382,7 +382,7 @@ export function LiveDashboard() {
             />
             <Stat
               label="receipts issued"
-              value={corpusStats ? corpusStats.total_receipts.toLocaleString() : '—'}
+              value={corpusStats ? corpusStats.total_receipts.toLocaleString() : '…'}
               sub={corpusStats ? `${corpusStats.unique_issuers} issuers` : null}
             />
           </div>
@@ -390,13 +390,13 @@ export function LiveDashboard() {
             <Stat
               label="agents · 7d"
               value={
-                agentStats && agentStats.last_7d !== null ? `+${agentStats.last_7d}` : '—'
+                agentStats && agentStats.last_7d !== null ? `+${agentStats.last_7d}` : '…'
               }
               sub={null}
             />
             <Stat
               label="busiest week"
-              value={busiestWeek(corpusStats) ?? '—'}
+              value={busiestWeek(corpusStats) ?? '…'}
               sub={busiestWeekCount(corpusStats)}
             />
           </div>
