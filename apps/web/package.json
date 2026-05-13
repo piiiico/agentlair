@@ -6,6 +6,7 @@
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro preview",
+    "test": "bun test src/lib",
     "deploy": "bun ../../tools/preflight-deploy-guard.ts && bun ../../tools/check-stale-state.ts && bun ../../tools/check-cf-self-fetch.ts && bun run build && bun deploy.ts"
   },
   "dependencies": {

@@ -1,10 +1,10 @@
 ---
-import { BadgeBuilder } from '@/components/blocks/badge-builder';
+import { BadgesPage } from '@/components/blocks/badges-page';
 import DefaultLayout from '@/layouts/DefaultLayout.astro';
 ---
 <DefaultLayout
-  title="Trust Badges — AgentLair"
-  description="Embeddable shields.io-style SVG badges showing real-time agent trust scores. Add to READMEs, docs, and agent metadata."
+  title="Trust Badges & A2A Card Audit — AgentLair"
+  description="Embeddable trust badges and A2A agent card audits. Badge your agent's trust score or audit any A2A card against the full L1–L4 rubric."
 >
-  <BadgeBuilder client:only='react' />
+  <BadgesPage client:load />
 </DefaultLayout>
