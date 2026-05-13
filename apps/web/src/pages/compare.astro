@@ -7,9 +7,55 @@ import { Navbar } from "@/components/blocks/navbar";
 <html lang="en">
   <head>
     <BaseHead
-      title="AgentLair vs. Competitors — Comparison"
-      description="How AgentLair compares to AWS AgentCore Payments, Visa TAP, Mastercard Verifiable Intent, Cloudflare Email for Agents, AgentMail, World ID, Microsoft Agent Governance Toolkit, ERC-8004, and ZeroID."
+      title="AgentLair vs. Lyrie, ARIA, Experian + AWS, Visa — May 2026"
+      description="How AgentLair compares to Lyrie ATP, ARIA, Experian, AWS AgentCore, Visa TAP, MCP, ERC-8004 — agent identity, credentials, and behavioral trust."
     />
+    <meta property="article:modified_time" content="2026-05-14T00:00:00Z" />
+    <script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "headline": "AgentLair vs. The Field — May 2026 Identity-Protocol Comparison",
+  "description": "How AgentLair compares to Lyrie ATP, ARIA, Experian, AWS AgentCore, Visa TAP, MCP, ERC-8004 — agent identity, credentials, and behavioral trust.",
+  "datePublished": "2026-05-01",
+  "dateModified": "2026-05-14",
+  "author": { "@type": "Organization", "name": "AgentLair", "url": "https://agentlair.dev" },
+  "mainEntityOfPage": "https://agentlair.dev/compare",
+  "mentions": [
+    { "@type": "SoftwareApplication", "name": "Lyrie Agent Trust Protocol", "url": "https://github.com/OTT-Cybersecurity-LLC/lyrie-ai" },
+    { "@type": "SoftwareApplication", "name": "ARIA Protocol", "url": "https://aria.bar" },
+    { "@type": "Organization", "name": "Experian Agent Trust", "url": "https://www.experianplc.com" }
+  ]
+}</script>
+    <script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "How does AgentLair compare to Lyrie ATP?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Lyrie ATP is an open identity standard for agent credentials. AgentLair is a behavioral-trust runtime for the same agents after they're credentialed. The two are complementary: an ATP-credentialed agent operating across organizations is the natural input to AgentLair's behavioral attestation."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Is Experian Agent Trust a replacement for AgentLair?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "No. Experian's Agent Trust binds a verified human to an authorized agent and scores fraud risk at transaction time. It does not monitor agent behavior across organizations during execution. AgentLair closes that runtime gap."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "What does AgentLair do that Lyrie, ARIA, and Experian don't?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Cross-organizational behavioral attestation — a portable, observed record of how an agent has acted across every organization that has issued it work."
+      }
+    }
+  ]
+}</script>
   </head>
   <body class="h-screen antialiased">
     <Navbar client:only="react" />
@@ -76,6 +122,24 @@ import { Navbar } from "@/components/blocks/navbar";
                     <span class="text-xs font-normal text-muted-foreground">by Highflame</span>
                   </div>
                 </th>
+                <th class="py-4 px-4 text-center font-medium text-foreground min-w-[120px]">
+                  <div class="flex flex-col items-center gap-1">
+                    <span>Lyrie ATP</span>
+                    <span class="text-xs font-normal text-muted-foreground">L1–L3 Credential</span>
+                  </div>
+                </th>
+                <th class="py-4 px-4 text-center font-medium text-foreground min-w-[120px]">
+                  <div class="flex flex-col items-center gap-1">
+                    <span>ARIA</span>
+                    <span class="text-xs font-normal text-muted-foreground">Protocol</span>
+                  </div>
+                </th>
+                <th class="py-4 px-4 text-center font-medium text-foreground min-w-[120px]">
+                  <div class="flex flex-col items-center gap-1">
+                    <span>Experian</span>
+                    <span class="text-xs font-normal text-muted-foreground">Agent Trust</span>
+                  </div>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -103,6 +167,15 @@ import { Navbar } from "@/components/blocks/navbar";
                 <td class="py-4 px-4 text-center">
                   <span class="text-muted-foreground/50 text-base" title="No">—</span>
                 </td>
+                <td class="py-4 px-4 text-center">
+                  <span class="text-muted-foreground/50 text-base" title="No">—</span>
+                </td>
+                <td class="py-4 px-4 text-center">
+                  <span class="text-muted-foreground/50 text-base" title="No">—</span>
+                </td>
+                <td class="py-4 px-4 text-center">
+                  <span class="text-muted-foreground/50 text-base" title="No">—</span>
+                </td>
               </tr>
 
               <!-- Vault / Credential Storage -->
@@ -110,6 +183,15 @@ import { Navbar } from "@/components/blocks/navbar";
                 <td class="py-4 px-5 font-medium">Credential Vault</td>
                 <td class="py-4 px-4 text-center">
                   <span class="text-green-500 text-base" title="Yes">✓</span>
+                </td>
+                <td class="py-4 px-4 text-center">
+                  <span class="text-muted-foreground/50 text-base" title="No">—</span>
+                </td>
+                <td class="py-4 px-4 text-center">
+                  <span class="text-muted-foreground/50 text-base" title="No">—</span>
+                </td>
+                <td class="py-4 px-4 text-center">
+                  <span class="text-muted-foreground/50 text-base" title="No">—</span>
                 </td>
                 <td class="py-4 px-4 text-center">
                   <span class="text-muted-foreground/50 text-base" title="No">—</span>
@@ -155,6 +237,15 @@ import { Navbar } from "@/components/blocks/navbar";
                 <td class="py-4 px-4 text-center">
                   <span class="text-muted-foreground/50 text-base" title="No">—</span>
                 </td>
+                <td class="py-4 px-4 text-center">
+                  <span class="text-muted-foreground/50 text-base" title="No">—</span>
+                </td>
+                <td class="py-4 px-4 text-center">
+                  <span class="text-muted-foreground/50 text-base" title="No">—</span>
+                </td>
+                <td class="py-4 px-4 text-center">
+                  <span class="text-muted-foreground/50 text-base" title="No">—</span>
+                </td>
               </tr>
 
               <!-- Trust Badges -->
@@ -181,6 +272,15 @@ import { Navbar } from "@/components/blocks/navbar";
                 <td class="py-4 px-4 text-center">
                   <span class="text-muted-foreground/50 text-base" title="No">—</span>
                 </td>
+                <td class="py-4 px-4 text-center">
+                  <span class="text-muted-foreground/50 text-base" title="No">—</span>
+                </td>
+                <td class="py-4 px-4 text-center">
+                  <span class="text-amber-500 text-base" title="Partial — declarative L0–L3 tiers, not behavioral">~</span>
+                </td>
+                <td class="py-4 px-4 text-center">
+                  <span class="text-muted-foreground/50 text-base" title="No">—</span>
+                </td>
               </tr>
 
               <!-- MCP Server -->
@@ -188,6 +288,15 @@ import { Navbar } from "@/components/blocks/navbar";
                 <td class="py-4 px-5 font-medium">MCP Server</td>
                 <td class="py-4 px-4 text-center">
                   <span class="text-green-500 text-base" title="Yes">✓</span>
+                </td>
+                <td class="py-4 px-4 text-center">
+                  <span class="text-muted-foreground/50 text-base" title="No">—</span>
+                </td>
+                <td class="py-4 px-4 text-center">
+                  <span class="text-muted-foreground/50 text-base" title="No">—</span>
+                </td>
+                <td class="py-4 px-4 text-center">
+                  <span class="text-muted-foreground/50 text-base" title="No">—</span>
                 </td>
                 <td class="py-4 px-4 text-center">
                   <span class="text-muted-foreground/50 text-base" title="No">—</span>
@@ -233,6 +342,15 @@ import { Navbar } from "@/components/blocks/navbar";
                 <td class="py-4 px-4 text-center">
                   <span class="text-muted-foreground/50 text-base" title="No">—</span>
                 </td>
+                <td class="py-4 px-4 text-center">
+                  <span class="text-muted-foreground/50 text-base" title="No">—</span>
+                </td>
+                <td class="py-4 px-4 text-center">
+                  <span class="text-muted-foreground/50 text-base" title="No">—</span>
+                </td>
+                <td class="py-4 px-4 text-center">
+                  <span class="text-muted-foreground/50 text-base" title="No">—</span>
+                </td>
               </tr>
 
               <!-- Cross-org Trust -->
@@ -258,6 +376,15 @@ import { Navbar } from "@/components/blocks/navbar";
                 </td>
                 <td class="py-4 px-4 text-center">
                   <span class="text-muted-foreground/50 text-base" title="No — single-org only">—</span>
+                </td>
+                <td class="py-4 px-4 text-center">
+                  <span class="text-amber-500 text-base" title="Partial — open standard, no observed behavior">~</span>
+                </td>
+                <td class="py-4 px-4 text-center">
+                  <span class="text-amber-500 text-base" title="Partial — declarative tiers, certified not observed">~</span>
+                </td>
+                <td class="py-4 px-4 text-center">
+                  <span class="text-amber-500 text-base" title="Partial — commerce-only, Visa+Experian network">~</span>
                 </td>
               </tr>
 
@@ -285,6 +412,15 @@ import { Navbar } from "@/components/blocks/navbar";
                 <td class="py-4 px-4 text-center">
                   <span class="text-muted-foreground/50 text-base" title="No">—</span>
                 </td>
+                <td class="py-4 px-4 text-center">
+                  <span class="text-muted-foreground/50 text-base" title="No">—</span>
+                </td>
+                <td class="py-4 px-4 text-center">
+                  <span class="text-muted-foreground/50 text-base" title="No">—</span>
+                </td>
+                <td class="py-4 px-4 text-center">
+                  <span class="text-muted-foreground/50 text-base" title="No — fraud scoring is not execution monitoring">—</span>
+                </td>
               </tr>
 
               <!-- ZK Privacy -->
@@ -307,6 +443,15 @@ import { Navbar } from "@/components/blocks/navbar";
                 </td>
                 <td class="py-4 px-4 text-center">
                   <span class="text-green-500 text-base" title="Yes — ZK proofs for on-chain identity">✓</span>
+                </td>
+                <td class="py-4 px-4 text-center">
+                  <span class="text-muted-foreground/50 text-base" title="No">—</span>
+                </td>
+                <td class="py-4 px-4 text-center">
+                  <span class="text-muted-foreground/50 text-base" title="No">—</span>
+                </td>
+                <td class="py-4 px-4 text-center">
+                  <span class="text-amber-500 text-base" title="Partial — post-quantum composite (ML-DSA-65), not ZK">~</span>
                 </td>
                 <td class="py-4 px-4 text-center">
                   <span class="text-muted-foreground/50 text-base" title="No">—</span>
@@ -461,6 +606,58 @@ import { Navbar } from "@/components/blocks/navbar";
           </p>
           <p class="text-muted-foreground leading-relaxed">
             If you're building single-org governance, Microsoft AGT is excellent. If you need email-only, AgentMail or Cloudflare work well. If you need an agent that can operate credibly across organizational boundaries — with a behavioral reputation that persists, accumulates, and is cryptographically verifiable — that's what AgentLair is for.
+          </p>
+        </div>
+      </section>
+
+      <!-- The identity-protocol wave (May 2026) -->
+      <section class="mx-auto max-w-4xl px-4 pb-16">
+        <h2 class="text-2xl font-bold tracking-tight mb-4">The identity-protocol wave (May 2026)</h2>
+        <p class="text-muted-foreground leading-relaxed mb-8">
+          May 2026 saw three independent entrants form "agent trust" as a recognized category in two weeks. Each tackles a slice of L1–L3; none of them touches behavioral runtime.
+        </p>
+
+        <div class="space-y-6">
+
+          <!-- Lyrie ATP -->
+          <div class="border rounded-xl p-6">
+            <div class="flex items-start justify-between gap-4 mb-3">
+              <h3 class="text-lg font-semibold">Lyrie Agent Trust Protocol (ATP)</h3>
+              <span class="text-xs font-medium text-muted-foreground border rounded-full px-3 py-1 whitespace-nowrap shrink-0">L1–L3 Agent Credential</span>
+            </div>
+            <p class="text-muted-foreground leading-relaxed">
+              Lyrie.ai (<a href="https://github.com/OTT-Cybersecurity-LLC/lyrie-ai" rel="nofollow" class="underline underline-offset-2">OTT Cybersecurity LLC</a>) exited stealth May 11, 2026, with a $2M pre-seed and a seat in Anthropic's inaugural Cyber Verification Program — the most significant credibility signal from any new entrant this year. ATP defines five primitives: Identity, Scope, Attestation, Delegation, and Revocation, all signed with Ed25519. The reference implementation is MIT-licensed on GitHub, with an IETF submission planned. That makes Lyrie the strongest open credential standard in this wave. What ATP doesn't do is watch what happens after issuance: five primitives, zero behavioral evidence. The TOCTOU gap — was this agent authorized versus did this agent honor its authorization — is untouched by design. An ATP-credentialed agent entering a behavioral trust system is exactly what AgentLair is built for.
+            </p>
+          </div>
+
+          <!-- ARIA Protocol -->
+          <div class="border rounded-xl p-6">
+            <div class="flex items-start justify-between gap-4 mb-3">
+              <h3 class="text-lg font-semibold">ARIA Protocol</h3>
+              <span class="text-xs font-medium text-muted-foreground border rounded-full px-3 py-1 whitespace-nowrap shrink-0">L0–L3 Credential Tier</span>
+            </div>
+            <p class="text-muted-foreground leading-relaxed">
+              <a href="https://aria.bar" rel="nofollow" class="underline underline-offset-2">TrustLayer Foundation A.C.</a>, an independent nonprofit established March 20, 2026 in Mexico City, runs ARIA as an open credentialing framework. The technical design is forward-looking: W3C Verifiable Credentials anchored to DNS, with post-quantum ML-DSA-65 composite signatures alongside Ed25519. Four trust levels span the range from self-service agent registration (L0) to government-backed sovereign attestation (L3). The cleanliness of the model is genuine — it maps naturally to existing compliance frameworks. The limit is that every level is declarative: an L3 ARIA credential certifies who the holder is via organizational attestation, not what the agent has done. Observed behavior and certified identity are different things, and ARIA covers the second.
+            </p>
+          </div>
+
+          <!-- Experian Agent Trust -->
+          <div class="border rounded-xl p-6">
+            <div class="flex items-start justify-between gap-4 mb-3">
+              <h3 class="text-lg font-semibold">Experian Agent Trust</h3>
+              <span class="text-xs font-medium text-muted-foreground border rounded-full px-3 py-1 whitespace-nowrap shrink-0">L1–L2 Commerce Identity</span>
+            </div>
+            <p class="text-muted-foreground leading-relaxed">
+              <a href="https://www.experianplc.com" rel="nofollow" class="underline underline-offset-2">Experian plc</a> (NYSE: EXPGY, ~$7B revenue) announced Agent Trust on April 30, 2026. The architecture layers Skyfire's Known Your Agent (KYA) JWT framework as the identity layer, Experian's 1.4B-consumer profile database for risk scoring, and Visa TAP for merchant verification. The output is an Agent Trust Token that binds a verified human identity to an authorized agent, with a real-time fraud risk score attached. Distribution moat is real — if Human-to-Agent Binding becomes the default for agentic commerce, it matters enormously who runs it. The gap Experian leaves open is execution monitoring: their behavioral signals are consumer identity and transaction patterns, the same fraud-scoring competency they apply to credit. That is not cross-org execution monitoring, not tool-call log analysis, not behavioral drift detection across organizations. The TOCTOU gap between "this agent was authorized at registration" and "this agent honored that authorization at runtime" is exactly where AgentLair operates. The two systems are complementary layers, not substitutes.
+            </p>
+          </div>
+
+        </div>
+
+        <!-- Closing paragraph -->
+        <div class="mt-8 border-t pt-8">
+          <p class="text-muted-foreground leading-relaxed">
+            Behavioral runtime is the layer none of these touch. Six months from now, several may be widely deployed — and the question that follows authorization will still be open: did the agent honor it? Lyrie ATP tells you who the agent was and what it was permitted to do at credential issuance. ARIA tells you what organizational tier certified it. Experian tells you it was bound to a verified human and passed fraud scoring at registration. AgentLair's bet is that when agents start operating across organizations at scale, the time-of-check-to-time-of-use problem becomes the dominant failure mode — and the trust primitive that matters is a portable, observed record of what the agent actually did.
           </p>
         </div>
       </section>
