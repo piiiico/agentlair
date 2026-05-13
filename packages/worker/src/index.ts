@@ -70,6 +70,7 @@ import { handleCheckout, handleStripeWebhook } from './routes/stripe.js';
 import { EXPLORE_HTML } from './routes/explore.js';
 import { computeTrustScore } from './trust-engine.js';
 import { wbaRoutes } from './routes/wba.js';
+import { buildRoutes } from './routes/build.js';
 import { renderAgentProfileHTML, fetchProfileExtras } from './profile-render.js';
 import type { ProfileExtras } from './profile-render.js';
 
@@ -350,6 +351,11 @@ app.get('/api', (c) => {
 });
 
 app.get('/health', () => json({ status: 'ok', timestamp: new Date().toISOString(), version: '0.18.3' }));
+
+// Edge-propagation marker used by agentlair-deploy.ts after purge_cache to confirm
+// CF POPs are serving the freshly-deployed bundle. See routes/build.ts and
+// /workspace/tools/agentlair-deploy.ts (waitForEdgePropagation).
+app.route('/__build', buildRoutes);
 
 // L4 Behavioral Trust Specification — public, no auth required
 app.route('/spec', specRoutes);
