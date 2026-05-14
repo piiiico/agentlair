@@ -34,6 +34,10 @@ function escapeHtml(s: string): string {
     .replace(/'/g, '&#39;');
 }
 
+function escapeMarkdownInline(s: string): string {
+  return String(s).replace(/[\[\]\n\r]/g, '');
+}
+
 function renderHtml(rowSet: LeaderboardRowSet): string {
   const { refreshed_at, total, results } = rowSet;
 
@@ -50,7 +54,7 @@ function renderHtml(rowSet: LeaderboardRowSet): string {
     const color = gradeColor(r.grade);
     const errorCell = r.error ? `<span class="err">${escapeHtml(r.error)}</span>` : '';
     const encoded = btoa(r.url).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-    const snippet = `![AgentLair L4 — ${escapeHtml(r.name)}](https://agentlair.dev/badge/a2a/${encoded}.svg)\n[${escapeHtml(r.name)} on AgentLair Leaderboard](https://agentlair.dev/leaderboard/a2a)`;
+    const snippet = `![AgentLair L4 — ${escapeHtml(escapeMarkdownInline(r.name))}](https://agentlair.dev/badge/a2a/${encoded}.svg)\n[${escapeHtml(escapeMarkdownInline(r.name))} on AgentLair Leaderboard](https://agentlair.dev/leaderboard/a2a)`;
     return `<tr data-idx="${i}">
       <td>${escapeHtml(r.name)}</td>
       <td><a href="${escapeHtml(r.url)}" target="_blank" rel="noopener">${escapeHtml(r.url)}</a></td>

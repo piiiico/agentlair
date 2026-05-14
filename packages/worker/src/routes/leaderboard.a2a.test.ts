@@ -174,6 +174,29 @@ describe('GET /leaderboard/a2a — embed badge', () => {
     expect(body).toContain('Foo &amp; &lt;Bar&gt;');
     expect(body).not.toContain('Foo & <Bar>');
   });
+
+  test('LB-XSS-MARKDOWN-ESCAPED: markdown brackets and script tags in agent name are stripped/escaped in embed snippet', async () => {
+    const rowSet: LeaderboardRowSet = {
+      ...SAMPLE_ROWSET,
+      total: 1,
+      results: [{ name: '<script>alert(1)</script> & [malicious]', url: 'https://xss-md.example.com', well_known: 'https://xss-md.example.com/.well-known/agent.json', grade: 'F', score: 0, layers: { l1: 0, l2: 0, l3: 0, l4: 0 }, ts: '2026-05-14T00:00:00Z' }],
+    };
+    const { app, env } = makeApp(makeKv(rowSet), SECRET);
+    const res = await req(app, 'GET', '/leaderboard/a2a', env);
+    const body = await res.text();
+    // Extract only the embed snippet portion (inside <pre><code>)
+    const snippetMatch = body.match(/<pre><code>([\s\S]*?)<\/code><\/pre>/);
+    expect(snippetMatch).not.toBeNull();
+    const snippet = snippetMatch![1];
+    // XSS: raw script tags must not appear in the embed snippet
+    expect(snippet).not.toContain('<script>alert(1)</script>');
+    // XSS: HTML-escaped version must appear in the embed snippet
+    expect(snippet).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
+    // Markdown injection: brackets must not appear in the embed snippet
+    expect(snippet).not.toContain('[malicious]');
+    // The word itself (without brackets) must still be present in the snippet
+    expect(snippet).toContain('malicious');
+  });
 });
 
 describe('GET /leaderboard/a2a.json', () => {
