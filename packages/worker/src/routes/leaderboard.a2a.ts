@@ -5,6 +5,7 @@
 //   GET  /a2a          → text/html  (200 on KV hit, 503+Retry-After on miss)
 //   GET  /a2a.json     → application/json (same status codes)
 //   POST /a2a/refresh  → shared-secret gated; triggers runLeaderboardRefresh
+//   GET  /a2a/:slug    → per-agent permalink (200 or 404)
 //
 // Cache: public, max-age=300, s-maxage=3600 for GET routes.
 // Auth: shared secret in env.LEADERBOARD_REFRESH_SECRET (simpler than AAT JWT — see coding-output.md).
@@ -14,6 +15,7 @@ import type { HonoEnv } from '../types.js';
 import { runLeaderboardRefresh, compareRows, type LeaderboardRowSet, type LeaderboardGrade, type LeaderboardRow } from '../lib/a2a-leaderboard-job.js';
 import { auditCardUrl } from '../lib/a2a-audit.js';
 import { checkIpRateLimit } from '../middleware/ratelimit.js';
+import { lookupRow } from '../lib/a2a-leaderboard-slug.js';
 
 export const leaderboardA2ARoutes = new Hono<HonoEnv>();
 
@@ -458,4 +460,200 @@ leaderboardA2ARoutes.post('/a2a/refresh', async (c) => {
     const msg = e instanceof Error ? e.message : 'refresh failed';
     return c.json({ error: msg }, 503);
   }
+});
+
+// ─── GET /a2a/:slug → per-agent permalink ────────────────────────────────────
+//
+// Must come AFTER /a2a/submit (GET+POST) to avoid Hono trie swallowing "submit".
+
+function shortDate(iso: string): string {
+  try {
+    return iso.slice(0, 10); // YYYY-MM-DD
+  } catch {
+    return iso;
+  }
+}
+
+function relativeTime(iso: string): string {
+  try {
+    const diffMs = Date.now() - new Date(iso).getTime();
+    const days = Math.floor(diffMs / 86400000);
+    if (days === 0) return 'today';
+    if (days === 1) return '1 day ago';
+    if (days < 30) return `${days} days ago`;
+    const months = Math.floor(days / 30);
+    if (months === 1) return '1 month ago';
+    return `${months} months ago`;
+  } catch {
+    return '';
+  }
+}
+
+function metaDescription(row: LeaderboardRow): string {
+  const raw = `A2A trust audit for ${row.name}: grade ${row.grade}, score ${row.score}/100. Last audited ${shortDate(row.ts)}.`;
+  return raw.length > 155 ? raw.slice(0, 152) + '...' : raw;
+}
+
+function base64UrlEncode(s: string): string {
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function renderPermalinkHtml(slug: string, row: LeaderboardRow): string {
+  const title = `A2A Trust Audit: ${escapeHtml(row.name)} — agentlair.dev`;
+  const desc = metaDescription(row);
+  const canonical = `https://agentlair.dev/leaderboard/a2a/${slug}`;
+  const sourceUrl = row.well_known || row.url;
+  const ogImage = `https://agentlair.dev/og/a2a/${base64UrlEncode(sourceUrl)}.png`;
+  const color = gradeColor(row.grade);
+  const reauditTarget = encodeURIComponent(sourceUrl);
+
+  const layerBar = (label: string, val: number) =>
+    `<div class="layer-row">
+      <span class="layer-label">${label}: ${val}/100</span>
+      <div class="layer-track"><div class="layer-fill" style="width:${val}%"></div></div>
+    </div>`;
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>${title}</title>
+  <meta name="description" content="${escapeHtml(desc)}">
+  <link rel="canonical" href="${canonical}">
+  <meta property="og:title" content="${escapeHtml(title)}">
+  <meta property="og:description" content="${escapeHtml(desc)}">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="${canonical}">
+  <meta property="og:image" content="${ogImage}">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; font-size: 14px; padding: 24px; background: #fafafa; color: #111; max-width: 700px; }
+    h1 { font-size: 1.5rem; margin-bottom: 12px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .pill { display: inline-block; padding: 2px 10px; border-radius: 10px; color: #fff; font-weight: 600; font-size: 14px; }
+    .score { font-size: 1rem; color: #555; }
+    .meta { color: #666; font-size: 13px; margin-bottom: 20px; }
+    .layers { margin: 20px 0; }
+    .layer-row { margin-bottom: 10px; }
+    .layer-label { display: block; font-size: 13px; margin-bottom: 4px; }
+    .layer-track { background: #e0e0e0; border-radius: 4px; height: 10px; }
+    .layer-fill { background: #1a73e8; height: 10px; border-radius: 4px; }
+    .cta-section { margin: 24px 0; display: flex; flex-direction: column; gap: 10px; }
+    .cta-primary { display: inline-block; border: 1px solid #1a73e8; color: #1a73e8; border-radius: 4px; padding: 8px 16px; font-size: 13px; font-weight: 600; text-decoration: none; }
+    .cta-primary:hover { background: #1a73e8; color: #fff; text-decoration: none; }
+    .cta-note { font-size: 12px; color: #666; }
+    a { color: #1a73e8; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .nav { margin-top: 24px; font-size: 13px; display: flex; gap: 16px; }
+    @media (prefers-color-scheme: dark) {
+      body { background: #121212; color: #e0e0e0; }
+      .meta { color: #aaa; }
+      .layer-track { background: #333; }
+      .layer-fill { background: #74aeff; }
+      .score { color: #aaa; }
+      .cta-note { color: #aaa; }
+      .cta-primary { border-color: #74aeff; color: #74aeff; }
+      .cta-primary:hover { background: #74aeff; color: #121212; }
+      a { color: #74aeff; }
+    }
+  </style>
+</head>
+<body>
+  <h1>
+    ${escapeHtml(row.name)}
+    <span class="pill" style="background:${color}">${escapeHtml(row.grade)}</span>
+    <span class="score">(${row.score}/100)</span>
+  </h1>
+  <p class="meta">Last audited: ${shortDate(row.ts)} (${relativeTime(row.ts)})</p>
+  <div class="layers">
+    ${layerBar('L1', row.layers.l1)}
+    ${layerBar('L2', row.layers.l2)}
+    ${layerBar('L3', row.layers.l3)}
+    ${layerBar('L4', row.layers.l4)}
+  </div>
+  <div class="cta-section">
+    <a class="cta-primary" href="/a2a-audit/run?target=${reauditTarget}">Re-audit this agent</a>
+    <span class="cta-note">Re-audits cost 0.01 USDC via x402.</span>
+    <a href="/leaderboard/a2a/submit">Submit your own agent</a>
+  </div>
+  <nav class="nav">
+    <a href="/leaderboard/a2a">&larr; Back to leaderboard</a>
+  </nav>
+</body>
+</html>`;
+}
+
+function render404Html(slug: string): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>No A2A audit on file — agentlair.dev</title>
+  <meta name="description" content="No A2A trust audit found for &quot;${escapeHtml(slug)}&quot; in agentlair.dev's leaderboard.">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="https://agentlair.dev/og/default.svg">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; font-size: 14px; padding: 24px; background: #fafafa; color: #111; max-width: 600px; }
+    h1 { font-size: 1.5rem; margin-bottom: 12px; }
+    p { margin-bottom: 16px; line-height: 1.6; color: #444; }
+    a { color: #1a73e8; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .nav { margin-top: 24px; font-size: 13px; }
+    @media (prefers-color-scheme: dark) {
+      body { background: #121212; color: #e0e0e0; }
+      p { color: #aaa; }
+      a { color: #74aeff; }
+    }
+  </style>
+</head>
+<body>
+  <h1>No audit on file</h1>
+  <p>We have no audit on file for <code>${escapeHtml(slug)}</code>. <a href="/leaderboard/a2a/submit?suggested-slug=${encodeURIComponent(slug)}">Submit this agent for audit</a> and it will appear on the leaderboard within 24 hours.</p>
+  <nav class="nav">
+    <a href="/leaderboard/a2a">&larr; Back to leaderboard</a>
+  </nav>
+</body>
+</html>`;
+}
+
+leaderboardA2ARoutes.get('/a2a/:slug', async (c) => {
+  const kv = c.env.A2A_LEADERBOARD;
+  if (!kv) {
+    return new Response('Service unavailable', {
+      status: 503,
+      headers: { 'Retry-After': '300', 'Content-Type': 'text/plain' },
+    });
+  }
+
+  const raw = await kv.get(KV_KEY);
+  if (!raw) {
+    return new Response('Service unavailable — leaderboard not yet populated', {
+      status: 503,
+      headers: { 'Retry-After': '300', 'Content-Type': 'text/plain' },
+    });
+  }
+
+  const rowSet = JSON.parse(raw) as LeaderboardRowSet;
+  const slug = c.req.param('slug');
+  const row = await lookupRow(slug, rowSet.results);
+
+  if (!row) {
+    return new Response(render404Html(slug), {
+      status: 404,
+      headers: { 'Content-Type': 'text/html; charset=utf-8' },
+    });
+  }
+
+  const html = renderPermalinkHtml(slug.toLowerCase(), row);
+  return new Response(html, {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'public, max-age=300, s-maxage=3600',
+    },
+  });
 });

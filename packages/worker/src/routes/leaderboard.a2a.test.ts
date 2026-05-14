@@ -423,3 +423,95 @@ describe('POST /leaderboard/a2a/submit', () => {
     expect(body).toHaveProperty('submitted_at');
   });
 });
+
+// ─── Permalink tests ──────────────────────────────────────────────────────────
+
+describe('GET /leaderboard/a2a/:slug — permalinks', () => {
+  // SAMPLE_ROWSET has Alpha (well_known: https://alpha.example.com/.well-known/agent.json → slug: alpha-example-com)
+  // and Beta (well_known: https://beta.example.com/.well-known/agent.json → slug: beta-example-com)
+
+  test('PERMALINK-1: known slug returns 200 HTML with agent data and OG tags', async () => {
+    const { app, env } = makeApp(makeKv(SAMPLE_ROWSET), SECRET);
+    const res = await req(app, 'GET', '/leaderboard/a2a/alpha-example-com', env);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Content-Type')).toContain('text/html');
+    const body = await res.text();
+    expect(body).toContain('Alpha');
+    expect(body).toContain('A');          // grade pill
+    expect(body).toContain('92/100');     // score
+    expect(body).toContain('<meta property="og:title"');
+    expect(body).toContain('<meta property="og:image"');
+  });
+
+  test('PERMALINK-2: unknown slug returns 404 HTML with Submit CTA', async () => {
+    const { app, env } = makeApp(makeKv(SAMPLE_ROWSET), SECRET);
+    const res = await req(app, 'GET', '/leaderboard/a2a/nonexistent-xyz-zzz', env);
+    expect(res.status).toBe(404);
+    expect(res.headers.get('Content-Type')).toContain('text/html');
+    const body = await res.text();
+    expect(body).toContain('/leaderboard/a2a/submit');
+  });
+
+  test('PERMALINK-3: collision — base slug and suffixed slug each resolve to distinct rows', async () => {
+    const rowA: LeaderboardRowSet['results'][0] = {
+      name: 'SharedA', url: 'https://shared.example.com/a',
+      well_known: 'https://shared.example.com/a/.well-known/agent.json',
+      grade: 'A', score: 80, layers: { l1: 80, l2: 80, l3: 80, l4: 80 }, ts: '2026-05-14T00:00:00Z',
+    };
+    const rowB: LeaderboardRowSet['results'][0] = {
+      name: 'SharedB', url: 'https://shared.example.com/b',
+      well_known: 'https://shared.example.com/b/.well-known/agent.json',
+      grade: 'B', score: 60, layers: { l1: 60, l2: 60, l3: 60, l4: 60 }, ts: '2026-05-14T00:00:00Z',
+    };
+    const collisionRowset: LeaderboardRowSet = {
+      refreshed_at: '2026-05-14T04:00:00.000Z', total: 2,
+      registry_url: 'https://a2aregistry.org/api/agents', results: [rowA, rowB],
+    };
+
+    const { app, env } = makeApp(makeKv(collisionRowset), SECRET);
+
+    // Base slug → rowA (first by url sort)
+    const resBase = await req(app, 'GET', '/leaderboard/a2a/shared-example-com', env);
+    expect(resBase.status).toBe(200);
+    const bodyBase = await resBase.text();
+    expect(bodyBase).toContain('SharedA');
+
+    // Suffixed slug → rowB (hash6 of rowB's well_known: 4ecdbc)
+    const resSuffixed = await req(app, 'GET', '/leaderboard/a2a/shared-example-com-4ecdbc', env);
+    expect(resSuffixed.status).toBe(200);
+    const bodySuffixed = await resSuffixed.text();
+    expect(bodySuffixed).toContain('SharedB');
+  });
+
+  test('PERMALINK-4: case-insensitive slug lookup', async () => {
+    const { app, env } = makeApp(makeKv(SAMPLE_ROWSET), SECRET);
+    const res = await req(app, 'GET', '/leaderboard/a2a/ALPHA-EXAMPLE-COM', env);
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    expect(body).toContain('Alpha');
+    expect(body).toContain('92/100');
+  });
+
+  test('PERMALINK-5: canonical link is exact match', async () => {
+    const { app, env } = makeApp(makeKv(SAMPLE_ROWSET), SECRET);
+    const res = await req(app, 'GET', '/leaderboard/a2a/alpha-example-com', env);
+    const body = await res.text();
+    expect(body).toContain('<link rel="canonical" href="https://agentlair.dev/leaderboard/a2a/alpha-example-com">');
+  });
+
+  test('PERMALINK-6: re-audit CTA contains encoded source URL', async () => {
+    const { app, env } = makeApp(makeKv(SAMPLE_ROWSET), SECRET);
+    const res = await req(app, 'GET', '/leaderboard/a2a/alpha-example-com', env);
+    const body = await res.text();
+    // Source URL for Alpha is well_known: https://alpha.example.com/.well-known/agent.json
+    const expectedEncoded = encodeURIComponent('https://alpha.example.com/.well-known/agent.json');
+    expect(body).toContain(expectedEncoded);
+  });
+
+  test('PERMALINK-7: KV empty returns 503 with Retry-After', async () => {
+    const { app, env } = makeApp(makeKv(), SECRET);
+    const res = await req(app, 'GET', '/leaderboard/a2a/whatever', env);
+    expect(res.status).toBe(503);
+    expect(res.headers.get('Retry-After')).toBe('300');
+  });
+});
