@@ -465,12 +465,17 @@ a2aAuditRunRoutes.post('/run', async (c) => {
 
   // 8b. Pre-flight reachability probe — HEAD target before settle to prevent settle-then-fail.
   // If the target is unreachable, return 402 without settling (refund-by-not-charging).
+  // Special case: a 522 from a *.agentlair.dev subdomain means CF inside-zone routing failure
+  // (the worker cannot fetch its own zone subdomains via public DNS). Return a clear error
+  // so buyers don't lose payment — this is a structural limitation, not a transient error.
   {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 4000);
     let reachable = false;
+    let headStatus: number | null = null;
     try {
       const headRes = await fetch(normalized, { method: 'HEAD', signal: controller.signal });
+      headStatus = headRes.status;
       reachable = headRes.status < 400;
     } catch {
       reachable = false;
@@ -478,6 +483,13 @@ a2aAuditRunRoutes.post('/run', async (c) => {
       clearTimeout(timer);
     }
     if (!reachable) {
+      const cfInsideZone = headStatus === 522 && normalizedHost.endsWith('.agentlair.dev');
+      if (cfInsideZone) {
+        return c.json({
+          error: 'cf_inside_zone_limit',
+          message: 'CF inside-zone fetch: this audit worker cannot fetch targets on the same Cloudflare zone (agentlair.dev subdomains). Audit from an external origin or use the free demo for agentlair.dev.',
+        }, 400);
+      }
       return make402Response(SERVICE_PRICES.a2a_audit_run, { payment_error: 'target_unreachable' });
     }
   }
@@ -497,6 +509,16 @@ a2aAuditRunRoutes.post('/run', async (c) => {
       audit = await auditCardUrl(normalized);
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : String(e);
+      // Detect CF inside-zone 522: worker fetching its own zone subdomain via public DNS fails
+      // with "Failed to fetch …: 522". Return 400 (not 502) since this is a client-correctable
+      // issue — the target is unreachable from inside CF's zone, not a server fault.
+      if (message.includes(': 522') && normalizedHost.endsWith('.agentlair.dev')) {
+        return c.json({
+          error: 'cf_inside_zone_limit',
+          message: 'CF inside-zone fetch: this audit worker cannot fetch targets on the same Cloudflare zone (agentlair.dev subdomains). Audit from an external origin or use the free demo for agentlair.dev.',
+          payment_receipt: settlement.receipt ?? null,
+        }, 400, settlement.receipt ? { 'X-Payment-Response': settlement.receipt } : {});
+      }
       // Change B: post-settle audit failure — include settlement receipt so buyer has in-band proof.
       // Decode txHash from receipt (receipt = btoa(JSON.stringify(facilitator response))).
       let settlement_tx: string | null = null;

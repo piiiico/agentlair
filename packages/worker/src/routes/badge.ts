@@ -395,10 +395,17 @@ export function decodeBase64UrlCardUrl(encoded: string): string | null {
   }
 }
 
-/** True when the URL points to agentlair.dev — CF Workers can't fetch their own origin. */
+/**
+ * True when the URL points to agentlair.dev or its API subdomain.
+ * CF Workers can't fetch their own zone via public DNS — these share the same
+ * AgentCard (buildSignedAgentCard), so both are served without a network fetch.
+ * Any other *.agentlair.dev subdomain is NOT covered; that case returns a clear
+ * CF inside-zone error in the audit route.
+ */
 export function isSelfUrl(url: string): boolean {
   try {
-    return new URL(url).hostname === 'agentlair.dev';
+    const hostname = new URL(url).hostname;
+    return hostname === 'agentlair.dev' || hostname === 'api.agentlair.dev';
   } catch {
     return false;
   }

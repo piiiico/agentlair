@@ -434,6 +434,65 @@ describe('A2A Audit Run Routes', () => {
     expect(res.headers.get('X-Payment-Response')).toBeTruthy();
   });
 
+  // A2A-F2-1: api.agentlair.dev target returns 200 demo audit (isSelfUrl covers subdomain)
+  // Verifies the CF inside-zone fix: api.agentlair.dev is now treated as self-card,
+  // so the worker never attempts a network fetch to its own zone.
+  test('A2A-F2-1: api.agentlair.dev target returns 200 demo audit without payment', async () => {
+    const app = makeApp();
+    const res = await doFetch(app, new Request('http://localhost/a2a-audit/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      // No X-PAYMENT header — should be free demo, same as agentlair.dev apex
+      body: JSON.stringify({ url: 'https://api.agentlair.dev/.well-known/agent.json' }),
+    }));
+    expect(res.status).toBe(200);
+    const data = await res.json() as any;
+    expect(data.demo).toBe(true);
+    expect(data.audit).toBeDefined();
+    expect(data.audit.scores).toBeDefined();
+    expect(data.audit.grade).toBeDefined();
+    // Confirm no network fetch was made to api.agentlair.dev (auditCallCount unchanged)
+    expect(auditCallCount).toBe(0);
+  });
+
+  // A2A-F2-2: pre-flight 522 from *.agentlair.dev returns 400 cf_inside_zone_limit (not 402)
+  test('A2A-F2-2: pre-flight 522 from agentlair.dev subdomain returns 400 cf_inside_zone_limit', async () => {
+    let settleCalled = false;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url;
+      const method = ((init?.method) ?? 'GET').toUpperCase();
+      if (url.includes('facilitator') && url.includes('/verify')) {
+        return new Response(JSON.stringify({ isValid: true, payer: '0xtest1234' }), {
+          status: 200, headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (url.includes('facilitator') && url.includes('/settle')) {
+        settleCalled = true;
+        return new Response(JSON.stringify({ success: true, txHash: '0xabc' }), {
+          status: 200, headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (method === 'HEAD') {
+        // Simulate CF inside-zone 522 on agentlair.dev subdomain
+        return new Response(null, { status: 522 });
+      }
+      return new Response('Not Found', { status: 404 });
+    }) as typeof fetch;
+
+    const app = makeApp();
+    const res = await doFetch(app, new Request('http://localhost/a2a-audit/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-PAYMENT': MOCK_PAYMENT_HEADER },
+      body: JSON.stringify({ url: 'https://other.agentlair.dev/.well-known/agent.json' }),
+    }));
+
+    expect(settleCalled).toBe(false);
+    expect(res.status).toBe(400);
+    const data = await res.json() as any;
+    expect(data.error).toBe('cf_inside_zone_limit');
+    expect(data.message).toContain('Cloudflare zone');
+  });
+
   // 20. Pre-flight HEAD timeout treated as unreachable
   test('pre-flight HEAD timeout treated as unreachable (no settle)', async () => {
     let settleCalled = false;
