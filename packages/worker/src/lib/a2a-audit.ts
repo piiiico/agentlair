@@ -396,6 +396,36 @@ export function gradeColor(g: Grade): string {
   }
 }
 
+// ── remediation hints ────────────────────────────────────────────────────────
+//
+// One-line fix hint per check id. Used by the audit UI to give buyers a clear
+// path after a failed check. Single source of truth — rendered in the HTML page.
+
+export const REMEDIATIONS: Record<string, string> = {
+  'l1-name': "Add a 'name' field (≤64 chars) to your AgentCard.",
+  'l1-description': "Add a 'description' field (50-300 chars) explaining what the agent does.",
+  'l1-url': "Add a 'url' field with your agent's base endpoint URL.",
+  'l1-https': "Change your 'url' to start with 'https://' — plaintext HTTP is not accepted.",
+  'l1-version': "Add a 'version' field (e.g. '1.0.0') to your AgentCard.",
+  'l1-contact': "Add a 'contact' object with 'email' or 'url' for vulnerability disclosure.",
+  'l1-provider': "Add a 'provider' object with 'organization' and/or 'url' declaring the operator.",
+  'l1-did': "Add a 'did' field like 'did:web:yourdomain.com' tied to your domain.",
+  'l2-auth-declared': "Add an 'authentication' object with at least one entry in 'schemes' (e.g. 'bearer').",
+  'l2-oauth': "Add 'oauth2' or 'openid_connect' to your authentication.schemes array.",
+  'l2-jwks': "Add a 'jwks_uri' field pointing to /.well-known/jwks.json and serve your public signing keys there.",
+  'l2-card-signed': "Sign your AgentCard with EdDSA and add a 'card_signature' field (compact JWS). See agentlair.dev/a2a-audit for tooling.",
+  'l2-x402': "Add x402 payment gating to at least one skill endpoint — signals real skin in the game.",
+  'l2-mtls': "Add 'mtls' to authentication.schemes if your endpoint supports mutual TLS client certificates.",
+  'l3-skills': "Declare at least one capability under 'skills[]' with id, name, description, and tags.",
+  'l3-skill-ids': "Each skill must have 'id', 'name', 'description', and 'tags' fields — all four are required.",
+  'l3-io-modes': "Set 'defaultInputModes' and 'defaultOutputModes' to list supported MIME types (e.g. ['application/json']).",
+  'l3-capabilities': "Add a 'capabilities' object declaring streaming, pushNotifications, and stateTransitionHistory booleans.",
+  'l4-trust-attestation': "Add a 'trust_attestation' object with 'self_reported: true' and a 'trust_endpoint_template' URL.",
+  'l4-audit-trail': "Add 'audit_trail_url_template' pointing to a verifiable per-request audit endpoint.",
+  'l4-behavioral-ref': "Add a 'behavioral_monitoring' object referencing a runtime trust provider (provider, type, description).",
+  'l4-delegation': "Add a 'delegation' or 'provenance' field with signed delegation tokens for agent-to-agent trust chains.",
+};
+
 // ── convenience wrapper ──────────────────────────────────────────────────────
 
 export async function auditCardUrl(

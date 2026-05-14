@@ -86,6 +86,19 @@ a2aAuditRunRoutes.get('/', async (c) => {
     #audit-another:hover{background:#000}
     details summary{cursor:pointer;font-size:.9rem;font-weight:600;padding:.25rem 0;color:#555}
     #copy-toast{position:fixed;bottom:1rem;left:50%;transform:translateX(-50%);background:#1a1a1a;color:#fff;padding:.5rem 1rem;border-radius:4px;font-size:.85rem;z-index:1000}
+    details.sample-panel summary{cursor:pointer;font-size:.9rem;font-weight:600;color:#555;padding:.5rem 0}
+    details.sample-panel pre{background:#f5f5f5;padding:.75rem;font-size:.75rem;max-height:300px;overflow:auto;border-radius:4px}
+    .sample-note{font-size:.8rem;color:#666;margin-top:.5rem}
+    .checks-list{list-style:none;padding:0;margin:.5rem 0;font-size:.85rem}
+    .checks-list li{padding:.25rem 0;border-bottom:1px solid #f0f0f0;display:flex;flex-direction:column;gap:.15rem}
+    .checks-list li:last-child{border-bottom:none}
+    .check-row{display:flex;align-items:baseline;gap:.4rem}
+    .check-pass{color:#4caf50;font-size:.8rem;flex-shrink:0}
+    .check-fail{color:#e74c3c;font-size:.8rem;flex-shrink:0}
+    .check-name{flex:1}
+    .check-severity{font-size:.75rem;color:#999;flex-shrink:0}
+    .fix-hint{font-size:.8rem;color:#c0392b;padding-left:1.4rem}
+    .fix-hint::before{content:"Fix: ";font-weight:600}
   </style>
 </head>
 <body>
@@ -102,6 +115,42 @@ a2aAuditRunRoutes.get('/', async (c) => {
       <button type="submit">Run audit</button>
       <button type="button" id="demo-btn">Try demo (agentlair.dev)</button>
     </form>
+    <details class="sample-panel">
+      <summary>What does an audit look like?</summary>
+      <pre>{
+  "target": "https://agentlair.dev/.well-known/agent.json",
+  "grade": "B",
+  "scores": {
+    "L1_identity": 100, "L2_authentication": 71,
+    "L3_authorization": 100, "L4_behavioral": 87, "overall": 87
+  },
+  "checks": [
+    {"id":"l1-name","layer":"L1","name":"Agent name declared","pass":true,"severity":"critical","detail":"Name: \\"AgentLair\\""},
+    {"id":"l1-description","layer":"L1","name":"Description present","pass":true,"severity":"high","detail":"140 chars"},
+    {"id":"l1-url","layer":"L1","name":"Base URL declared","pass":true,"severity":"critical","detail":"https://agentlair.dev"},
+    {"id":"l1-https","layer":"L1","name":"HTTPS endpoint","pass":true,"severity":"critical","detail":"HTTPS"},
+    {"id":"l1-version","layer":"L1","name":"Version specified","pass":true,"severity":"medium","detail":"v0.18.3"},
+    {"id":"l1-contact","layer":"L1","name":"Contact information","pass":true,"severity":"low","detail":"Email: api@agentlair.dev"},
+    {"id":"l1-provider","layer":"L1","name":"Provider/organization declared","pass":true,"severity":"medium","detail":"Org: Amdal Solutions AS"},
+    {"id":"l1-did","layer":"L1","name":"DID (Decentralized Identifier)","pass":true,"severity":"high","detail":"DID present."},
+    {"id":"l2-auth-declared","layer":"L2","name":"Authentication scheme declared","pass":true,"severity":"critical","detail":"Auth declared."},
+    {"id":"l2-oauth","layer":"L2","name":"OAuth 2.0 or OpenID Connect","pass":false,"severity":"medium","detail":"No OAuth/OIDC."},
+    {"id":"l2-jwks","layer":"L2","name":"JWKS endpoint referenced","pass":true,"severity":"high","detail":"JWKS: https://agentlair.dev/.well-known/jwks.json"},
+    {"id":"l2-card-signed","layer":"L2","name":"Agent card is signed","pass":true,"severity":"critical","detail":"Legacy card_signature."},
+    {"id":"l2-x402","layer":"L2","name":"x402 payment-gated (skin in the game)","pass":false,"severity":"high","detail":"No x402."},
+    {"id":"l2-mtls","layer":"L2","name":"Mutual TLS support","pass":false,"severity":"low","detail":"No mTLS."},
+    {"id":"l3-skills","layer":"L3","name":"Skills/capabilities defined","pass":true,"severity":"high","detail":"5 skills."},
+    {"id":"l3-skill-ids","layer":"L3","name":"Skills have required fields","pass":true,"severity":"medium","detail":"All skills complete."},
+    {"id":"l3-io-modes","layer":"L3","name":"Input/output modes specified","pass":true,"severity":"medium","detail":"I/O modes set."},
+    {"id":"l3-capabilities","layer":"L3","name":"Capabilities explicitly declared","pass":true,"severity":"medium","detail":"Capabilities set."},
+    {"id":"l4-trust-attestation","layer":"L4","name":"Trust attestation present","pass":true,"severity":"critical","detail":"Trust attestation declared."},
+    {"id":"l4-audit-trail","layer":"L4","name":"Audit trail URL","pass":true,"severity":"high","detail":"Audit trail set."},
+    {"id":"l4-behavioral-ref","layer":"L4","name":"Behavioral monitoring reference","pass":true,"severity":"high","detail":"Behavioral monitoring referenced."},
+    {"id":"l4-delegation","layer":"L4","name":"Delegation/provenance chain","pass":false,"severity":"medium","detail":"No delegation chain."}
+  ]
+}</pre>
+      <p class="sample-note">This is the live result for agentlair.dev's own AgentCard. Yours will return the same shape.</p>
+    </details>
     <section id="result" hidden>
       <h2 id="result-heading">Result</h2>
       <div id="grade-card"><!-- runAudit fills this --></div>
@@ -130,6 +179,10 @@ a2aAuditRunRoutes.get('/', async (c) => {
           <code id="embed-svg"></code>
           <button type="button" data-copy-target="embed-svg" class="copy-btn">Copy</button>
         </div>
+      </details>
+      <details id="checks-detail-panel">
+        <summary>All checks</summary>
+        <ul id="checks-list" class="checks-list"><!-- renderSuccess fills this --></ul>
       </details>
       <details id="raw-json-panel">
         <summary>Raw audit JSON</summary>
@@ -166,6 +219,32 @@ a2aAuditRunRoutes.get('/', async (c) => {
   var copyToast=document.getElementById('copy-toast');
   var errorEl=document.getElementById('error-panel');
   var submitBtn=form.querySelector('button[type=submit]');
+  var checksListEl=document.getElementById('checks-list');
+
+  var REMEDIATIONS={
+    'l1-name':"Add a 'name' field (≤64 chars) to your AgentCard.",
+    'l1-description':"Add a 'description' field (50-300 chars) explaining what the agent does.",
+    'l1-url':"Add a 'url' field with your agent's base endpoint URL.",
+    'l1-https':"Change your 'url' to start with 'https://' — plaintext HTTP is not accepted.",
+    'l1-version':"Add a 'version' field (e.g. '1.0.0') to your AgentCard.",
+    'l1-contact':"Add a 'contact' object with 'email' or 'url' for vulnerability disclosure.",
+    'l1-provider':"Add a 'provider' object with 'organization' and/or 'url' declaring the operator.",
+    'l1-did':"Add a 'did' field like 'did:web:yourdomain.com' tied to your domain.",
+    'l2-auth-declared':"Add an 'authentication' object with at least one entry in 'schemes' (e.g. 'bearer').",
+    'l2-oauth':"Add 'oauth2' or 'openid_connect' to your authentication.schemes array.",
+    'l2-jwks':"Add a 'jwks_uri' field pointing to /.well-known/jwks.json and serve your public signing keys there.",
+    'l2-card-signed':"Sign your AgentCard with EdDSA and add a 'card_signature' field (compact JWS). See agentlair.dev/a2a-audit for tooling.",
+    'l2-x402':"Add x402 payment gating to at least one skill endpoint — signals real skin in the game.",
+    'l2-mtls':"Add 'mtls' to authentication.schemes if your endpoint supports mutual TLS client certificates.",
+    'l3-skills':"Declare at least one capability under 'skills[]' with id, name, description, and tags.",
+    'l3-skill-ids':"Each skill must have 'id', 'name', 'description', and 'tags' fields — all four are required.",
+    'l3-io-modes':"Set 'defaultInputModes' and 'defaultOutputModes' to list supported MIME types (e.g. ['application/json']).",
+    'l3-capabilities':"Add a 'capabilities' object declaring streaming, pushNotifications, and stateTransitionHistory booleans.",
+    'l4-trust-attestation':"Add a 'trust_attestation' object with 'self_reported: true' and a 'trust_endpoint_template' URL.",
+    'l4-audit-trail':"Add 'audit_trail_url_template' pointing to a verifiable per-request audit endpoint.",
+    'l4-behavioral-ref':"Add a 'behavioral_monitoring' object referencing a runtime trust provider (provider, type, description).",
+    'l4-delegation':"Add a 'delegation' or 'provenance' field with signed delegation tokens for agent-to-agent trust chains."
+  };
 
   function b64url(s){return btoa(s).replace(/=+$/,'').replace(/\\+/g,'-').replace(/\\//g,'_')}
   function escHtml(s){return String(s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
@@ -231,6 +310,28 @@ a2aAuditRunRoutes.get('/', async (c) => {
     embedSvgEl.textContent='<object data="'+badgeUrl+'" type="image/svg+xml" aria-label="A2A Trust audit badge"></object>';
 
     jsonEl.textContent=JSON.stringify(audit,null,2);
+
+    // Render checks list with per-failed-check remediation hints
+    var checks=audit.checks||[];
+    var passCount=checks.filter(function(c){return c.pass;}).length;
+    var failCount=checks.length-passCount;
+    var checksSummaryEl=document.querySelector('#checks-detail-panel summary');
+    if(checksSummaryEl)checksSummaryEl.textContent='All checks ('+checks.length+') — '+passCount+' passed, '+failCount+' failed';
+    if(checksListEl){
+      checksListEl.innerHTML=checks.map(function(c){
+        var icon=c.pass
+          ?'<span class="check-pass">✓</span>'
+          :'<span class="check-fail">✗</span>';
+        var fixHint=(c.pass||!REMEDIATIONS[c.id])
+          ?''
+          :'<div class="fix-hint">'+escHtml(REMEDIATIONS[c.id])+'</div>';
+        return '<li>'
+          +'<div class="check-row">'+icon+'<span class="check-name">'+escHtml(c.name)+'</span>'
+          +'<span class="check-severity">'+escHtml(c.severity)+'</span></div>'
+          +fixHint
+          +'</li>';
+      }).join('');
+    }
 
     resultEl.hidden=false;
   }
