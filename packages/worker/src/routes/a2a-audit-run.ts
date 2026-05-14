@@ -21,6 +21,88 @@ import { sha256hex } from '../utils.js';
 
 export const a2aAuditRunRoutes = new Hono<HonoEnv>();
 
+// ─── Spread HTML helpers (module-private) ─────────────────────────────────────
+
+function wantsHtml(c: any): boolean {
+  if (c.req.query('spread') === '1') return true;
+  const accept = c.req.header('Accept') || c.req.header('accept') || '';
+  if (/\btext\/html\b/i.test(accept)) return true;
+  return false;
+}
+
+function b64url(s: string): string {
+  return btoa(s).replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
+}
+
+function escapeHtml(s: string): string {
+  return String(s).replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string
+  );
+}
+
+function escapeMarkdownInline(s: string): string {
+  return String(s).replace(/[\[\]\n\r]/g, '');
+}
+
+function gradeColor(grade: string): string {
+  const g = String(grade).toUpperCase();
+  if (g === 'A' || g === 'A+') return '#2d9e4a';
+  if (g === 'B') return '#5a7fd4';
+  if (g === 'C') return '#d4a017';
+  if (g === 'D') return '#d46b17';
+  return '#c0392b';
+}
+
+function renderSpreadHtml(target: string, audit: any, rawPayload: object): string {
+  const hostname = new URL(target).hostname;
+  const displayName = (audit?.card?.name) ? String(audit.card.name) : hostname;
+  const grade = String(audit?.grade ?? '?');
+  const scores = audit?.scores ?? {};
+  const overall = scores.overall ?? 0;
+  const l1 = scores.L1_identity ?? scores.l1 ?? 0;
+  const l2 = scores.L2_authentication ?? scores.l2 ?? 0;
+  const l3 = scores.L3_authorization ?? scores.l3 ?? 0;
+  const l4 = scores.L4_behavioral ?? scores.l4 ?? 0;
+  const slug = b64url(target);
+  const tweetText = `I audited my A2A agent on @agentlair_dev — grade ${grade}, ${overall}/100. Audit yours: agentlair.dev/a2a-audit`;
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>A2A Trust Audit — ${escapeHtml(hostname)} — agentlair.dev</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,follow">
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 0 auto; padding: 1.5rem; color: #1a1a1a; line-height: 1.5; }
+    header { font-size: 1rem; margin-bottom: 1rem; padding: 0.75rem; background: #f5f7ff; border-left: 3px solid #4c6ef5; border-radius: 0 4px 4px 0; }
+    .grade { display: inline-block; padding: 2px 10px; border-radius: 10px; color: #fff; font-weight: 700; background: ${gradeColor(grade)}; }
+    section[data-spread] { margin: 1.5rem 0; }
+    section[data-spread] > a, section[data-spread] > details { display: block; margin: 0.5rem 0; }
+    pre[data-raw-json] { background: #f5f5f5; padding: 0.75rem; font-size: 0.75rem; max-height: 300px; overflow: auto; border-radius: 4px; white-space: pre-wrap; word-break: break-all; }
+    details summary { cursor: pointer; font-weight: 600; color: #555; }
+    pre code { display: block; white-space: pre-wrap; word-break: break-all; }
+  </style>
+</head>
+<body>
+  <header>
+    Grade: <span class="grade">${escapeHtml(grade)}</span> &middot; Score: ${overall}/100 &middot; Layers: L1=${l1} L2=${l2} L3=${l3} L4=${l4}
+  </header>
+  <section data-spread>
+    <a href="/a2a/${slug}">View this audit on AgentLair</a>
+    <a href="https://twitter.com/intent/tweet?text=${encodeURIComponent(tweetText)}">Tweet your grade</a>
+    <details>
+      <summary>Embed your trust badge</summary>
+      <pre><code>![AgentLair L4 — ${escapeMarkdownInline(displayName)}](https://agentlair.dev/badge/a2a/${slug}.svg)
+[${escapeMarkdownInline(displayName)} on AgentLair Leaderboard](https://agentlair.dev/leaderboard/a2a)</code></pre>
+    </details>
+    <a href="/blog/agents-are-shrinking-trust-problem-isnt/">Improve your L4 →</a>
+  </section>
+  <pre data-raw-json>${escapeHtml(JSON.stringify(rawPayload))}</pre>
+</body>
+</html>`;
+}
+
 // ─── GET / — HTML form ────────────────────────────────────────────────────────
 
 a2aAuditRunRoutes.get('/', async (c) => {
@@ -437,6 +519,16 @@ a2aAuditRunRoutes.post('/run', async (c) => {
       })) as unknown as typeof fetch;
 
     const audit = await auditCardUrl(normalized, fetchImpl);
+    if (wantsHtml(c)) {
+      const rawPayload = { audit, demo: true };
+      return new Response(renderSpreadHtml(normalized, audit, rawPayload), {
+        status: 200,
+        headers: {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'private, max-age=60',
+        },
+      });
+    }
     return c.json({ audit, demo: true });
   }
 
@@ -561,6 +653,20 @@ a2aAuditRunRoutes.post('/run', async (c) => {
   // 12. Set headers + return
   if (settlement.receipt) {
     c.header('X-Payment-Response', settlement.receipt);
+  }
+  if (wantsHtml(c)) {
+    const rawPayload = { audit, payment_receipt: settlement.receipt, demo: false };
+    const htmlHeaders: Record<string, string> = {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'private, max-age=60',
+    };
+    if (settlement.receipt) {
+      htmlHeaders['X-Payment-Response'] = settlement.receipt;
+    }
+    return new Response(renderSpreadHtml(normalized, audit, rawPayload), {
+      status: 200,
+      headers: htmlHeaders,
+    });
   }
   return c.json({ audit, payment_receipt: settlement.receipt, demo: false });
 });

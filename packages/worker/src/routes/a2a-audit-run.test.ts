@@ -455,7 +455,187 @@ describe('A2A Audit Run Routes', () => {
     expect(auditCallCount).toBe(0);
   });
 
-  // A2A-F2-2: pre-flight 522 from *.agentlair.dev returns 400 cf_inside_zone_limit (not 402)
+  // ─── Spread HTML tests ──────────────────────────────────────────────────────
+
+  // SPREAD-1: JSON unchanged by default (no Accept / no ?spread=1)
+  test('SPREAD-1 JSON-UNCHANGED-DEFAULT: POST with no Accept returns JSON', async () => {
+    const app = makeApp();
+    const res = await doFetch(app, new Request('http://localhost/a2a-audit/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: 'https://agentlair.dev/' }),
+    }));
+    expect(res.status).toBe(200);
+    const ct = res.headers.get('content-type') ?? '';
+    expect(ct).toContain('application/json');
+    const data = await res.json() as any;
+    expect(data.audit).toBeDefined();
+    expect(data.demo).toBe(true);
+  });
+
+  // SPREAD-2: HTML on Accept: text/html
+  test('SPREAD-2 HTML-ON-ACCEPT: POST with Accept text/html returns HTML spread panel', async () => {
+    const app = makeApp();
+    const res = await doFetch(app, new Request('http://localhost/a2a-audit/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'text/html' },
+      body: JSON.stringify({ url: 'https://agentlair.dev/' }),
+    }));
+    expect(res.status).toBe(200);
+    const ct = res.headers.get('content-type') ?? '';
+    expect(ct).toContain('text/html');
+    expect(ct).toContain('charset=utf-8');
+    const html = await res.text();
+    expect(html).toContain('<section data-spread>');
+  });
+
+  // SPREAD-3: HTML on ?spread=1 even with Accept: application/json
+  test('SPREAD-3 HTML-ON-QUERY: POST with ?spread=1 overrides Accept application/json', async () => {
+    const app = makeApp();
+    const res = await doFetch(app, new Request('http://localhost/a2a-audit/run?spread=1', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ url: 'https://agentlair.dev/' }),
+    }));
+    expect(res.status).toBe(200);
+    const ct = res.headers.get('content-type') ?? '';
+    expect(ct).toContain('text/html');
+    const html = await res.text();
+    expect(html).toContain('<section data-spread>');
+  });
+
+  // SPREAD-4: permalink href is base64url-encoded target URL
+  test('SPREAD-4 PERMALINK-PRESENT: HTML contains correct /a2a/<b64url> permalink', async () => {
+    const app = makeApp();
+    const res = await doFetch(app, new Request('http://localhost/a2a-audit/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'text/html' },
+      body: JSON.stringify({ url: 'https://agentlair.dev/' }),
+    }));
+    const html = await res.text();
+    // btoa('https://agentlair.dev/').replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_')
+    expect(html).toContain('href="/a2a/aHR0cHM6Ly9hZ2VudGxhaXIuZGV2Lw"');
+  });
+
+  // SPREAD-5: tweet intent URL is encoded correctly
+  test('SPREAD-5 TWEET-INTENT-ENCODED: tweet URL is encoded and contains grade + score', async () => {
+    const app = makeApp();
+    const res = await doFetch(app, new Request('http://localhost/a2a-audit/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'text/html' },
+      body: JSON.stringify({ url: 'https://agentlair.dev/' }),
+    }));
+    const html = await res.text();
+    expect(html).toContain('https://twitter.com/intent/tweet?text=');
+    // URL-encoded space (%20) must be present — proves encodeURIComponent was applied
+    expect(html).toContain('%20');
+    // Extract the tweet text param
+    const match = html.match(/href="https:\/\/twitter\.com\/intent\/tweet\?text=([^"]+)"/);
+    expect(match).not.toBeNull();
+    const decoded = decodeURIComponent(match![1]);
+    // Must contain grade letter and score
+    expect(decoded).toMatch(/grade [A-Z][+-]?, \d+\/100/);
+  });
+
+  // SPREAD-6: embed snippet matches leaderboard format byte-for-byte
+  test('SPREAD-6 EMBED-MATCHES-LEADERBOARD: embed snippet has exact leaderboard structure', async () => {
+    const app = makeApp();
+    const res = await doFetch(app, new Request('http://localhost/a2a-audit/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'text/html' },
+      body: JSON.stringify({ url: 'https://agentlair.dev/' }),
+    }));
+    const html = await res.text();
+    // em-dash prefix (U+2014)
+    expect(html).toContain('![AgentLair L4 — ');
+    // badge URL with b64url-encoded target
+    expect(html).toContain('](https://agentlair.dev/badge/a2a/aHR0cHM6Ly9hZ2VudGxhaXIuZGV2Lw.svg)');
+    // leaderboard link
+    expect(html).toContain('](https://agentlair.dev/leaderboard/a2a)');
+  });
+
+  // SPREAD-7: blog link present with correct slug
+  test('SPREAD-7 BLOG-LINK: HTML contains correct blog href', async () => {
+    const app = makeApp();
+    const res = await doFetch(app, new Request('http://localhost/a2a-audit/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'text/html' },
+      body: JSON.stringify({ url: 'https://agentlair.dev/' }),
+    }));
+    const html = await res.text();
+    expect(html).toContain('href="/blog/agents-are-shrinking-trust-problem-isnt/"');
+  });
+
+  // SPREAD-8: raw JSON pre block is parseable and correct
+  test('SPREAD-8 PRESERVES-RAW-JSON: <pre data-raw-json> contains parseable JSON with audit+demo', async () => {
+    const app = makeApp();
+    const res = await doFetch(app, new Request('http://localhost/a2a-audit/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'text/html' },
+      body: JSON.stringify({ url: 'https://agentlair.dev/' }),
+    }));
+    const html = await res.text();
+    expect(html).toContain('<pre data-raw-json>');
+    const start = html.indexOf('<pre data-raw-json>') + '<pre data-raw-json>'.length;
+    const end = html.indexOf('</pre>', start);
+    const raw = html.slice(start, end)
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'");
+    const parsed = JSON.parse(raw) as any;
+    expect(parsed.audit).toBeDefined();
+    expect(parsed.demo).toBe(true);
+  });
+
+  // REGRESSION-ACCEPT-WILDCARD-IS-JSON
+  test('REGRESSION-ACCEPT-WILDCARD-IS-JSON: Accept: */* stays JSON', async () => {
+    const app = makeApp();
+    const res = await doFetch(app, new Request('http://localhost/a2a-audit/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': '*/*' },
+      body: JSON.stringify({ url: 'https://agentlair.dev/' }),
+    }));
+    expect(res.status).toBe(200);
+    const ct = res.headers.get('content-type') ?? '';
+    expect(ct).toContain('application/json');
+    expect(ct).not.toContain('text/html');
+  });
+
+  // REGRESSION-PAYMENT-RESPONSE-HEADER: X-Payment-Response header present on HTML paid response
+  test('REGRESSION-PAYMENT-RESPONSE-HEADER: X-Payment-Response header still present on HTML paid response', async () => {
+    const app = makeApp();
+    const res = await doFetch(app, new Request('http://localhost/a2a-audit/run', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'text/html',
+        'X-PAYMENT': MOCK_PAYMENT_HEADER,
+      },
+      body: JSON.stringify({ url: 'https://example.com/.well-known/agent.json' }),
+    }));
+    expect(res.status).toBe(200);
+    const ct = res.headers.get('content-type') ?? '';
+    expect(ct).toContain('text/html');
+    expect(res.headers.get('X-Payment-Response')).toBeTruthy();
+  });
+
+  // REGRESSION-402-STAYS-JSON: 402 stays JSON even with Accept: text/html
+  test('REGRESSION-402-STAYS-JSON: 402 response stays JSON with Accept text/html', async () => {
+    const app = makeApp();
+    const res = await doFetch(app, new Request('http://localhost/a2a-audit/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'text/html' },
+      body: JSON.stringify({ url: 'https://example.com/.well-known/agent.json' }),
+    }));
+    expect(res.status).toBe(402);
+    const ct = res.headers.get('content-type') ?? '';
+    expect(ct).toContain('application/json');
+    expect(ct).not.toContain('text/html');
+  });
+
+  // ─── A2A-F2-2: pre-flight 522 from *.agentlair.dev returns 400 cf_inside_zone_limit (not 402)
   test('A2A-F2-2: pre-flight 522 from agentlair.dev subdomain returns 400 cf_inside_zone_limit', async () => {
     let settleCalled = false;
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
