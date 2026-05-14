@@ -111,6 +111,57 @@ describe('GET /leaderboard/a2a', () => {
   });
 });
 
+describe('GET /leaderboard/a2a — embed badge', () => {
+  test('LB-EMBED-1: rendered HTML contains <th>Embed</th>', async () => {
+    const { app, env } = makeApp(makeKv(SAMPLE_ROWSET), SECRET);
+    const res = await req(app, 'GET', '/leaderboard/a2a', env);
+    const body = await res.text();
+    expect(body).toContain('<th>Embed</th>');
+  });
+
+  test('LB-EMBED-2: embed cell contains base64url-encoded badge img src for a known URL', async () => {
+    const cardUrl = 'https://example.com/.well-known/agent-card.json';
+    const encoded = btoa(cardUrl).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    const rowSet: LeaderboardRowSet = {
+      ...SAMPLE_ROWSET,
+      total: 1,
+      results: [{ name: 'Example', url: cardUrl, well_known: cardUrl, grade: 'A', score: 80, layers: { l1: 80, l2: 80, l3: 80, l4: 0 }, ts: '2026-05-14T00:00:00Z' }],
+    };
+    const { app, env } = makeApp(makeKv(rowSet), SECRET);
+    const res = await req(app, 'GET', '/leaderboard/a2a', env);
+    const body = await res.text();
+    expect(body).toContain(`https://agentlair.dev/badge/a2a/${encoded}.svg`);
+  });
+
+  test('LB-EMBED-3: rendered HTML contains <details><summary>Embed</summary> for at least one row', async () => {
+    const { app, env } = makeApp(makeKv(SAMPLE_ROWSET), SECRET);
+    const res = await req(app, 'GET', '/leaderboard/a2a', env);
+    const body = await res.text();
+    expect(body).toContain('<details><summary>Embed</summary>');
+  });
+
+  test('LB-EMBED-4: hero-embed-hint paragraph is present', async () => {
+    const { app, env } = makeApp(makeKv(SAMPLE_ROWSET), SECRET);
+    const res = await req(app, 'GET', '/leaderboard/a2a', env);
+    const body = await res.text();
+    expect(body).toContain('hero-embed-hint');
+    expect(body).toContain('Each row has an Embed snippet');
+  });
+
+  test('LB-EMBED-5: r.name with HTML-special chars is escaped inside the embed snippet', async () => {
+    const rowSet: LeaderboardRowSet = {
+      ...SAMPLE_ROWSET,
+      total: 1,
+      results: [{ name: 'Foo & <Bar>', url: 'https://foo.example.com', well_known: 'https://foo.example.com/.well-known/agent.json', grade: 'B', score: 70, layers: { l1: 70, l2: 70, l3: 70, l4: 0 }, ts: '2026-05-14T00:00:00Z' }],
+    };
+    const { app, env } = makeApp(makeKv(rowSet), SECRET);
+    const res = await req(app, 'GET', '/leaderboard/a2a', env);
+    const body = await res.text();
+    expect(body).toContain('Foo &amp; &lt;Bar&gt;');
+    expect(body).not.toContain('Foo & <Bar>');
+  });
+});
+
 describe('GET /leaderboard/a2a.json', () => {
   test('returns 200 + JSON with shape {refreshed_at, total, results}', async () => {
     const { app, env } = makeApp(makeKv(SAMPLE_ROWSET), SECRET);

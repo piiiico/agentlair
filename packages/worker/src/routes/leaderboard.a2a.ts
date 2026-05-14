@@ -49,11 +49,14 @@ function renderHtml(rowSet: LeaderboardRowSet): string {
     <p class="hero-stat">${l4Zero} of ${total} agents score 0 on L4 (behavioral trust). Static identity is not enough.</p>
     <p class="hero-sub">Every column except L4 measures who an agent CLAIMS to be. L4 measures what an agent has actually DONE. We track L4.</p>
     <a class="hero-cta" href="/a2a-audit">Audit your A2A endpoint &rarr;</a>
+    <p class="hero-embed-hint">Each row has an Embed snippet — paste it into your README to display your live trust badge.</p>
   </div>`;
 
   const rows = results.map((r, i) => {
     const color = gradeColor(r.grade);
     const errorCell = r.error ? `<span class="err">${escapeHtml(r.error)}</span>` : '';
+    const encoded = btoa(r.url).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    const snippet = `![AgentLair L4 — ${escapeHtml(r.name)}](https://agentlair.dev/badge/a2a/${encoded}.svg)\n[${escapeHtml(r.name)} on AgentLair Leaderboard](https://agentlair.dev/leaderboard/a2a)`;
     return `<tr data-idx="${i}">
       <td>${escapeHtml(r.name)}</td>
       <td><a href="${escapeHtml(r.url)}" target="_blank" rel="noopener">${escapeHtml(r.url)}</a></td>
@@ -64,6 +67,7 @@ function renderHtml(rowSet: LeaderboardRowSet): string {
       <td data-val="${r.layers.l3}">${r.layers.l3}</td>
       <td data-val="${r.layers.l4}">${r.layers.l4}</td>
       <td>${errorCell}</td>
+      <td class="embed-cell"><details><summary>Embed</summary><pre><code>${snippet}</code></pre></details></td>
     </tr>`;
   }).join('\n');
 
@@ -102,6 +106,10 @@ function renderHtml(rowSet: LeaderboardRowSet): string {
     .hero-sub { font-size: 13px; color: #444; margin-bottom: 12px; }
     .hero-cta { display: inline-block; border: 1px solid #1a73e8; color: #1a73e8; border-radius: 4px; padding: 6px 14px; font-size: 13px; font-weight: 600; text-decoration: none; }
     .hero-cta:hover { background: #1a73e8; color: #fff; text-decoration: none; }
+    .hero-embed-hint { font-size: 12px; color: #555; margin-top: 10px; }
+    .embed-cell details { font-size: 0.85em; }
+    .embed-cell summary { cursor: pointer; color: #555; }
+    .embed-cell pre { white-space: pre-wrap; max-width: 280px; overflow-x: auto; background: #f6f8fa; padding: 6px; border-radius: 4px; font-family: ui-monospace, monospace; font-size: 0.75em; }
     @media (prefers-color-scheme: dark) {
       body { background: #121212; color: #e0e0e0; }
       table { background: #1e1e1e; box-shadow: 0 1px 4px rgba(0,0,0,.4); }
@@ -115,6 +123,9 @@ function renderHtml(rowSet: LeaderboardRowSet): string {
       .hero-cta { border-color: #74aeff; color: #74aeff; }
       .hero-cta:hover { background: #74aeff; color: #121212; }
       .footer-note { color: #888; }
+      .hero-embed-hint { color: #aaa; }
+      .embed-cell summary { color: #aaa; }
+      .embed-cell pre { background: #1f2328; }
     }
   </style>
 </head>
@@ -134,6 +145,7 @@ function renderHtml(rowSet: LeaderboardRowSet): string {
         <th data-col="6" data-type="num">L3</th>
         <th data-col="7" data-type="num" title="L4 = behavioral trust. Computed from observed runtime behavior over time. All 0 here means no agent in the directory has yet accumulated a verifiable behavioral record. The category is wide open.">L4</th>
         <th data-col="8" data-type="text">Note</th>
+        <th>Embed</th>
       </tr>
     </thead>
     <tbody>${rows}</tbody>
