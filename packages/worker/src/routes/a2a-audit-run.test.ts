@@ -56,8 +56,9 @@ const MOCK_AGENT_CARD = {
 
 function stubFetch() {
   auditCallCount = 0;
-  globalThis.fetch = (async (input: RequestInfo | URL, _init?: RequestInit) => {
-    const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url;
+    const method = ((init?.method) ?? 'GET').toUpperCase();
 
     // x402 facilitator verify
     if (url.includes('facilitator') && url.includes('/verify')) {
@@ -73,7 +74,11 @@ function stubFetch() {
         headers: { 'Content-Type': 'application/json' },
       });
     }
-    // Agent card fetch (audit target)
+    // Pre-flight HEAD for audit target — return 200 without counting as audit call
+    if (method === 'HEAD' && (url.includes('.well-known/agent') || url.endsWith('.json'))) {
+      return new Response(null, { status: 200 });
+    }
+    // Agent card GET fetch (audit target) — count as audit call
     if (url.includes('.well-known/agent') || url.endsWith('.json')) {
       auditCallCount++;
       return new Response(JSON.stringify(MOCK_AGENT_CARD), {
@@ -332,5 +337,138 @@ describe('A2A Audit Run Routes', () => {
     const html = await res.text();
     expect(html).toContain('skin in the game');
     expect(html).not.toContain('href="/blog/x402"');
+  });
+
+  // 17. Pre-flight rejects unreachable target without settling
+  test('pre-flight rejects unreachable target without settling', async () => {
+    let settleCalled = false;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url;
+      const method = ((init?.method) ?? 'GET').toUpperCase();
+      if (url.includes('facilitator') && url.includes('/verify')) {
+        return new Response(JSON.stringify({ isValid: true, payer: '0xtest1234' }), {
+          status: 200, headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (url.includes('facilitator') && url.includes('/settle')) {
+        settleCalled = true;
+        return new Response(JSON.stringify({ success: true, txHash: '0xabc' }), {
+          status: 200, headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (method === 'HEAD') {
+        // Target unreachable
+        return new Response(null, { status: 404 });
+      }
+      return new Response('Not Found', { status: 404 });
+    }) as typeof fetch;
+
+    const app = makeApp();
+    const res = await doFetch(app, new Request('http://localhost/a2a-audit/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-PAYMENT': MOCK_PAYMENT_HEADER },
+      body: JSON.stringify({ url: 'https://example.com/.well-known/agent.json' }),
+    }));
+
+    expect(settleCalled).toBe(false);
+    expect(res.status).toBe(402);
+    const data = await res.json() as any;
+    expect(data.payment_error).toBe('target_unreachable');
+  });
+
+  // 18. Pre-flight allows reachable target through to settle
+  test('pre-flight allows reachable target through to settle', async () => {
+    // Default stubFetch handles HEAD (via .well-known/agent match → 200) + verify + settle
+    const app = makeApp();
+    const res = await doFetch(app, new Request('http://localhost/a2a-audit/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-PAYMENT': MOCK_PAYMENT_HEADER },
+      body: JSON.stringify({ url: 'https://example.com/.well-known/agent.json' }),
+    }));
+
+    expect(res.status).toBe(200);
+    const data = await res.json() as any;
+    expect(data.audit?.scores).toBeDefined();
+    expect(res.headers.get('X-Payment-Response')).toBeTruthy();
+  });
+
+  // 19. Post-settle audit_failed returns settlement receipt in body and header
+  test('post-settle audit_failed returns settlement receipt in body and header', async () => {
+    let auditFetchCount = 0;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url;
+      const method = ((init?.method) ?? 'GET').toUpperCase();
+      if (url.includes('facilitator') && url.includes('/verify')) {
+        return new Response(JSON.stringify({ isValid: true, payer: '0xtest1234' }), {
+          status: 200, headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (url.includes('facilitator') && url.includes('/settle')) {
+        return new Response(JSON.stringify({ success: true, txHash: '0xdeadbeef' }), {
+          status: 200, headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (method === 'HEAD') {
+        // Pre-flight succeeds
+        return new Response(null, { status: 200 });
+      }
+      // GET (audit fetch) — simulate unreachable / bad JSON to trigger auditCardUrl throw
+      auditFetchCount++;
+      throw new Error('simulated fetch failure after settlement');
+    }) as typeof fetch;
+
+    const app = makeApp();
+    const res = await doFetch(app, new Request('http://localhost/a2a-audit/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-PAYMENT': MOCK_PAYMENT_HEADER },
+      body: JSON.stringify({ url: 'https://example.com/.well-known/agent.json' }),
+    }));
+
+    expect(res.status).toBe(502);
+    const data = await res.json() as any;
+    expect(data.error).toBe('audit_failed');
+    // payment_receipt = btoa(JSON.stringify({ success: true, txHash: '0xdeadbeef' }))
+    expect(data.payment_receipt).toBeDefined();
+    expect(data.settlement_tx).toBe('0xdeadbeef');
+    expect(data.refund_note).toContain('api@agentlair.dev');
+    expect(res.headers.get('X-Payment-Response')).toBeTruthy();
+  });
+
+  // 20. Pre-flight HEAD timeout treated as unreachable
+  test('pre-flight HEAD timeout treated as unreachable (no settle)', async () => {
+    let settleCalled = false;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url;
+      const method = ((init?.method) ?? 'GET').toUpperCase();
+      if (url.includes('facilitator') && url.includes('/verify')) {
+        return new Response(JSON.stringify({ isValid: true, payer: '0xtest1234' }), {
+          status: 200, headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (url.includes('facilitator') && url.includes('/settle')) {
+        settleCalled = true;
+        return new Response(JSON.stringify({ success: true, txHash: '0xabc' }), {
+          status: 200, headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (method === 'HEAD') {
+        // Simulate abort (timeout)
+        const abortErr = new DOMException('The operation was aborted', 'AbortError');
+        throw abortErr;
+      }
+      return new Response('Not Found', { status: 404 });
+    }) as typeof fetch;
+
+    const app = makeApp();
+    const res = await doFetch(app, new Request('http://localhost/a2a-audit/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-PAYMENT': MOCK_PAYMENT_HEADER },
+      body: JSON.stringify({ url: 'https://example.com/.well-known/agent.json' }),
+    }));
+
+    expect(settleCalled).toBe(false);
+    expect(res.status).toBe(402);
+    const data = await res.json() as any;
+    expect(data.payment_error).toBe('target_unreachable');
   });
 });

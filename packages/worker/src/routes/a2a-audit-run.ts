@@ -457,11 +457,32 @@ a2aAuditRunRoutes.post('/run', async (c) => {
     return make402Response(SERVICE_PRICES.a2a_audit_run);
   }
 
-  // 8. x402 verify + settle (mirror routes/audit.ts:381–401)
+  // 8. x402 verify (mirror routes/audit.ts:381–401)
   const verification = await verifyX402Payment(xPayment, SERVICE_PRICES.a2a_audit_run);
   if (!verification.valid) {
     return make402Response(SERVICE_PRICES.a2a_audit_run, { payment_error: verification.error });
   }
+
+  // 8b. Pre-flight reachability probe — HEAD target before settle to prevent settle-then-fail.
+  // If the target is unreachable, return 402 without settling (refund-by-not-charging).
+  {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 4000);
+    let reachable = false;
+    try {
+      const headRes = await fetch(normalized, { method: 'HEAD', signal: controller.signal });
+      reachable = headRes.status < 400;
+    } catch {
+      reachable = false;
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!reachable) {
+      return make402Response(SERVICE_PRICES.a2a_audit_run, { payment_error: 'target_unreachable' });
+    }
+  }
+
+  // 8c. x402 settle — only runs on reachable targets
   const settlement = await settleX402Payment(xPayment, SERVICE_PRICES.a2a_audit_run);
   if (!settlement.settled) {
     return make402Response(SERVICE_PRICES.a2a_audit_run, { payment_error: settlement.error });
@@ -476,7 +497,27 @@ a2aAuditRunRoutes.post('/run', async (c) => {
       audit = await auditCardUrl(normalized);
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : String(e);
-      return c.json({ error: 'audit_failed', message }, 502);
+      // Change B: post-settle audit failure — include settlement receipt so buyer has in-band proof.
+      // Decode txHash from receipt (receipt = btoa(JSON.stringify(facilitator response))).
+      let settlement_tx: string | null = null;
+      try {
+        if (settlement.receipt) {
+          const decoded = JSON.parse(atob(settlement.receipt)) as Record<string, unknown>;
+          if (typeof decoded.txHash === 'string') settlement_tx = decoded.txHash;
+        }
+      } catch { /* receipt decode failure — omit tx */ }
+      return c.json(
+        {
+          error: 'audit_failed',
+          message,
+          payment_receipt: settlement.receipt ?? null,
+          settlement_tx,
+          refund_note:
+            'Payment settled on-chain before fetch failure. Contact api@agentlair.dev with tx hash for manual refund; auto-refund flow tracked in F1-followup.',
+        },
+        502,
+        settlement.receipt ? { 'X-Payment-Response': settlement.receipt } : {},
+      );
     }
   }
 
