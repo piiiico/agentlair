@@ -17,6 +17,7 @@ import { auditCardUrl } from '../lib/a2a-audit.js';
 import { checkIpRateLimit } from '../middleware/ratelimit.js';
 import { lookupRow, buildSlugIndex } from '../lib/a2a-leaderboard-slug.js';
 import { computeLeaderboardStats, type LeaderboardStats } from '../lib/a2a-leaderboard-stats.js';
+import { gradeColor } from '../lib/og-render.js';
 
 export const leaderboardA2ARoutes = new Hono<HonoEnv>();
 
@@ -31,18 +32,6 @@ function escapeHtml(s: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
-}
-
-function gradeColor(g: LeaderboardGrade): string {
-  switch (g) {
-    case 'A': return '#4caf50';
-    case 'B': return '#8bc34a';
-    case 'C': return '#ff9800';
-    case 'D': return '#ff5722';
-    case 'F': return '#f44336';
-    case 'E': return '#9e9e9e';
-    default:  return '#9e9e9e';
-  }
 }
 
 function renderHtml(rowSet: LeaderboardRowSet): string {

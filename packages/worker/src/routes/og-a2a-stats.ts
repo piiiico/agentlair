@@ -13,17 +13,10 @@
 
 import { Hono } from 'hono';
 import type { HonoEnv } from '../types.js';
-import { initWasm, Resvg } from '@resvg/resvg-wasm';
 import { buildSlugIndex } from '../lib/a2a-leaderboard-slug.js';
-import type { LeaderboardGrade, LeaderboardRowSet } from '../lib/a2a-leaderboard-job.js';
+import type { LeaderboardRowSet } from '../lib/a2a-leaderboard-job.js';
 import { computeLeaderboardStats, type LeaderboardStats } from '../lib/a2a-leaderboard-stats.js';
-
-// @ts-expect-error — binary imports: WebAssembly.Module in CF Workers, file path string in Bun
-import resvgWasm from '@resvg/resvg-wasm/index_bg.wasm';
-// @ts-expect-error — binary font import: ArrayBuffer in CF Workers, file path string in Bun
-import interRegularWoff2 from '../assets/inter-regular.woff2';
-// @ts-expect-error — binary font import: ArrayBuffer in CF Workers, file path string in Bun
-import interBoldWoff2 from '../assets/inter-bold.woff2';
+import { ensureWasm, svgToPng, gradeColor } from '../lib/og-render.js';
 // Pre-rendered static PNG bundled inline as base64 — guaranteed available in CF Workers
 // regardless of wrangler Data rule behaviour. Regenerate with: bun tools/gen-og-stats-png.ts
 import { OG_A2A_STATS_PNG_B64 } from '../assets/og-a2a-stats-b64.js';
@@ -32,81 +25,7 @@ export const ogA2aStatsRoutes = new Hono<HonoEnv>();
 
 const KV_KEY = 'v1:results';
 
-// ─── WASM + Font Initialization (lazy singleton) ─────────────────────────────
-// NOTE: uses the same 'Already initialized' swallow as og-a2a.ts — this is
-// intentional: both modules may run in the same isolate (tests, CF Workers).
-// Do NOT call initWasm at module load level.
-
-let wasmReady = false;
-let wasmInitPromise: Promise<void> | null = null;
-let fontBuffers: Uint8Array[] = [];
-
-async function loadBinary(imported: unknown): Promise<Uint8Array> {
-  if (imported instanceof ArrayBuffer) return new Uint8Array(imported);
-  if (imported instanceof Uint8Array) return imported;
-  if (typeof imported === 'string') {
-    const { readFileSync } = await import('fs');
-    return new Uint8Array(readFileSync(imported));
-  }
-  throw new Error('Unexpected binary import type: ' + typeof imported);
-}
-
-async function ensureWasm(): Promise<boolean> {
-  if (wasmReady) return true;
-  if (wasmInitPromise) {
-    await wasmInitPromise;
-    return wasmReady;
-  }
-  wasmInitPromise = (async () => {
-    try {
-      let wasmInput: any = resvgWasm;
-      if (typeof wasmInput === 'string') {
-        const { readFileSync } = await import('fs');
-        wasmInput = readFileSync(wasmInput);
-      }
-      await initWasm(wasmInput);
-    } catch (e: unknown) {
-      // "Already initialized" means another module/test already called initWasm
-      if (!(e instanceof Error && e.message.includes('Already initialized'))) {
-        return; // genuine failure — WASM not available
-      }
-    }
-    fontBuffers = [
-      await loadBinary(interRegularWoff2),
-      await loadBinary(interBoldWoff2),
-    ];
-    wasmReady = true;
-  })();
-  await wasmInitPromise;
-  return wasmReady;
-}
-
-function svgToPng(svg: string): Uint8Array {
-  const resvg = new Resvg(svg, {
-    fitTo: { mode: 'width', value: 1200 },
-    font: {
-      fontBuffers,
-      defaultFontFamily: 'Inter',
-      loadSystemFonts: false,
-    },
-  });
-  return resvg.render().asPng();
-}
-
 // ─── Helpers ────────────────────────────────────────────────────────────────
-
-/** Local gradeColor covers LeaderboardGrade (A/B/C/D/F/E) — a2a-audit gradeColor only covers Grade (A-F). */
-function gradeColor(g: LeaderboardGrade): string {
-  switch (g) {
-    case 'A': return '#4caf50';
-    case 'B': return '#8bc34a';
-    case 'C': return '#ff9800';
-    case 'D': return '#ff5722';
-    case 'F': return '#f44336';
-    case 'E': return '#9e9e9e';
-    default:  return '#9e9e9e';
-  }
-}
 
 function escapeXml(s: string): string {
   return s
