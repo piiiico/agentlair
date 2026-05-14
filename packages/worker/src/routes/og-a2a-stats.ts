@@ -4,9 +4,12 @@
 // Returns a 1200×630 PNG OG image for the aggregate A2A stats page.
 // Used as og:image in /leaderboard/a2a/stats HTML pages.
 //
-// Uses @resvg/resvg-wasm to render SVG → PNG server-side. WASM is lazily
-// initialized on first request (shares the singleton guard with og-a2a.ts).
-// If WASM fails, falls back to SVG.
+// Rendering strategy:
+//   Primary: @resvg/resvg-wasm renders SVG → PNG server-side.
+//   Fallback: pre-rendered static PNG bundled at deploy time (src/assets/og-a2a-stats.png).
+//             Ensures Content-Type: image/png is ALWAYS returned even when WASM fails
+//             in CF Workers (WASM init observed to fail silently in production).
+//   Static PNG is baked at pipeline deploy time from the current dataset snapshot.
 
 import { Hono } from 'hono';
 import type { HonoEnv } from '../types.js';
@@ -21,6 +24,8 @@ import resvgWasm from '@resvg/resvg-wasm/index_bg.wasm';
 import interRegularWoff2 from '../assets/inter-regular.woff2';
 // @ts-expect-error — binary font import: ArrayBuffer in CF Workers, file path string in Bun
 import interBoldWoff2 from '../assets/inter-bold.woff2';
+// @ts-expect-error — pre-rendered static PNG: ArrayBuffer in CF Workers, file path string in Bun
+import staticOgPng from '../assets/og-a2a-stats.png';
 
 export const ogA2aStatsRoutes = new Hono<HonoEnv>();
 
@@ -150,6 +155,29 @@ export function renderStatsOgSvg(stats: LeaderboardStats): string {
 </svg>`;
 }
 
+// ─── Static PNG fallback ─────────────────────────────────────────────────────
+// Pre-rendered at deploy time. Loaded lazily; avoids large buffer on 503 paths.
+
+let staticPngBuffer: Uint8Array | null = null;
+
+async function loadStaticPng(): Promise<Uint8Array | null> {
+  if (staticPngBuffer) return staticPngBuffer;
+  try {
+    const imp: unknown = staticOgPng;
+    if (imp instanceof ArrayBuffer) {
+      staticPngBuffer = new Uint8Array(imp);
+    } else if (imp instanceof Uint8Array) {
+      staticPngBuffer = imp;
+    } else if (typeof imp === 'string') {
+      const { readFileSync } = await import('fs');
+      staticPngBuffer = new Uint8Array(readFileSync(imp));
+    }
+  } catch {
+    // static PNG not available — caller will handle
+  }
+  return staticPngBuffer;
+}
+
 // ─── Response Helper ────────────────────────────────────────────────────────
 
 function imageResponse(body: Uint8Array | string, isPng: boolean): Response {
@@ -199,9 +227,17 @@ ogA2aStatsRoutes.get('/', async (c) => {
   const canPng = await ensureWasm();
   const svg = renderStatsOgSvg(stats);
 
-  const response = canPng
-    ? imageResponse(svgToPng(svg), true)
-    : imageResponse(svg, false);
+  // Build PNG response: prefer WASM render, fall back to static pre-rendered PNG,
+  // last resort SVG (browsers can show it, but Twitter/X link-preview needs PNG).
+  let response: Response;
+  if (canPng) {
+    response = imageResponse(svgToPng(svg), true);
+  } else {
+    const staticPng = await loadStaticPng();
+    response = staticPng
+      ? imageResponse(staticPng, true)   // static PNG — Content-Type: image/png ✓
+      : imageResponse(svg, false);       // SVG last resort
+  }
 
   // Stash in CF edge cache
   if (cache) {

@@ -77,7 +77,7 @@ describe('GET /og/a2a-stats.png', () => {
     const { app, env } = makeApp(makeKv(FIXTURE_51));
     const res = await req(app, '/og/a2a-stats.png', env);
     expect(res.status).toBe(200);
-    expect(res.headers.get('Content-Type')).toMatch(/image\/(png|svg)/);
+    expect(res.headers.get('Content-Type')).toBe('image/png');
     const body = await res.arrayBuffer();
     expect(body.byteLength).toBeGreaterThan(1000);
   });
