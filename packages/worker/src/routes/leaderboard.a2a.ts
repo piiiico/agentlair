@@ -11,7 +11,9 @@
 
 import { Hono } from 'hono';
 import type { HonoEnv } from '../types.js';
-import { runLeaderboardRefresh, type LeaderboardRowSet, type LeaderboardGrade } from '../lib/a2a-leaderboard-job.js';
+import { runLeaderboardRefresh, compareRows, type LeaderboardRowSet, type LeaderboardGrade, type LeaderboardRow } from '../lib/a2a-leaderboard-job.js';
+import { auditCardUrl } from '../lib/a2a-audit.js';
+import { checkIpRateLimit } from '../middleware/ratelimit.js';
 
 export const leaderboardA2ARoutes = new Hono<HonoEnv>();
 
@@ -237,6 +239,188 @@ leaderboardA2ARoutes.get('/a2a.json', async (c) => {
       'Content-Type': 'application/json',
       'Cache-Control': 'public, max-age=300, s-maxage=3600',
     },
+  });
+});
+
+// ─── GET /a2a/submit → HTML form ─────────────────────────────────────────────
+
+function renderSubmitHtml(): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Submit to A2A Trust Leaderboard — agentlair.dev</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; font-size: 14px; padding: 24px; background: #fafafa; color: #111; max-width: 600px; }
+    h1 { font-size: 1.5rem; margin-bottom: 12px; }
+    p { margin-bottom: 16px; line-height: 1.6; color: #444; }
+    label { display: block; font-weight: 600; margin-bottom: 6px; }
+    input[type="text"] { width: 100%; padding: 8px 12px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px; margin-bottom: 12px; }
+    input[type="text"]:focus { outline: 2px solid #1a73e8; border-color: #1a73e8; }
+    button { background: #1a73e8; color: #fff; border: none; padding: 8px 20px; font-size: 14px; font-weight: 600; border-radius: 4px; cursor: pointer; }
+    button:hover { background: #1558b0; }
+    .links { margin-top: 20px; font-size: 13px; }
+    .links a { color: #1a73e8; text-decoration: none; margin-right: 16px; }
+    .links a:hover { text-decoration: underline; }
+    @media (prefers-color-scheme: dark) {
+      body { background: #121212; color: #e0e0e0; }
+      p { color: #aaa; }
+      input[type="text"] { background: #1e1e1e; border-color: #444; color: #e0e0e0; }
+      input[type="text"]:focus { outline-color: #74aeff; border-color: #74aeff; }
+      button { background: #74aeff; color: #121212; }
+      button:hover { background: #5a8edf; }
+      .links a { color: #74aeff; }
+    }
+  </style>
+</head>
+<body>
+  <h1>Submit your agent to the A2A Trust Leaderboard</h1>
+  <p>Paste your agent's AgentCard URL (or the base URL of your agent host). We run the L1–L4 trust audit and add your row to the public leaderboard.</p>
+  <form action="/leaderboard/a2a/submit" method="POST">
+    <label for="url">AgentCard URL</label>
+    <input type="text" id="url" name="url" placeholder="https://your-agent.example.com/.well-known/agent.json" required>
+    <button type="submit">Run audit &amp; submit</button>
+  </form>
+  <div class="links">
+    <a href="/leaderboard/a2a">← Back to leaderboard</a>
+    <a href="/a2a-audit">Try a one-off audit</a>
+  </div>
+</body>
+</html>`;
+}
+
+leaderboardA2ARoutes.get('/a2a/submit', (_c) => {
+  return new Response(renderSubmitHtml(), {
+    status: 200,
+    headers: { 'Content-Type': 'text/html; charset=utf-8' },
+  });
+});
+
+// ─── POST /a2a/submit → run audit + upsert KV rowset ─────────────────────────
+
+leaderboardA2ARoutes.post('/a2a/submit', async (c) => {
+  const env = c.env;
+  const kv = env.A2A_LEADERBOARD;
+  if (!kv) {
+    return c.json({ error: 'kv_unavailable' }, 503);
+  }
+
+  // 1. Parse body
+  const contentType = c.req.header('Content-Type') ?? '';
+  const isJson = contentType.includes('application/json');
+  let rawUrl = '';
+  if (isJson) {
+    try {
+      const body = await c.req.json() as Record<string, unknown>;
+      rawUrl = typeof body.url === 'string' ? body.url : '';
+    } catch {
+      return c.json({ error: 'invalid_url' }, 400);
+    }
+  } else {
+    try {
+      const form = await c.req.formData();
+      rawUrl = (form.get('url') as string) ?? '';
+    } catch {
+      return c.json({ error: 'invalid_url' }, 400);
+    }
+  }
+  rawUrl = rawUrl.trim();
+
+  // 2. Validate URL
+  let normalizedUrl: string;
+  try {
+    const parsed = new URL(rawUrl);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new Error('scheme');
+    }
+    normalizedUrl = parsed.toString();
+  } catch {
+    if (isJson) {
+      return c.json({ error: 'invalid_url' }, 400);
+    }
+    return new Response('<p>invalid_url</p>', { status: 400, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+  }
+
+  // 3. Rate-limit by IP
+  const clientIp = c.req.header('CF-Connecting-IP') || c.req.header('X-Forwarded-For') || 'unknown';
+  const rl = await checkIpRateLimit(env, clientIp, 'leaderboard-a2a-submit', 5);
+  if (!rl.allowed) {
+    return c.json({ error: 'rate_limited', retry_after: 3600 }, 429);
+  }
+
+  // 4. Audit with 5-second timeout
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5000);
+  let audit: Awaited<ReturnType<typeof auditCardUrl>>;
+  try {
+    const timedFetch: typeof fetch = (url, init?) =>
+      fetch(url as string, { ...(init ?? {}), signal: controller.signal });
+    audit = await auditCardUrl(normalizedUrl, timedFetch);
+  } catch (e) {
+    clearTimeout(timer);
+    const detail = e instanceof Error ? e.message.slice(0, 120) : 'audit failed';
+    return c.json({ error: 'unreachable', detail }, 422);
+  }
+  clearTimeout(timer);
+
+  // 5. Build row
+  const row: LeaderboardRow = {
+    name: audit.card.name ?? new URL(normalizedUrl).hostname,
+    url: audit.card.url ?? normalizedUrl,
+    well_known: audit.fetched_from,
+    grade: audit.grade,
+    score: audit.scores.overall,
+    layers: {
+      l1: audit.scores.L1_identity,
+      l2: audit.scores.L2_authentication,
+      l3: audit.scores.L3_authorization,
+      l4: audit.scores.L4_behavioral,
+    },
+    ts: new Date().toISOString(),
+  };
+
+  // 6. Upsert KV rowset
+  try {
+    const raw = await kv.get(KV_KEY);
+    const rowset: LeaderboardRowSet = raw
+      ? (JSON.parse(raw) as LeaderboardRowSet)
+      : { refreshed_at: new Date().toISOString(), total: 0, registry_url: 'self-serve', results: [] };
+
+    // Dedupe by submitted URL or well_known
+    const idx = rowset.results.findIndex(
+      (r) => r.url === normalizedUrl || r.well_known === audit.fetched_from,
+    );
+    if (idx >= 0) {
+      rowset.results[idx] = row;
+    } else {
+      rowset.results.push(row);
+    }
+    rowset.total = rowset.results.length;
+    rowset.refreshed_at = new Date().toISOString();
+    if (!rowset.registry_url) rowset.registry_url = 'self-serve';
+
+    rowset.results.sort(compareRows);
+    await kv.put(KV_KEY, JSON.stringify(rowset));
+  } catch {
+    return c.json({ error: 'kv_unavailable' }, 503);
+  }
+
+  // 7. Respond
+  const acceptsJson = (c.req.header('Accept') ?? '').includes('application/json') || isJson;
+  if (acceptsJson) {
+    return c.json({
+      url: normalizedUrl,
+      grade: row.grade,
+      score: row.score,
+      layers: row.layers,
+      submitted_at: row.ts,
+    }, 200);
+  }
+  return new Response(null, {
+    status: 302,
+    headers: { Location: '/leaderboard/a2a#submitted' },
   });
 });
 

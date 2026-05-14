@@ -49,6 +49,16 @@ type AuditOrError =
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+export const GRADE_ORDER: Record<LeaderboardGrade, number> = { A: 0, B: 1, C: 2, D: 3, F: 4, E: 5 };
+
+/** Comparator for LeaderboardRow: score DESC → grade order (A→E) → name ASC */
+export function compareRows(a: LeaderboardRow, b: LeaderboardRow): number {
+  if (b.score !== a.score) return b.score - a.score;
+  const go = GRADE_ORDER[a.grade] - GRADE_ORDER[b.grade];
+  if (go !== 0) return go;
+  return a.name.localeCompare(b.name);
+}
+
 const SELF_HOST = 'agentlair.dev';
 const REGISTRY_URL = 'https://a2aregistry.org/api/agents';
 const KV_KEY = 'v1:results';
@@ -87,8 +97,6 @@ export function buildRowSet(
   refreshedAt: string,
   registryUrl: string,
 ): LeaderboardRowSet {
-  const GRADE_ORDER: Record<LeaderboardGrade, number> = { A: 0, B: 1, C: 2, D: 3, F: 4, E: 5 };
-
   const results: LeaderboardRow[] = audits.map(({ entry, result }) => {
     const name = entry.name ?? entry.url ?? 'Unknown';
     const url = entry.url ?? '';
@@ -103,12 +111,7 @@ export function buildRowSet(
   });
 
   // Sort: score DESC, then grade order (A→F→E), then name ASC
-  results.sort((a, b) => {
-    if (b.score !== a.score) return b.score - a.score;
-    const go = GRADE_ORDER[a.grade] - GRADE_ORDER[b.grade];
-    if (go !== 0) return go;
-    return a.name.localeCompare(b.name);
-  });
+  results.sort(compareRows);
 
   return {
     refreshed_at: refreshedAt,

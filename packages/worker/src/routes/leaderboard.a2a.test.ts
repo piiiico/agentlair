@@ -22,6 +22,20 @@ function makeKv(initial?: LeaderboardRowSet): KVNamespace {
   } as unknown as KVNamespace;
 }
 
+/** Stateful KV mock backed by a Map — needed for rate-limit counter persistence across calls */
+function makeStatefulKv(): KVNamespace & { _store: Map<string, string> } {
+  const store = new Map<string, string>();
+  const kv = {
+    _store: store,
+    get: async (key: string) => store.get(key) ?? null,
+    put: async (key: string, value: string) => { store.set(key, value); },
+    getWithMetadata: async (key: string) => ({ value: store.get(key) ?? null, metadata: null }),
+    delete: async (key: string) => { store.delete(key); },
+    list: async () => ({ keys: [], list_complete: true, cursor: '' }),
+  } as unknown as KVNamespace & { _store: Map<string, string> };
+  return kv;
+}
+
 const SAMPLE_ROWSET: LeaderboardRowSet = {
   refreshed_at: '2026-05-13T04:00:00.000Z',
   total: 2,
@@ -34,10 +48,10 @@ const SAMPLE_ROWSET: LeaderboardRowSet = {
 
 const SECRET = 'test-secret-abc';
 
-function makeApp(kv?: KVNamespace, secret?: string) {
+function makeApp(kv?: KVNamespace, secret?: string, keysKv?: KVNamespace) {
   const app = new Hono<HonoEnv>();
   app.route('/leaderboard', leaderboardA2ARoutes);
-  return { app, env: { A2A_LEADERBOARD: kv, LEADERBOARD_REFRESH_SECRET: secret } };
+  return { app, env: { A2A_LEADERBOARD: kv, LEADERBOARD_REFRESH_SECRET: secret, KEYS: keysKv } };
 }
 
 async function req(app: Hono<HonoEnv>, method: string, path: string, env: Record<string, unknown>, headers?: Record<string, string>, body?: string) {
@@ -248,5 +262,164 @@ describe('POST /leaderboard/a2a/refresh', () => {
     // Just verify it doesn't cache — no-store or absent
     const cc = res.headers.get('Cache-Control') ?? '';
     expect(cc).toContain('no-store');
+  });
+});
+
+// ─── Submit tests ─────────────────────────────────────────────────────────────
+//
+// Note: checkIpRateLimit uses env.KEYS (not env.RATE_LIMIT) — spec comment about
+// "RATE_LIMIT KV namespace" refers to the conceptual namespace, but the actual
+// implementation reads/writes env.KEYS. Tests pass KEYS for stateful rate-limit mocking.
+
+const SAMPLE_CARD = {
+  name: 'TestAgent',
+  url: 'https://test.example.com',
+  description: 'A test agent',
+  skills: [],
+  defaultInputModes: ['text'],
+  defaultOutputModes: ['text'],
+};
+
+function mockFetchWithCard(card = SAMPLE_CARD) {
+  globalThis.fetch = async () => new Response(JSON.stringify(card), { status: 200 });
+}
+
+describe('GET /leaderboard/a2a/submit', () => {
+  test('LB-SUBMIT-1: returns 200 HTML with form pointing to correct action', async () => {
+    const { app, env } = makeApp(makeKv(SAMPLE_ROWSET), SECRET);
+    const res = await req(app, 'GET', '/leaderboard/a2a/submit', env);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Content-Type')).toContain('text/html');
+    const body = await res.text();
+    expect(body).toContain('<form');
+    expect(body).toContain('action="/leaderboard/a2a/submit"');
+    expect(body).toContain('method="POST"');
+  });
+});
+
+describe('POST /leaderboard/a2a/submit', () => {
+  test('LB-SUBMIT-2: valid URL persists row and redirects to leaderboard', async () => {
+    mockFetchWithCard();
+    const kv = makeKv();
+    const { app, env } = makeApp(kv, SECRET, makeStatefulKv());
+    const res = await req(app, 'POST', '/leaderboard/a2a/submit', env,
+      { 'Content-Type': 'application/x-www-form-urlencoded' },
+      'url=https%3A%2F%2Ftest.example.com%2F.well-known%2Fagent.json',
+    );
+    expect(res.status).toBe(302);
+    expect(res.headers.get('Location')).toBe('/leaderboard/a2a#submitted');
+
+    const stored = await kv.get('v1:results');
+    expect(stored).not.toBeNull();
+    const rowset = JSON.parse(stored!) as { results: Array<{ url?: string; well_known?: string }> };
+    const found = rowset.results.find(r =>
+      r.url?.includes('test.example.com') || r.well_known?.includes('test.example.com'),
+    );
+    expect(found).toBeTruthy();
+  });
+
+  test('LB-SUBMIT-3: invalid URL returns 400 with invalid_url', async () => {
+    const { app, env } = makeApp(makeKv(), SECRET, makeStatefulKv());
+    const res = await req(app, 'POST', '/leaderboard/a2a/submit', env,
+      { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      JSON.stringify({ url: 'not-a-url' }),
+    );
+    expect(res.status).toBe(400);
+    const body = await res.text();
+    expect(body).toContain('invalid_url');
+  });
+
+  test('LB-SUBMIT-4: unreachable URL returns 422 with unreachable', async () => {
+    globalThis.fetch = async () => { throw new Error('ECONNREFUSED'); };
+    const { app, env } = makeApp(makeKv(), SECRET, makeStatefulKv());
+    const res = await req(app, 'POST', '/leaderboard/a2a/submit', env,
+      { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      JSON.stringify({ url: 'https://unreachable.example.com' }),
+    );
+    expect(res.status).toBe(422);
+    const body = await res.text();
+    expect(body).toContain('unreachable');
+  });
+
+  test('LB-SUBMIT-5: rate-limit kicks in on 6th request from same IP', async () => {
+    mockFetchWithCard();
+    const kv = makeKv();
+    const keysKv = makeStatefulKv();
+    const { app, env } = makeApp(kv, SECRET, keysKv);
+
+    // 5 successful POSTs from same IP
+    for (let i = 0; i < 5; i++) {
+      const res = await req(app, 'POST', '/leaderboard/a2a/submit', env,
+        { 'Content-Type': 'application/json', 'Accept': 'application/json', 'CF-Connecting-IP': '1.2.3.4' },
+        JSON.stringify({ url: 'https://test.example.com/.well-known/agent.json' }),
+      );
+      expect(res.status).toBe(200);
+    }
+
+    // 6th should be rate-limited
+    const res = await req(app, 'POST', '/leaderboard/a2a/submit', env,
+      { 'Content-Type': 'application/json', 'Accept': 'application/json', 'CF-Connecting-IP': '1.2.3.4' },
+      JSON.stringify({ url: 'https://test.example.com/.well-known/agent.json' }),
+    );
+    expect(res.status).toBe(429);
+  });
+
+  test('LB-SUBMIT-6: duplicate URL re-submission updates in place (no duplicate rows)', async () => {
+    let callCount = 0;
+    globalThis.fetch = async () => {
+      callCount++;
+      // Return slightly different ts each time to verify update
+      return new Response(JSON.stringify({ ...SAMPLE_CARD, version: `v${callCount}` }), { status: 200 });
+    };
+
+    const kv = makeKv();
+    const keysKv = makeStatefulKv();
+    const { app, env } = makeApp(kv, SECRET, keysKv);
+    const targetUrl = 'https://test.example.com/.well-known/agent.json';
+
+    // First submission
+    const res1 = await req(app, 'POST', '/leaderboard/a2a/submit', env,
+      { 'Content-Type': 'application/json', 'Accept': 'application/json', 'CF-Connecting-IP': '1.1.1.1' },
+      JSON.stringify({ url: targetUrl }),
+    );
+    expect(res1.status).toBe(200);
+    const body1 = await res1.json() as { submitted_at: string };
+    const ts1 = body1.submitted_at;
+
+    // Wait a tick so timestamps differ
+    await new Promise(r => setTimeout(r, 5));
+
+    // Second submission of same URL
+    const res2 = await req(app, 'POST', '/leaderboard/a2a/submit', env,
+      { 'Content-Type': 'application/json', 'Accept': 'application/json', 'CF-Connecting-IP': '1.1.1.2' },
+      JSON.stringify({ url: targetUrl }),
+    );
+    expect(res2.status).toBe(200);
+    const body2 = await res2.json() as { submitted_at: string };
+    const ts2 = body2.submitted_at;
+
+    const stored = JSON.parse((await kv.get('v1:results'))!) as { results: Array<{ url: string; ts: string }> };
+    const matches = stored.results.filter(r =>
+      r.url?.includes('test.example.com') || r.url === targetUrl,
+    );
+    expect(matches.length).toBe(1);
+    // Second ts should be >= first
+    expect(new Date(ts2).getTime()).toBeGreaterThanOrEqual(new Date(ts1).getTime());
+  });
+
+  test('LB-SUBMIT-7: JSON Accept returns JSON with grade + score + layers + submitted_at', async () => {
+    mockFetchWithCard();
+    const { app, env } = makeApp(makeKv(), SECRET, makeStatefulKv());
+    const res = await req(app, 'POST', '/leaderboard/a2a/submit', env,
+      { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      JSON.stringify({ url: 'https://test.example.com/.well-known/agent.json' }),
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json() as Record<string, unknown>;
+    expect(body).toHaveProperty('url');
+    expect(body).toHaveProperty('grade');
+    expect(body).toHaveProperty('score');
+    expect(body).toHaveProperty('layers');
+    expect(body).toHaveProperty('submitted_at');
   });
 });
