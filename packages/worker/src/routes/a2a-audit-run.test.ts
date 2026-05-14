@@ -589,6 +589,53 @@ describe('A2A Audit Run Routes', () => {
     expect(parsed.demo).toBe(true);
   });
 
+  // SPREAD-9: embed snippet HTML-escapes adversarial agent card names
+  test('SPREAD-9-EMBED-XSS-ESCAPED: embed snippet escapes < > & in agent card name', async () => {
+    const app = makeApp();
+    const maliciousName = '<script>alert(1)</script> & "evil"';
+    // Override fetch to return a card with the malicious name
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url;
+      const method = ((init?.method) ?? 'GET').toUpperCase();
+      if (url.includes('facilitator') && url.includes('/verify')) {
+        return new Response(JSON.stringify({ isValid: true, payer: '0xtest1234' }), {
+          status: 200, headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (url.includes('facilitator') && url.includes('/settle')) {
+        return new Response(JSON.stringify({ success: true, txHash: '0xabc' }), {
+          status: 200, headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (method === 'HEAD' && (url.includes('.well-known/agent') || url.endsWith('.json'))) {
+        return new Response(null, { status: 200 });
+      }
+      if (url.includes('.well-known/agent') || url.endsWith('.json')) {
+        return new Response(JSON.stringify({ ...{ name: maliciousName, description: 'xss test', url: 'https://xss-test.example.com', version: '1.0.0', defaultInputModes: ['text'], defaultOutputModes: ['text'], capabilities: { streaming: false }, skills: [] } }), {
+          status: 200, headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      return new Response('Not Found', { status: 404 });
+    }) as typeof fetch;
+
+    const res = await doFetch(app, new Request('http://localhost/a2a-audit/run', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'text/html',
+        'X-PAYMENT': MOCK_PAYMENT_HEADER,
+      },
+      body: JSON.stringify({ url: 'https://xss-test.example.com/.well-known/agent.json' }),
+    }));
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    // The embed snippet must NOT contain raw < or > from the malicious name
+    expect(html).not.toContain('<script>alert(1)</script>');
+    // Must contain HTML-escaped versions
+    expect(html).toContain('&lt;script&gt;');
+    expect(html).toContain('&amp;');
+  });
+
   // REGRESSION-ACCEPT-WILDCARD-IS-JSON
   test('REGRESSION-ACCEPT-WILDCARD-IS-JSON: Accept: */* stays JSON', async () => {
     const app = makeApp();

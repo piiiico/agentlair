@@ -93,8 +93,8 @@ function renderSpreadHtml(target: string, audit: any, rawPayload: object): strin
     <a href="https://twitter.com/intent/tweet?text=${encodeURIComponent(tweetText)}">Tweet your grade</a>
     <details>
       <summary>Embed your trust badge</summary>
-      <pre><code>![AgentLair L4 — ${escapeMarkdownInline(displayName)}](https://agentlair.dev/badge/a2a/${slug}.svg)
-[${escapeMarkdownInline(displayName)} on AgentLair Leaderboard](https://agentlair.dev/leaderboard/a2a)</code></pre>
+      <pre><code>![AgentLair L4 — ${escapeHtml(escapeMarkdownInline(displayName))}](https://agentlair.dev/badge/a2a/${slug}.svg)
+[${escapeHtml(escapeMarkdownInline(displayName))} on AgentLair Leaderboard](https://agentlair.dev/leaderboard/a2a)</code></pre>
     </details>
     <a href="/blog/agents-are-shrinking-trust-problem-isnt/">Improve your L4 →</a>
   </section>
