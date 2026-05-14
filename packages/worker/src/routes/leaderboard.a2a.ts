@@ -43,6 +43,14 @@ function gradeColor(g: LeaderboardGrade): string {
 function renderHtml(rowSet: LeaderboardRowSet): string {
   const { refreshed_at, total, results } = rowSet;
 
+  const l4Zero = results.filter(r => r.layers.l4 === 0).length;
+
+  const heroBanner = `<div class="hero-banner">
+    <p class="hero-stat">${l4Zero} of ${total} agents score 0 on L4 (behavioral trust). Static identity is not enough.</p>
+    <p class="hero-sub">Every column except L4 measures who an agent CLAIMS to be. L4 measures what an agent has actually DONE. We track L4.</p>
+    <a class="hero-cta" href="/a2a-audit">Audit your A2A endpoint &rarr;</a>
+  </div>`;
+
   const rows = results.map((r, i) => {
     const color = gradeColor(r.grade);
     const errorCell = r.error ? `<span class="err">${escapeHtml(r.error)}</span>` : '';
@@ -88,6 +96,12 @@ function renderHtml(rowSet: LeaderboardRowSet): string {
     a { color: #1a73e8; text-decoration: none; }
     a:hover { text-decoration: underline; }
     .err { color: #888; font-size: 11px; }
+    .footer-note { margin-top: 16px; font-size: 12px; color: #666; }
+    .hero-banner { border-left: 4px solid #1a73e8; background: rgba(26,115,232,.06); border-radius: 0 6px 6px 0; padding: 16px 20px; margin-bottom: 20px; }
+    .hero-stat { font-size: 1rem; font-weight: 600; margin-bottom: 6px; }
+    .hero-sub { font-size: 13px; color: #444; margin-bottom: 12px; }
+    .hero-cta { display: inline-block; border: 1px solid #1a73e8; color: #1a73e8; border-radius: 4px; padding: 6px 14px; font-size: 13px; font-weight: 600; text-decoration: none; }
+    .hero-cta:hover { background: #1a73e8; color: #fff; text-decoration: none; }
     @media (prefers-color-scheme: dark) {
       body { background: #121212; color: #e0e0e0; }
       table { background: #1e1e1e; box-shadow: 0 1px 4px rgba(0,0,0,.4); }
@@ -96,12 +110,18 @@ function renderHtml(rowSet: LeaderboardRowSet): string {
       td { border-top-color: #2a2a2a; }
       tr:hover td { background: #252525; }
       a { color: #74aeff; }
+      .hero-banner { background: rgba(116,174,255,.08); border-left-color: #74aeff; }
+      .hero-sub { color: #aaa; }
+      .hero-cta { border-color: #74aeff; color: #74aeff; }
+      .hero-cta:hover { background: #74aeff; color: #121212; }
+      .footer-note { color: #888; }
     }
   </style>
 </head>
 <body>
   <h1>A2A Trust Leaderboard</h1>
   <p class="meta">Last refreshed at ${escapeHtml(refreshed_at)} &middot; ${total} agents &middot; auto-updates daily 04:00 UTC</p>
+  ${heroBanner}
   <table id="lb">
     <thead>
       <tr>
@@ -112,7 +132,7 @@ function renderHtml(rowSet: LeaderboardRowSet): string {
         <th data-col="4" data-type="num">L1</th>
         <th data-col="5" data-type="num">L2</th>
         <th data-col="6" data-type="num">L3</th>
-        <th data-col="7" data-type="num">L4</th>
+        <th data-col="7" data-type="num" title="L4 = behavioral trust. Computed from observed runtime behavior over time. All 0 here means no agent in the directory has yet accumulated a verifiable behavioral record. The category is wide open.">L4</th>
         <th data-col="8" data-type="text">Note</th>
       </tr>
     </thead>
@@ -151,6 +171,7 @@ function renderHtml(rowSet: LeaderboardRowSet): string {
       });
     })();
   </script>
+  <p class="footer-note">Every agent listed passes static identity checks (L1&#8211;L3). None demonstrate verifiable runtime behavior (L4). Read more: <a href="/blog/agents-are-shrinking-trust-problem-isnt/">Agents Are Shrinking &#8212; But the Trust Problem Isn&#39;t</a></p>
 </body>
 </html>`;
 }

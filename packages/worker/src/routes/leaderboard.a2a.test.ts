@@ -65,6 +65,32 @@ describe('GET /leaderboard/a2a', () => {
     expect(res.headers.get('Retry-After')).toBe('300');
   });
 
+  test('hero banner shows correct l4Zero count', async () => {
+    // SAMPLE_ROWSET has 2 entries: Alpha (l4=92) and Beta (l4=15) — neither is 0
+    const { app, env } = makeApp(makeKv(SAMPLE_ROWSET), SECRET);
+    const res = await req(app, 'GET', '/leaderboard/a2a', env);
+    const body = await res.text();
+    expect(body).toContain('0 of 2 agents score 0 on L4');
+    expect(body).toContain('Static identity is not enough.');
+    expect(body).toContain('Audit your A2A endpoint');
+    expect(body).toContain('agents-are-shrinking-trust-problem-isnt');
+  });
+
+  test('hero banner l4Zero counts only l4=0 entries', async () => {
+    const rowSetWithZero: LeaderboardRowSet = {
+      ...SAMPLE_ROWSET,
+      total: 2,
+      results: [
+        { ...SAMPLE_ROWSET.results[0], layers: { l1: 95, l2: 90, l3: 88, l4: 0 } },
+        { ...SAMPLE_ROWSET.results[1], layers: { l1: 30, l2: 10, l3: 5, l4: 0 } },
+      ],
+    };
+    const { app, env } = makeApp(makeKv(rowSetWithZero), SECRET);
+    const res = await req(app, 'GET', '/leaderboard/a2a', env);
+    const body = await res.text();
+    expect(body).toContain('2 of 2 agents score 0 on L4');
+  });
+
   test('HTML-escapes XSS payload in agent name', async () => {
     const xssRowSet: LeaderboardRowSet = {
       ...SAMPLE_ROWSET,
