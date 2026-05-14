@@ -15,7 +15,8 @@ import type { HonoEnv } from '../types.js';
 import { runLeaderboardRefresh, compareRows, type LeaderboardRowSet, type LeaderboardGrade, type LeaderboardRow } from '../lib/a2a-leaderboard-job.js';
 import { auditCardUrl } from '../lib/a2a-audit.js';
 import { checkIpRateLimit } from '../middleware/ratelimit.js';
-import { lookupRow } from '../lib/a2a-leaderboard-slug.js';
+import { lookupRow, buildSlugIndex } from '../lib/a2a-leaderboard-slug.js';
+import { computeLeaderboardStats, type LeaderboardStats } from '../lib/a2a-leaderboard-stats.js';
 
 export const leaderboardA2ARoutes = new Hono<HonoEnv>();
 
@@ -460,6 +461,157 @@ leaderboardA2ARoutes.post('/a2a/refresh', async (c) => {
     const msg = e instanceof Error ? e.message : 'refresh failed';
     return c.json({ error: msg }, 503);
   }
+});
+
+// ─── GET /a2a/stats → aggregate stats page ───────────────────────────────────
+
+function renderStatsHtml(stats: LeaderboardStats): string {
+  const { total, refreshedAt, gradeDistribution, layerMeans, layerFailRates, topByScore, bottomByScore, bottomHidden } = stats;
+
+  const layerBar = (label: string, val: number) =>
+    `<div class="layer-row">
+      <span class="layer-label">${label}: ${val}/100</span>
+      <div class="layer-track"><div class="layer-fill" style="width:${val}%"></div></div>
+    </div>`;
+
+  const gradeDistHtml = gradeDistribution.map(e => {
+    const color = gradeColor(e.grade);
+    return `<span class="grade-pill" style="background:${color}">${escapeHtml(e.grade)}: ${e.count} (${e.pct}%)</span>`;
+  }).join('\n    ');
+
+  const topListHtml = topByScore.map(r =>
+    `<li><a href="/leaderboard/a2a/${encodeURIComponent(r.slug)}">${escapeHtml(r.name)}</a> — ${r.score}/100 (${escapeHtml(r.grade)})</li>`
+  ).join('\n    ');
+
+  const bottomSectionHtml = bottomHidden
+    ? '<!-- bottom hidden: score range degenerate -->'
+    : `<section>
+    <h2>Bottom 5 Agents</h2>
+    <ol>
+    ${bottomByScore.map(r =>
+      `<li><a href="/leaderboard/a2a/${encodeURIComponent(r.slug)}">${escapeHtml(r.name)}</a> — ${r.score}/100 (${escapeHtml(r.grade)})</li>`
+    ).join('\n    ')}
+    </ol>
+  </section>`;
+
+  const canonical = 'https://agentlair.dev/leaderboard/a2a/stats';
+  const ogTitle = `${layerFailRates.l4}% of A2A agents fail behavioral trust — agentlair.dev`;
+  const ogDesc = `${layerFailRates.l4}% of audited A2A agents fail behavioral trust (Layer 4). Aggregate stats across ${total} audits.`;
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>A2A Trust Stats — agentlair.dev</title>
+  <meta name="description" content="${escapeHtml(ogDesc)}">
+  <link rel="canonical" href="${canonical}">
+  <meta property="og:title" content="${escapeHtml(ogTitle)}">
+  <meta property="og:description" content="${escapeHtml(ogDesc)}">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="${canonical}">
+  <meta property="og:image" content="https://agentlair.dev/og/a2a-stats.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="${escapeHtml(ogTitle)}">
+  <meta name="twitter:description" content="${escapeHtml(ogDesc)}">
+  <meta name="twitter:image" content="https://agentlair.dev/og/a2a-stats.png">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; font-size: 14px; padding: 24px; background: #fafafa; color: #111; max-width: 700px; }
+    h1 { font-size: 2rem; margin-bottom: 8px; line-height: 1.2; }
+    h2 { font-size: 1.2rem; margin: 24px 0 12px; }
+    .hero { margin-bottom: 24px; }
+    .sub { color: #555; font-size: 15px; margin-top: 8px; }
+    .grade-dist { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 24px; }
+    .grade-pill { display: inline-block; padding: 4px 12px; border-radius: 12px; color: #fff; font-weight: 600; font-size: 13px; }
+    .layers { margin: 0 0 24px; }
+    .layer-row { margin-bottom: 10px; }
+    .layer-label { display: block; font-size: 13px; margin-bottom: 4px; }
+    .layer-track { background: #e0e0e0; border-radius: 4px; height: 10px; }
+    .layer-fill { background: #1a73e8; height: 10px; border-radius: 4px; }
+    ol { padding-left: 20px; }
+    li { margin-bottom: 6px; line-height: 1.5; }
+    section { margin-bottom: 24px; }
+    .footer { margin-top: 32px; font-size: 12px; color: #666; }
+    a { color: #1a73e8; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    @media (prefers-color-scheme: dark) {
+      body { background: #121212; color: #e0e0e0; }
+      .sub { color: #aaa; }
+      .layer-track { background: #333; }
+      .layer-fill { background: #74aeff; }
+      .footer { color: #888; }
+      a { color: #74aeff; }
+    }
+  </style>
+</head>
+<body>
+  <div class="hero">
+    <h1>${layerFailRates.l4}% of audited A2A agents fail behavioral trust (Layer 4).</h1>
+    <p class="sub">Across ${total} agents indexed by a2aregistry.org. Updated ${shortDate(refreshedAt)}.</p>
+  </div>
+
+  <section>
+    <h2>Grade Distribution</h2>
+    <div class="grade-dist">
+    ${gradeDistHtml}
+    </div>
+  </section>
+
+  <section>
+    <h2>Layer Means</h2>
+    <div class="layers">
+      ${layerBar('L1 mean', layerMeans.l1)}
+      ${layerBar('L2 mean', layerMeans.l2)}
+      ${layerBar('L3 mean', layerMeans.l3)}
+      ${layerBar('L4 mean', layerMeans.l4)}
+    </div>
+  </section>
+
+  <section>
+    <h2>Top 5 Agents</h2>
+    <ol>
+    ${topListHtml}
+    </ol>
+  </section>
+
+  ${bottomSectionHtml}
+
+  <footer class="footer">
+    ${total} agents audited · last refresh ${escapeHtml(refreshedAt)} · <a href="/leaderboard/a2a">All agents</a> · <a href="/a2a-audit">Audit yours</a>
+  </footer>
+</body>
+</html>`;
+}
+
+leaderboardA2ARoutes.get('/a2a/stats', async (c) => {
+  const kv = c.env.A2A_LEADERBOARD;
+  if (!kv) {
+    return new Response('Service unavailable', {
+      status: 503,
+      headers: { 'Retry-After': '300', 'Content-Type': 'text/plain' },
+    });
+  }
+  const raw = await kv.get(KV_KEY);
+  if (!raw) {
+    return new Response('Service unavailable — leaderboard not yet populated', {
+      status: 503,
+      headers: { 'Retry-After': '300', 'Content-Type': 'text/plain' },
+    });
+  }
+  const rowSet = JSON.parse(raw) as LeaderboardRowSet;
+  const slugIndex = await buildSlugIndex(rowSet.results);
+  const stats = computeLeaderboardStats(rowSet, slugIndex);
+  const html = renderStatsHtml(stats);
+  return new Response(html, {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'public, max-age=300, s-maxage=3600',
+    },
+  });
 });
 
 // ─── GET /a2a/:slug → per-agent permalink ────────────────────────────────────

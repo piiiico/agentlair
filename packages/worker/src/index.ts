@@ -49,6 +49,7 @@ import { memoryTrustRoutes } from './routes/memory-trust.js';
 import { badgeRoutes } from './routes/badge.js';
 import { a2aCardRoutes } from './routes/a2a-cards.js';
 import { ogA2aRoutes } from './routes/og-a2a.js';
+import { ogA2aStatsRoutes } from './routes/og-a2a-stats.js';
 import { sitemapA2aRoutes } from './routes/sitemap-a2a.js';
 import { a2aAuditRunRoutes } from './routes/a2a-audit-run.js';
 import { leaderboardA2ARoutes } from './routes/leaderboard.a2a.js';
@@ -365,6 +366,9 @@ app.route('/badge', badgeRoutes);
 
 // Per-A2A-card landing pages — public HTML/JSON trust reports
 app.route('/a2a', a2aCardRoutes);
+
+// OG image for aggregate A2A stats page
+app.route('/og/a2a-stats.png', ogA2aStatsRoutes);
 
 // OG card images for per-A2A-card pages
 app.route('/og/a2a', ogA2aRoutes);

@@ -515,3 +515,60 @@ describe('GET /leaderboard/a2a/:slug — permalinks', () => {
     expect(res.headers.get('Retry-After')).toBe('300');
   });
 });
+
+// ─── Stats page tests ─────────────────────────────────────────────────────────
+
+const STATS_ROWSET: LeaderboardRowSet = {
+  refreshed_at: '2026-05-14T12:00:00.000Z',
+  total: 3,
+  registry_url: 'https://a2aregistry.org/api/agents',
+  results: [
+    { name: 'Alpha', url: 'https://alpha.example.com', well_known: 'https://alpha.example.com/.well-known/agent.json', grade: 'A', score: 90, layers: { l1: 95, l2: 90, l3: 85, l4: 90 }, ts: '2026-05-14T00:00:00Z' },
+    { name: 'Beta',  url: 'https://beta.example.com',  well_known: 'https://beta.example.com/.well-known/agent.json',  grade: 'C', score: 55, layers: { l1: 60, l2: 55, l3: 50, l4: 55 }, ts: '2026-05-14T00:00:00Z' },
+    { name: 'Gamma', url: 'https://gamma.example.com', well_known: 'https://gamma.example.com/.well-known/agent.json', grade: 'F', score: 10, layers: { l1: 20, l2: 10, l3: 5, l4: 0 }, ts: '2026-05-14T00:00:00Z' },
+  ],
+};
+
+describe('GET /leaderboard/a2a/stats', () => {
+  test('STATS-1: populated KV → 200, text/html, og:image points at /og/a2a-stats.png, all six grade letters present', async () => {
+    const { app, env } = makeApp(makeKv(STATS_ROWSET), SECRET);
+    const res = await req(app, 'GET', '/leaderboard/a2a/stats', env);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Content-Type')).toContain('text/html');
+    const body = await res.text();
+    expect(body).toContain('/og/a2a-stats.png');
+    // All six grade letters as content tokens in grade-pill spans
+    for (const g of ['A', 'B', 'C', 'D', 'F', 'E']) {
+      expect(body).toContain(`>${g}:`);
+    }
+  });
+
+  test('STATS-2: no KV key → 503 with Retry-After: 300', async () => {
+    const { app, env } = makeApp(makeKv(), SECRET);
+    const res = await req(app, 'GET', '/leaderboard/a2a/stats', env);
+    expect(res.status).toBe(503);
+    expect(res.headers.get('Retry-After')).toBe('300');
+  });
+
+  test('STATS-3: all-l4-zero KV → headline contains "100%" and "Layer 4"', async () => {
+    const allL4Zero: LeaderboardRowSet = {
+      refreshed_at: '2026-05-14T12:00:00.000Z',
+      total: 12,
+      registry_url: 'https://a2aregistry.org/api/agents',
+      results: Array.from({ length: 12 }, (_, i) => ({
+        name: `Agent${i}`,
+        url: `https://agent${i}.example.com`,
+        well_known: `https://agent${i}.example.com/.well-known/agent.json`,
+        grade: 'F' as const,
+        score: 10 + i * 5,
+        layers: { l1: 30, l2: 20, l3: 10, l4: 0 },
+        ts: '2026-05-14T00:00:00Z',
+      })),
+    };
+    const { app, env } = makeApp(makeKv(allL4Zero), SECRET);
+    const res = await req(app, 'GET', '/leaderboard/a2a/stats', env);
+    const body = await res.text();
+    expect(body).toContain('100%');
+    expect(body).toContain('Layer 4');
+  });
+});
