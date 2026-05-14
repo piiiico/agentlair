@@ -24,8 +24,9 @@ import resvgWasm from '@resvg/resvg-wasm/index_bg.wasm';
 import interRegularWoff2 from '../assets/inter-regular.woff2';
 // @ts-expect-error — binary font import: ArrayBuffer in CF Workers, file path string in Bun
 import interBoldWoff2 from '../assets/inter-bold.woff2';
-// @ts-expect-error — pre-rendered static PNG: ArrayBuffer in CF Workers, file path string in Bun
-import staticOgPng from '../assets/og-a2a-stats.png';
+// Pre-rendered static PNG bundled inline as base64 — guaranteed available in CF Workers
+// regardless of wrangler Data rule behaviour. Regenerate with: bun tools/gen-og-stats-png.ts
+import { OG_A2A_STATS_PNG_B64 } from '../assets/og-a2a-stats-b64.js';
 
 export const ogA2aStatsRoutes = new Hono<HonoEnv>();
 
@@ -156,25 +157,18 @@ export function renderStatsOgSvg(stats: LeaderboardStats): string {
 }
 
 // ─── Static PNG fallback ─────────────────────────────────────────────────────
-// Pre-rendered at deploy time. Loaded lazily; avoids large buffer on 503 paths.
+// Pre-rendered PNG, inlined as base64 in og-a2a-stats-b64.ts at pipeline time.
+// Inline base64 is reliable in CF Workers regardless of wrangler Data rule behaviour.
 
 let staticPngBuffer: Uint8Array | null = null;
 
-async function loadStaticPng(): Promise<Uint8Array | null> {
+function loadStaticPng(): Uint8Array {
   if (staticPngBuffer) return staticPngBuffer;
-  try {
-    const imp: unknown = staticOgPng;
-    if (imp instanceof ArrayBuffer) {
-      staticPngBuffer = new Uint8Array(imp);
-    } else if (imp instanceof Uint8Array) {
-      staticPngBuffer = imp;
-    } else if (typeof imp === 'string') {
-      const { readFileSync } = await import('fs');
-      staticPngBuffer = new Uint8Array(readFileSync(imp));
-    }
-  } catch {
-    // static PNG not available — caller will handle
-  }
+  // atob is available in both CF Workers and modern Bun runtimes
+  const binary = atob(OG_A2A_STATS_PNG_B64);
+  const buf = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) buf[i] = binary.charCodeAt(i);
+  staticPngBuffer = buf;
   return staticPngBuffer;
 }
 
@@ -227,17 +221,11 @@ ogA2aStatsRoutes.get('/', async (c) => {
   const canPng = await ensureWasm();
   const svg = renderStatsOgSvg(stats);
 
-  // Build PNG response: prefer WASM render, fall back to static pre-rendered PNG,
-  // last resort SVG (browsers can show it, but Twitter/X link-preview needs PNG).
-  let response: Response;
-  if (canPng) {
-    response = imageResponse(svgToPng(svg), true);
-  } else {
-    const staticPng = await loadStaticPng();
-    response = staticPng
-      ? imageResponse(staticPng, true)   // static PNG — Content-Type: image/png ✓
-      : imageResponse(svg, false);       // SVG last resort
-  }
+  // Build PNG response: prefer WASM render, fall back to static pre-rendered PNG.
+  // Static PNG is always available (inlined as base64), so image/png is guaranteed.
+  const response = canPng
+    ? imageResponse(svgToPng(svg), true)
+    : imageResponse(loadStaticPng(), true);   // static PNG — Content-Type: image/png ✓
 
   // Stash in CF edge cache
   if (cache) {
