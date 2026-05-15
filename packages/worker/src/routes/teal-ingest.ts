@@ -26,11 +26,15 @@ interface TealRecord {
   payload_hash: string;
   prev_hash: string | null;
   agent_sig?: string;
+  subject_agent_id?: string;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const MAX_RECORDS = 100;
+
+// subject_agent_id validation: acc_ or a2a_ prefix, 1–128 alphanumeric/hyphen/underscore chars
+const SUBJECT_AGENT_ID_RE = /^(?:acc_[A-Za-z0-9_-]{1,128}|a2a_[A-Za-z0-9-]{1,128})$/;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -98,6 +102,11 @@ function validateRecordSchema(r: unknown, idx: number): { ok: true; record: Teal
   if (rec.agent_sig !== undefined && rec.agent_sig !== null && typeof rec.agent_sig !== 'string') {
     return { ok: false, error: 'invalid_record_schema', index: idx };
   }
+  if (rec.subject_agent_id !== undefined && rec.subject_agent_id !== null) {
+    if (typeof rec.subject_agent_id !== 'string' || !SUBJECT_AGENT_ID_RE.test(rec.subject_agent_id)) {
+      return { ok: false, error: 'invalid_subject_agent_id', index: idx };
+    }
+  }
 
   return {
     ok: true,
@@ -108,6 +117,7 @@ function validateRecordSchema(r: unknown, idx: number): { ok: true; record: Teal
       payload_hash: rec.payload_hash as string,
       prev_hash: (rec.prev_hash as string | null) ?? null,
       agent_sig: typeof rec.agent_sig === 'string' ? rec.agent_sig : undefined,
+      subject_agent_id: typeof rec.subject_agent_id === 'string' ? rec.subject_agent_id : undefined,
     },
   };
 }
@@ -169,7 +179,7 @@ tealIngestRoutes.post('/ingest', async (c) => {
   for (let i = 0; i < rawRecords.length; i++) {
     const validated = validateRecordSchema(rawRecords[i], i);
     if (!validated.ok) {
-      return c.json({ error: 'invalid_record_schema', index: validated.index, message: 'Record failed schema validation.' }, 400);
+      return c.json({ error: validated.error, index: validated.index, message: 'Record failed schema validation.' }, 400);
     }
     records.push(validated.record);
   }
@@ -336,8 +346,8 @@ tealIngestRoutes.post('/ingest', async (c) => {
     try {
       await c.env.AUDIT.prepare(
         `INSERT OR IGNORE INTO teal_records
-           (operator_id, session_id, seq, timestamp, action_type, payload_hash, prev_hash, agent_sig, signed, received_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           (operator_id, session_id, seq, timestamp, action_type, payload_hash, prev_hash, agent_sig, signed, received_at, subject_agent_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).bind(
         operatorId,      // 0
         sessionId,       // 1
@@ -349,6 +359,7 @@ tealIngestRoutes.post('/ingest', async (c) => {
         record.agent_sig ?? null, // 7
         chainSigned ? 1 : 0, // 8
         now,             // 9
+        record.subject_agent_id ?? null, // 10
       ).run();
     } catch (e) {
       console.error('teal_records insert failed:', e instanceof Error ? e.message : String(e));
@@ -358,6 +369,9 @@ tealIngestRoutes.post('/ingest', async (c) => {
     // Columns: id(0), event_id(1), agent_id(2), timestamp(3), category(4), action(5), result(6),
     //          resource_type(7), duration_ms(8), error_code(9), scope_used(10), metadata_json(11),
     //          session_id(12), signed(13), source(14)
+    // D3: agent_id = subject (per-record subject_agent_id ?? fallback to operatorId)
+    //     metadata_json includes operator_id (the SUBMITTER) for cross-org auditability
+    const subjectAgentId = record.subject_agent_id ?? operatorId;
     const beEventId = `teal_${sessionId}_${record.seq}`;
     try {
       await c.env.AUDIT.prepare(
@@ -369,7 +383,7 @@ tealIngestRoutes.post('/ingest', async (c) => {
       ).bind(
         beId,            // 0
         beEventId,       // 1
-        operatorId,      // 2
+        subjectAgentId,  // 2: was operatorId; now per-record subject (or fallback)
         record.timestamp, // 3
         'session',       // 4: category
         record.action_type, // 5: action
@@ -378,7 +392,11 @@ tealIngestRoutes.post('/ingest', async (c) => {
         null,            // 8: duration_ms
         null,            // 9: error_code
         null,            // 10: scope_used
-        JSON.stringify({ payload_hash: record.payload_hash, seq: record.seq }), // 11: metadata_json
+        JSON.stringify({
+          payload_hash: record.payload_hash,
+          seq: record.seq,
+          operator_id: operatorId,  // NEW: submitter retained even when agent_id diverges
+        }), // 11: metadata_json
         sessionId,       // 12: session_id
         chainSigned ? 1 : 0, // 13: signed
         'teal',          // 14: source

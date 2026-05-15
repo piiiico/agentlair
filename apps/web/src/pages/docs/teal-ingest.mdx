@@ -179,6 +179,71 @@ Register your agent's Ed25519 public key via `POST /v1/agents/signing-keys` befo
 
 ---
 
+## Per-record subject\_agent\_id (cross-org aggregation)
+
+By default, TEAL records attribute behavioral activity to the **submitting operator** — the account that POSTs to `/v1/teal/ingest`. That works when an operator is also the agent being observed. It breaks down when operators act as intermediaries: SaaS A submits TEAL about agent X, SaaS B submits TEAL about the same agent X. Without a shared identity, the trust substrate sees two isolated datasets instead of one cross-org picture.
+
+The `subject_agent_id` field solves this. Add it to any record to identify the agent being observed, independently from the submitting operator:
+
+```json
+{
+  "session_id": "sess_abc123",
+  "records": [
+    {
+      "seq": 0,
+      "timestamp": "2026-05-15T12:00:00Z",
+      "action_type": "tool.invoke",
+      "payload_hash": "sha256:a1b2c3d4...",
+      "prev_hash": null,
+      "subject_agent_id": "acc_x"
+    }
+  ]
+}
+```
+
+`subject_agent_id` accepts `acc_<1–128 alphanumeric/dash/underscore>` or `a2a_<1–128 alphanumeric/dash>`. When absent, the server falls back to the submitting operator's ID — so existing integrations behave exactly as before.
+
+Per-record granularity means a single batch can carry records about multiple subjects. A multiplexer submitting activity from agents X, Y, and Z in one call routes each record to the right behavioral history independently.
+
+The submitting operator's identity is always retained in `metadata_json.operator_id` on the behavioral event, so the audit trail shows both who submitted and who was observed.
+
+### Who submitted TEAL about a given agent
+
+Once multiple operators have submitted TEAL about the same subject, you can see the cross-org picture with the free public endpoint:
+
+```bash
+curl https://agentlair.dev/v1/trust/acc_x/teal-sources
+```
+
+```json
+{
+  "agent_id": "acc_x",
+  "sources": [
+    {
+      "operator_id": "acc_a",
+      "record_count": 12,
+      "first_seen": "2026-05-10T14:00:00.000Z",
+      "last_seen": "2026-05-15T08:30:00.000Z",
+      "session_count": 2
+    },
+    {
+      "operator_id": "acc_b",
+      "record_count": 7,
+      "first_seen": "2026-05-12T09:15:00.000Z",
+      "last_seen": "2026-05-14T20:00:00.000Z",
+      "session_count": 1
+    }
+  ],
+  "total_records": 19,
+  "total_operators": 2,
+  "window_days": 90
+}
+```
+
+`GET /v1/trust/:agentId/teal-sources` requires no authentication and no payment. It covers a rolling 90-day window and sorts by record count descending. The response exposes which operators submitted (operator IDs and record counts) but not what they reported — payload content and action types stay private.
+
+---
+
 ## Limitations
 
 - Maximum 100 records per request. For longer sessions, POST in batches.

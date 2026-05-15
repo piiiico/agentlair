@@ -139,6 +139,7 @@ class MockD1Stmt {
           agent_sig: this.bindings[7] as string | null,
           signed: this.bindings[8] as number,
           received_at: String(this.bindings[9]),
+          subject_agent_id: this.bindings[10] as string | null ?? null,
         });
       }
       return { success: true, meta: { changes: 1 } };
@@ -150,7 +151,8 @@ class MockD1Stmt {
       const category = String(this.bindings[4]);
       const signed = Number(this.bindings[13]);
       const sessionId = String(this.bindings[12]);
-      this.db._beRows.push({ id, event_id: eventId, agent_id: agentId, category, signed, session_id: sessionId });
+      const metadataJson = this.bindings[11] as string | null;
+      this.db._beRows.push({ id, event_id: eventId, agent_id: agentId, category, signed, session_id: sessionId, metadata_json: metadataJson });
       return { success: true, meta: { changes: 1 } };
     }
     return { success: true, meta: { changes: 0 } };
@@ -538,6 +540,117 @@ describe('POST /v1/teal/ingest', () => {
       expect(response.status).toBe(400);
       const body = await response.json() as Record<string, unknown>;
       expect(body.error).toBe('invalid_json');
+    });
+  });
+
+  // ─── G1–G4: subject_agent_id (agentlair-teal-subject-agent-id-20260515) ──────
+
+  describe('G1: POST with subject_agent_id on record', () => {
+    test('stores subject_agent_id in teal_records and routes behavioral_events.agent_id to subject', async () => {
+      const records = await buildChain(1);
+      const recordsWithSubject = [{ ...records[0], subject_agent_id: 'acc_x' }];
+      const d1 = new MockD1();
+
+      const { status, body } = await callIngest(
+        { session_id: 'sess_sg1', records: recordsWithSubject },
+        { d1, accountId: 'acc_submitter', unsignedOk: true },
+      );
+      expect(status).toBe(200);
+      expect((body as Record<string, unknown>).ok).toBe(true);
+
+      // teal_records: subject_agent_id stored
+      expect(d1._tealRows).toHaveLength(1);
+      expect(d1._tealRows[0].subject_agent_id).toBe('acc_x');
+
+      // behavioral_events: agent_id = subject, metadata_json.operator_id = submitter
+      expect(d1._beRows).toHaveLength(1);
+      expect(d1._beRows[0].agent_id).toBe('acc_x');
+      const meta = JSON.parse(d1._beRows[0].metadata_json as string);
+      expect(meta.operator_id).toBe('acc_submitter');
+    });
+  });
+
+  describe('G2: POST without subject_agent_id — backward-compat fallback', () => {
+    test('behavioral_events.agent_id = operator_id; teal_records.subject_agent_id IS NULL', async () => {
+      const records = await buildChain(1);
+      const d1 = new MockD1();
+
+      const { status } = await callIngest(
+        { session_id: 'sess_sg2', records },
+        { d1, accountId: 'acc_operator', unsignedOk: true },
+      );
+      expect(status).toBe(200);
+
+      // teal_records: subject_agent_id is null
+      expect(d1._tealRows[0].subject_agent_id).toBeNull();
+
+      // behavioral_events: agent_id falls back to operator_id
+      expect(d1._beRows[0].agent_id).toBe('acc_operator');
+      const meta = JSON.parse(d1._beRows[0].metadata_json as string);
+      expect(meta.operator_id).toBe('acc_operator');
+    });
+  });
+
+  describe('G3: POST with invalid subject_agent_id', () => {
+    test('G3a: bare id without acc_/a2a_ prefix → 400 invalid_subject_agent_id', async () => {
+      const records = await buildChain(1);
+      const badRecords = [{ ...records[0], subject_agent_id: 'bad-id' }];
+      const { status, body } = await callIngest(
+        { session_id: 'sess_sg3a', records: badRecords },
+        { unsignedOk: true },
+      );
+      expect(status).toBe(400);
+      const b = body as Record<string, unknown>;
+      expect(b.error).toBe('invalid_subject_agent_id');
+      expect(b.index).toBe(0);
+    });
+
+    test('G3b: acc_ prefix but 129-char suffix → 400 invalid_subject_agent_id', async () => {
+      const records = await buildChain(1);
+      const tooLong = 'acc_' + 'a'.repeat(129);
+      const badRecords = [{ ...records[0], subject_agent_id: tooLong }];
+      const { status, body } = await callIngest(
+        { session_id: 'sess_sg3b', records: badRecords },
+        { unsignedOk: true },
+      );
+      expect(status).toBe(400);
+      expect((body as Record<string, unknown>).error).toBe('invalid_subject_agent_id');
+    });
+
+    test('G3c: a2a_ prefix with valid format is accepted → 200', async () => {
+      const records = await buildChain(1);
+      const a2aRecords = [{ ...records[0], subject_agent_id: 'a2a_valid-agent-id' }];
+      const d1 = new MockD1();
+      const { status } = await callIngest(
+        { session_id: 'sess_sg3c', records: a2aRecords },
+        { d1, unsignedOk: true },
+      );
+      expect(status).toBe(200);
+      expect(d1._tealRows[0].subject_agent_id).toBe('a2a_valid-agent-id');
+    });
+  });
+
+  describe('G4: Mixed batch — per-record routing to distinct behavioral_events.agent_id', () => {
+    test('record[0] no subject, record[1] subject=acc_x, record[2] subject=acc_y → 3 distinct agent_ids', async () => {
+      const records = await buildChain(3);
+      const mixedRecords = [
+        records[0],                                  // no subject → fallback to operator
+        { ...records[1], subject_agent_id: 'acc_x' },
+        { ...records[2], subject_agent_id: 'acc_y' },
+      ];
+      const d1 = new MockD1();
+
+      const { status } = await callIngest(
+        { session_id: 'sess_sg4', records: mixedRecords },
+        { d1, accountId: 'acc_op_mixed', unsignedOk: true },
+      );
+      expect(status).toBe(200);
+
+      const agentIds = d1._beRows.map(r => r.agent_id);
+      expect(agentIds).toContain('acc_op_mixed');  // record[0] fallback
+      expect(agentIds).toContain('acc_x');          // record[1]
+      expect(agentIds).toContain('acc_y');          // record[2]
+      expect(new Set(agentIds).size).toBe(3);        // all distinct
     });
   });
 

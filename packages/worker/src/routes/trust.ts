@@ -22,6 +22,7 @@ import type { ATFLevel } from '../trust-engine.js';
 import { computeTrustScore, checkTrustGate } from '../trust-engine.js';
 import { authenticateAny } from '../middleware/auth.js';
 import { verifyX402Payment, settleX402Payment, trackX402Spend, make402Response, SERVICE_PRICES } from '../x402.js';
+import { tealSourcesHandler } from './teal-sources.js';
 
 export const trustRoutes = new Hono<HonoEnv>();
 
@@ -319,6 +320,18 @@ publicTrustRoutes.get('/distribution', async (c) => {
     return json(empty);
   }
 });
+
+// ─── GET /v1/trust/:agentId/teal-sources ─────────────────────────────────────
+//
+// Free public read — no auth, no x402. Lists which operators have submitted
+// TEAL behavioral records about a given subject agent in the past 90 days.
+//
+// Must be registered BEFORE /:agentId to prevent Hono capturing
+// "teal-sources" as an agentId path parameter in the `/:agentId` catchall.
+// Free-read invariant: handler MUST NOT call verifyX402Payment / make402Response
+// / authenticateAny — this endpoint is unconditionally public.
+
+publicTrustRoutes.get('/:agentId/teal-sources', tealSourcesHandler);
 
 publicTrustRoutes.get('/:agentId', async (c) => {
   // Try optional authentication — if API key present, use it (no payment required)
