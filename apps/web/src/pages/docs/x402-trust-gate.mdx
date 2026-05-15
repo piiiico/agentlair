@@ -1,0 +1,172 @@
+---
+layout: ../../layouts/BasicLayout.astro
+title: "x402 Trust Gate — AgentLair"
+description: "Cloudflare Worker middleware that prices x402 API access based on an agent's AgentLair behavioral trust score. Trusted agents pay base rate. Unknown agents pay up to 10x."
+---
+
+# x402 Trust Gate
+
+A Cloudflare Worker middleware that sits in front of any API and scales x402 payment requirements based on the calling agent's behavioral trust score. Agents with established AgentLair trust records pay the base rate. Unknown or unverified agents pay a premium. Flagged agents are blocked.
+
+**Package:** `@agentlair/x402-trust-gate`
+
+**Source:** [github.com/hawkaa/agentlair/tree/main/packages/x402-trust-gate](https://github.com/hawkaa/agentlair/tree/main/packages/x402-trust-gate)
+
+---
+
+## Install
+
+```bash
+npm install @agentlair/x402-trust-gate
+# or
+bun add @agentlair/x402-trust-gate
+```
+
+---
+
+## Quickstart
+
+```typescript
+import { handleTrustGate } from '@agentlair/x402-trust-gate';
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    return handleTrustGate(request, {
+      baseAmount: '10000',        // 0.01 USDC — trusted agents pay this
+      asset: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+      network: 'eip155:8453',
+      payTo: env.WALLET_ADDRESS,
+      facilitator: 'https://facilitator.ultravioletadao.xyz',
+      resourceUrl: 'https://my-api.example.com',
+      description: 'Trust-gated API access',
+      upstream: 'https://my-api-upstream.example.com',
+    });
+  }
+};
+```
+
+Deploy:
+
+```bash
+wrangler secret put PAY_TO
+wrangler deploy
+```
+
+---
+
+## Trust tiers
+
+The middleware introspects the `Authorization: Bearer <AAT>` header on each request. AgentLair AATs carry a trust level derived from cross-org behavioral aggregation.
+
+| Tier | Trust score | Multiplier | HTTP |
+|:-----|:-----------|:----------:|:----:|
+| trusted (senior/principal) | 65+ | 1x | 402 (base amount) |
+| junior | 40–64 | 5x | 402 (5× amount) |
+| unknown (intern / no AAT) | < 40 | 10x | 402 (10× amount) |
+| flagged | any | blocked | 403 |
+
+Requests with no `Authorization` header are treated as unknown (10x).
+
+---
+
+## Configuration
+
+```typescript
+interface TrustGateConfig {
+  /** Base payment amount in smallest units (e.g. "10000" = 0.01 USDC) */
+  baseAmount: string;
+
+  /** ERC-20 token contract address */
+  asset: string;
+
+  /** CAIP-2 network identifier */
+  network: string;
+
+  /** Wallet address to receive payments */
+  payTo: string;
+
+  /** x402 facilitator URL for payment verification */
+  facilitator: string;
+
+  /** Canonical URL of the resource being accessed */
+  resourceUrl: string;
+
+  /** Payment description shown in the 402 response */
+  description: string;
+
+  /** Upstream URL to proxy verified requests to */
+  upstream: string;
+
+  /** Optional: override default tier multipliers */
+  tiers?: {
+    trusted?: { multiplier: number };
+    junior?: { multiplier: number };
+    unknown?: { multiplier: number };
+  };
+
+  /** Optional: AgentLair introspection endpoint (default: agentlair.dev) */
+  introspectionUrl?: string;
+}
+```
+
+### Custom tier pricing
+
+```typescript
+handleTrustGate(request, {
+  ...config,
+  tiers: {
+    trusted: { multiplier: 1 },
+    junior: { multiplier: 2 },
+    unknown: { multiplier: 5 },
+  },
+});
+```
+
+---
+
+## Response headers
+
+Every 402 response includes headers the calling agent can use to understand the rejection:
+
+| Header | Value | Example |
+|:-------|:------|:--------|
+| `X-Trust-Tier` | `trusted`, `junior`, `unknown`, `flagged` | `unknown` |
+| `X-Price-Multiplier` | Integer | `10` |
+| `X-AAT-Valid` | `true` / `false` | `false` |
+
+---
+
+## Payment flow
+
+```
+Agent → POST /api
+         Authorization: Bearer <AgentLair AAT>
+
+Middleware:
+  1. Introspect AAT → trust level (GET agentlair.dev/v1/tokens/introspect)
+  2. Map trust level → price multiplier
+  3. No X-PAYMENT header? → 402 with scaled price + X-Trust-Tier
+  4. X-PAYMENT header present? → Verify via facilitator → settle → proxy to upstream
+
+Agent ← 200 (proxied upstream response)
+```
+
+The x402 payment proof goes in the `X-PAYMENT` header on retry. The middleware verifies the proof with the facilitator before proxying.
+
+---
+
+## Notes on facilitator choice
+
+The official [x402.org](https://x402.org) facilitator supports Ethereum Sepolia only as of May 2026. For Base mainnet USDC, use the [Ultraviolet facilitator](https://facilitator.ultravioletadao.xyz):
+
+```
+facilitator: 'https://facilitator.ultravioletadao.xyz'
+```
+
+---
+
+## Related
+
+- [Blog: Trust-gated payments](/blog/trust-gated-payments)
+- [AgentLair AAT format](/docs/concepts)
+- [x402 integration guide](/docs/api-reference)

@@ -62,7 +62,7 @@ For agent commerce to work at edge scale, the trust evaluation has to happen at 
 
 That answer can't come from the agent's self-reported identity (which may be fabricated or absent). It can't come from session-scoped policy (which the service can't see). It has to come from behavioral history: what this agent, or agents like it, have done across interactions.
 
-This is the L4 behavioral trust layer: a cross-session, cross-operator record of agent behavior that services can query at request time. Not identity. Not policy. Behavior.
+This is the cross-org behavioral trust layer: a cross-session, cross-operator record of agent behavior that services can query at request time. Not identity. Not policy. Behavior.
 
 ## The Math on the Gap
 

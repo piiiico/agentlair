@@ -741,7 +741,7 @@ def check_trust(agent_id: str, min_score: int = 500) -> bool:
       {/* ─── 04 Trust Scoring ─── */}
       <Section id="trust" number="04" title="Trust Scoring" alt>
         <p className="text-muted-foreground mb-6 leading-relaxed">
-          L4 behavioral trust is what makes AgentLair different from every other
+          Cross-org behavioral trust is what makes AgentLair different from every other
           identity layer. Trust scores reflect <em>how an agent behaves</em>,
           not just whether it can authenticate.
         </p>
@@ -902,7 +902,7 @@ def check_trust(agent_id: str, min_score: int = 500) -> bool:
       {/* ─── 06 Integrations ─── */}
       <Section id="integrations" number="06" title="Integrations" alt>
         <p className="text-muted-foreground mb-6 leading-relaxed">
-          Real-world projects that have integrated AgentLair's L4 primitives.
+          Real-world projects that have integrated AgentLair's cross-org behavioral trust primitives.
         </p>
 
         <div className="space-y-6">

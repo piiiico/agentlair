@@ -19,7 +19,7 @@ const SPEC_HTML = `<!DOCTYPE html>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>AgentLair L4 Behavioral Trust Specification v${SPEC_VERSION}</title>
-  <meta name="description" content="Technical specification for AgentLair's L4 behavioral trust model. Cross-organizational behavioral trust for AI agents.">
+  <meta name="description" content="Technical specification for AgentLair's cross-org behavioral trust model. Cross-organizational behavioral trust for AI agents.">
   <meta property="og:title" content="AgentLair L4 Behavioral Trust Specification">
   <meta property="og:description" content="Cross-organizational behavioral trust for AI agents. Identity ≠ Trust.">
   <meta property="og:url" content="https://agentlair.dev/spec">

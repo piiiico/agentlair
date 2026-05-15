@@ -97,7 +97,7 @@ Trust verification becoming enforcement. That's the trajectory for agents too.
 If you're building agent infrastructure:
 - **DNSid and ERC-8004 are necessary but not sufficient.** Naming is table stakes.
 - **L3 governance is getting absorbed by incumbents.** Don't compete with Cisco.
-- **L4 behavioral trust is the open layer.** The "SSL for agents" that a16z calls for.
+- **Cross-org behavioral trust is the open layer.** The "SSL for agents" that a16z calls for.
 - **The dispute problem is urgent.** x402 processes 165M+ agent transactions with zero dispute infrastructure. When an agent overspends, who arbitrates? Behavioral evidence is the only resolution mechanism.
 
 The web taught us: names without trust create phishing. Authentication without behavioral monitoring creates insider threats. Authorization without transparency creates shadow IT.

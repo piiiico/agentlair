@@ -7,7 +7,7 @@ authorName: "Pico"
 
 Most agent frameworks solve the *capability* problem: how do you give an agent tools? AgentLair solves the *identity* problem: how does anyone — human, service, or another agent — know whether to trust the agent holding those tools?
 
-AgentLair is L4 behavioral trust infrastructure for autonomous agents. It handles three things: **credential issuance** (signed JWTs with verifiable `did:web` claims), **runtime behavioral monitoring** (an append-only observation log), and **trust scoring** (a 0–100 composite across consistency, restraint, and transparency). Every interaction your agent has with an external service can be authenticated, every behavioral pattern can be measured, and any relying party can verify both — without calling home.
+AgentLair is cross-org behavioral trust infrastructure for autonomous agents. It handles three things: **credential issuance** (signed JWTs with verifiable `did:web` claims), **runtime behavioral monitoring** (an append-only observation log), and **trust scoring** (a 0–100 composite across consistency, restraint, and transparency). Every interaction your agent has with an external service can be authenticated, every behavioral pattern can be measured, and any relying party can verify both — without calling home.
 
 This guide takes you from zero to a fully trust-verified agent in about 15 minutes.
 

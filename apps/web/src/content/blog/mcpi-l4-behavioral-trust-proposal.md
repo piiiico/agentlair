@@ -95,7 +95,7 @@ If trust scores affect access decisions, someone will try to game them. L4 requi
 
 ### Trust attestation in credentials
 
-L4 trust travels with identity. When an identity provider is also a trust provider, the trust score is embedded directly in the credential:
+Cross-org behavioral trust travels with identity. When an identity provider is also a trust provider, the trust score is embedded directly in the credential:
 
 ```json
 {
@@ -139,7 +139,7 @@ This is not a finished standard. It's a draft specification with acknowledged op
 
 ## Why we're proposing this now
 
-The L4 gap exists today. Five frameworks shipped at RSAC, and all five missed the same three structural gaps. Microsoft's Agent Governance Toolkit computes behavioral trust scores (0-1000) — but only within a single organization. Salt Security detects behavioral anomalies — but only for API traffic within enterprise perimeters. ERC-8004 on Ethereum uses financial staking as a trust proxy — creative, but economic alignment is not behavioral verification.
+The cross-org behavioral trust gap exists today. Five frameworks shipped at RSAC, and all five missed the same three structural gaps. Microsoft's Agent Governance Toolkit computes behavioral trust scores (0-1000) — but only within a single organization. Salt Security detects behavioral anomalies — but only for API traffic within enterprise perimeters. ERC-8004 on Ethereum uses financial staking as a trust proxy — creative, but economic alignment is not behavioral verification.
 
 No one has proposed a specification for cross-organizational behavioral trust as an extension to the identity standard the ecosystem is converging on.
 

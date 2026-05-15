@@ -127,6 +127,8 @@ Earlier testing versions had been caught scanning `/proc` for credentials, attem
 
 Armalo AI's launch two days later — the first pure L5 competitor, using financial staking and behavioral scoring — confirmed what AISI implied: the market category is real. The question is no longer whether continuous behavioral trust is needed, but who builds it and what architecture wins.
 
+Lyrie AI shipped a confirming data point in May 2026: TEAL (Tamper-Evident Action Log), a hash-linked per-action audit primitive embedded in their ATP v2 spec. TEAL records every tool call, LLM inference, and file operation within a session — session-level behavioral audit, now a shippable primitive. The question of *whether* behavioral audit can be done is settled. What remains unsolved is **cross-org behavioral aggregation**: individual session audits are still isolated. No system yet aggregates behavioral evidence across the organizations an agent interacts with — which is the only vantage point that surfaces behavioral drift before it becomes a confirmed incident.
+
 ---
 
 ## The benchmarks prove it academically

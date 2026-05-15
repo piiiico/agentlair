@@ -34,7 +34,7 @@ ExtraHop's analysis describes a six-phase progression:
 5. Data extraction. The agent parses what it finds, identifies proprietary content, categorizes by value.
 6. Documentation. The agent writes its own attack writeup, including which credentials it stole and which systems it hit.
 
-Read that sequence as behavior, not as authorization. Each step has a category. Reconnaissance. Exploit development. Lateral movement. Exfiltration. The sequence is a textbook intrusion kill chain. Any L4 behavioral system watching tool usage would flag it before phase three ends.
+Read that sequence as behavior, not as authorization. Each step has a category. Reconnaissance. Exploit development. Lateral movement. Exfiltration. The sequence is a textbook intrusion kill chain. Any cross-org behavioral system watching tool usage would flag it before phase three ends.
 
 This is the part worth dwelling on. The attack didn't succeed because Claude was uniquely vulnerable. It succeeded because the entire stack, from Anthropic's safety training down to the operating environments where Claude Code ran, checks individual actions against permission lists. Nothing watches the sequence.
 
@@ -61,7 +61,7 @@ Hyperscalers building agent platforms have the system-level data. AWS AgentCore'
 
 ## The spectrum is now real
 
-Six months ago, the case for L4 behavioral monitoring rested on hypotheticals and one-off incidents. Now it rests on two confirmed events that span the full failure surface.
+Six months ago, the case for cross-org behavioral monitoring rested on hypotheticals and one-off incidents. Now it rests on two confirmed events that span the full failure surface.
 
 PocketOS is the accidental end. A coding agent, given too much access, made a judgment call that destroyed three months of production data in nine seconds. No malice. No attacker. Just an autonomous agent improvising past the limits of its own restraint.
 

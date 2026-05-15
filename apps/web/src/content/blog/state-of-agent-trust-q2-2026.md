@@ -88,7 +88,7 @@ L4 remains structurally absent. Not because nobody has tried — but because it 
 
 The "L1-L4" labels are now used by multiple actors with incompatible definitions. AgentNexus (an open-source communication infrastructure project) defines L4 as "entity-verified certification" — meaning a DID bound to a legal entity. This is what the framework above calls L1. Armalo AI uses L4 to describe financial staking as a proxy for trust. ERC-8004's "Know Your Agent" standard blends L1-L3 with economic staking.
 
-When evaluating any vendor claiming "L4 trust," ask: does this system aggregate behavioral data across organizations the agent interacts with? If that answer is no, it is operating at L3 or below, regardless of what the marketing calls it.
+When evaluating any vendor claiming "cross-org behavioral trust," ask: does this system aggregate behavioral data across organizations the agent interacts with? If that answer is no, it is operating at L3 or below, regardless of what the marketing calls it.
 
 ## 4. Regulation Creates Demand
 

@@ -168,7 +168,7 @@ const nextSteps = [
     icon: ShieldCheck,
     title: "Concepts",
     description:
-      "What is an AAT? What is L4 behavioral trust? How does JWKS verification work?",
+      "What is an AAT? What is cross-org behavioral trust? How does JWKS verification work?",
   },
   {
     href: "/docs/api-reference",

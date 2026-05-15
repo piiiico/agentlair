@@ -133,7 +133,7 @@ const LAYER_LABELS: Record<string, string> = {
   L1: "L1 Identity",
   L2: "L2 Authentication",
   L3: "L3 Authorization",
-  L4: "L4 Behavioral",
+  L4: "Behavioral",
 };
 
 const SEVERITY_VARIANT: Record<

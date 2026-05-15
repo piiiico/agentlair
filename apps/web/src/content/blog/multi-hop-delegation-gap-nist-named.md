@@ -69,7 +69,7 @@ The comment period closed two months ago. The paper's abstract names the next st
 
 ## What sits in that gap
 
-Three properties separate L4 trust evidence from L1-L3 token plumbing.
+Three properties separate cross-org behavioral trust evidence from L1-L3 token plumbing.
 
 First, cross-organization scope. Audit trails inside one company's IAM are not non-repudiable when the action lands at a third party. The third party never saw the IAM event. SCITT-style transparent registries solve this; private logs do not.
 

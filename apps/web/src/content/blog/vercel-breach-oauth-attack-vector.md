@@ -46,13 +46,13 @@ L4 — behavioral monitoring — is what the attack bypassed. An L4 system doesn
 
 ## What Behavioral Monitoring Would Have Caught
 
-L4 behavioral monitoring operates on the behavioral fingerprint of an application over time. An AI productivity tool connected to your Google Workspace has a characteristic pattern: it reads your calendar, searches email, maybe accesses specific Drive folders. That pattern is observable and learnable.
+Cross-org behavioral monitoring operates on the behavioral fingerprint of an application over time. An AI productivity tool connected to your Google Workspace has a characteristic pattern: it reads your calendar, searches email, maybe accesses specific Drive folders. That pattern is observable and learnable.
 
 A compromised OAuth token being exploited by an attacker looks different. The access patterns shift. Email is searched for credential strings. Drive access expands beyond the agent's declared purpose. Access timestamps move outside normal working hours for the geographic profile.
 
 None of these anomalies are visible to L3. OAuth doesn't know what "normal" access looks like for this agent. It only knows the permission scope — and within scope, everything is authorized.
 
-An L4 behavioral monitoring system would surface:
+A cross-org behavioral monitoring system would surface:
 
 - **Scope adherence drift:** The agent begins accessing resources beyond its behavioral baseline even if within its declared permission scope.
 - **Temporal anomalies:** Access patterns shift in ways inconsistent with the agent's prior history — different hours, different volumes, different resource targets.

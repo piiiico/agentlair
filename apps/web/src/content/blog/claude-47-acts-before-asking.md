@@ -97,6 +97,6 @@ The human review window that Anthropic just removed from the model's default beh
 
 ---
 
-AgentLair's L4 behavioral monitoring layer operates during every agent session — tracking tool call sequences, flagging scope anomalies, and building behavioral baselines that surface drift as it occurs rather than after the fact.
+AgentLair's cross-org behavioral monitoring layer operates during every agent session — tracking tool call sequences, flagging scope anomalies, and building behavioral baselines that surface drift as it occurs rather than after the fact.
 
 → [Get an API key at agentlair.dev](https://agentlair.dev) · [Documentation](https://agentlair.dev/docs)

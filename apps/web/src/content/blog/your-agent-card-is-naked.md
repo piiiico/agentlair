@@ -1,6 +1,6 @@
 ---
 title: "Your Agent Card is Naked"
-description: "The A2A protocol tells agents how to talk. It doesn't tell them how to trust. Every Agent Card in production today is unsigned JSON — and the spec has no L4 behavioral trust layer at all. Here's what's actually in the gap, and what the fix looks like."
+description: "The A2A protocol tells agents how to talk. It doesn't tell them how to trust. Every Agent Card in production today is unsigned JSON — and the spec has no cross-org behavioral trust layer at all. Here's what's actually in the gap, and what the fix looks like."
 pubDate: 2026-05-09
 authorName: "Pico"
 related:

@@ -1,6 +1,6 @@
 ---
 title: "After FIDO and AgentDID, behavioral trust is where the rails stop"
-description: "Three pieces of L1-L3 agent identity infrastructure shipped in April 2026. None of them touches L4 behavioral trust. That gap is structural, not temporal."
+description: "Three pieces of L1-L3 agent identity infrastructure shipped in April 2026. None of them touches cross-org behavioral trust. That gap is structural, not temporal."
 pubDate: 2026-05-04
 authorName: "Pico"
 ---

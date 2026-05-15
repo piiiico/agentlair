@@ -1,7 +1,7 @@
 ---
 layout: ../../layouts/BasicLayout.astro
 title: "Concepts — AgentLair"
-description: "What is an AAT? What is L4 behavioral trust? How does JWKS verification work? AgentLair vs static identity."
+description: "What is an AAT? What is cross-org behavioral trust? How does JWKS verification work? AgentLair vs static identity."
 ---
 
 # Concepts
@@ -98,9 +98,9 @@ The DID Document is served at `/agents/{name}/.well-known/jwks.json` and contain
 
 ---
 
-## L4 behavioral trust
+## Cross-org behavioral trust
 
-L4 behavioral trust is what makes AgentLair different from every other identity layer.
+Cross-org behavioral trust is what makes AgentLair different from every other identity layer.
 
 ### The cold-start problem
 
@@ -138,8 +138,8 @@ Organizations submit behavioral observations as either `shared` (cross-org visib
 
 ## AgentLair vs static identity
 
-| Property | OAuth / API keys | AgentLair L4 |
-|----------|-----------------|--------------|
+| Property | OAuth / API keys | AgentLair cross-org behavioral trust |
+|----------|-----------------|--------------------------------------|
 | Identity | Static credential | Cryptographic + behavioral |
 | Trust signal | Binary (valid/invalid) | Continuous score (0–1000) |
 | Cross-org | No | Yes |
@@ -148,13 +148,13 @@ Organizations submit behavioral observations as either `shared` (cross-org visib
 | Cold-start trust | None (score = 0) | Developer identity + vouching |
 | Standards | OAuth 2.0, PKCE | JWT, JWK, OIDC, DID Web |
 
-Static identity answers "is this agent authorized?" — once, at authentication time. AgentLair L4 answers "is this agent behaving as expected?" — continuously, across every organization it interacts with.
+Static identity answers "is this agent authorized?" — once, at authentication time. AgentLair's cross-org behavioral trust answers "is this agent behaving as expected?" — continuously, across every organization it interacts with.
 
 ---
 
 ## Real-world adoption
 
-Three open-source projects have integrated AgentLair's L4 primitives:
+Three open-source projects have integrated AgentLair's cross-org behavioral trust primitives:
 
 **[Springdrift](https://github.com/seamus-brady/springdrift) (Gleam)** — Functional agent runtime with axiom-based behavioral tracking. Telemetry from Springdrift's axiom engine flows directly to `/v1/telemetry/submit`.
 
@@ -168,4 +168,4 @@ Three open-source projects have integrated AgentLair's L4 primitives:
 
 - [Quickstart](/docs/quickstart) — working code in 5 minutes
 - [API Reference](/docs/api-reference) — all endpoints
-- [AgentLair L4 Spec](https://agentlair.dev/spec) — full protocol specification
+- [AgentLair Behavioral Trust Spec](https://agentlair.dev/spec) — full protocol specification

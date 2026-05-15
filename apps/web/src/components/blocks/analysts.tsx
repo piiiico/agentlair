@@ -1,7 +1,7 @@
 // ─── Analyst Validation Section ─────────────────────────────────────────────
 //
 // Deloitte governance gap stats + Forrester AEGIS framework as third-party
-// validation that L4 behavioral monitoring is the missing enterprise layer.
+// validation that cross-org behavioral monitoring is the missing enterprise layer.
 //
 // Sources:
 //   Deloitte "State of AI in the Enterprise", Jan 2026, n=3,235, 24 countries

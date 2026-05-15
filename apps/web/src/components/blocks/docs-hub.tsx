@@ -28,7 +28,7 @@ const DOC_SECTIONS = [
     href: "/docs/concepts",
     icon: BookOpen,
     description:
-      "The mental model behind AgentLair: L4 behavioral trust, AATs, and why L1–L3 identity is insufficient.",
+      "The mental model behind AgentLair: cross-org behavioral trust, AATs, and why L1–L3 identity is insufficient.",
   },
   {
     title: "API Reference",
@@ -91,7 +91,7 @@ const DOC_SECTIONS = [
     href: "/playground/web-bot-auth",
     icon: KeyRound,
     description:
-      "Sign and verify HTTP requests in your browser. See the L3 cryptographic verdict and the L4 behavioral attestation chain side by side.",
+      "Sign and verify HTTP requests in your browser. See the L3 cryptographic verdict and the behavioral attestation chain side by side.",
     badge: "New",
     badgeColor: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
   },

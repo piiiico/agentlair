@@ -76,4 +76,4 @@ When a vendor calls your vulnerability "not applicable," you still need to know 
 
 ---
 
-*AgentLair provides L4 behavioral monitoring for MCP infrastructure — agent identity bound to continuous behavioral telemetry, with cross-session anomaly detection. [agentlair.dev](https://agentlair.dev)*
+*AgentLair provides cross-org behavioral monitoring for MCP infrastructure — agent identity bound to continuous behavioral telemetry, with cross-session anomaly detection. [agentlair.dev](https://agentlair.dev)*

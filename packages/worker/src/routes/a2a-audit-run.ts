@@ -189,7 +189,7 @@ a2aAuditRunRoutes.get('/', async (c) => {
   </header>
   <main>
     <h1>A2A Trust Audit</h1>
-    <p class="lede"><strong>Your AgentCard is your skin in the game.</strong> Integrators check it before they trust your agent. The audit grades L1 identity, L2 authentication, L3 authorization, and L4 behavioral — and gives you an embeddable badge so integrators can see the score at a glance.</p>
+    <p class="lede"><strong>Your AgentCard is your skin in the game.</strong> Integrators check it before they trust your agent. The audit grades L1 identity, L2 authentication, L3 authorization, and cross-org behavioral — and gives you an embeddable badge so integrators can see the score at a glance.</p>
     <p>Paste an A2A AgentCard URL. Get an L1–L4 audit with grade, score, and badge embed code. <strong>0.001 USDC per run</strong> via x402. The agentlair.dev self-card is a free demo.</p>
     <form id="audit-form">
       <label for="card-url">AgentCard URL</label>
