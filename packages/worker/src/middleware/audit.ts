@@ -46,8 +46,10 @@ export interface AuditEntry {
 export const ALLOWED_POST_CATEGORIES = new Set([
   // New L3 categories (agent self-attestation)
   'task', 'tool_call', 'observation', 'reasoning', 'output',
-  // Phase 2.5 Dimension 6 (Epistemic Integrity) — new in this pipeline
+  // Phase 2.5 Dimension 6 (Epistemic Integrity) — verification (C1)
   'verification',
+  // Phase 2.5 Component 5 — action_stream output reporting (new in this pipeline)
+  'action_stream',
   // Existing ambient categories — agents may explicitly attest these too
   'system', 'auth', 'email', 'vault', 'pod', 'calendar', 'memory', 'session', 'budget', 'git', 'webhook',
 ]);
@@ -137,6 +139,108 @@ export function validateVerificationPayload(body: Record<string, unknown>):
   };
   if (output_hash !== undefined && output_hash !== null) {
     payload.output_hash = output_hash as string;
+  }
+
+  return { ok: true, payload };
+}
+
+// ─── Action-stream constants (Phase 2.5 Component 5) ─────────────────────────
+// NOTE: ACTION_STREAM_UNIT_TYPES must stay in sync with REVIEW_UNIT_TYPES in
+// lib/operator-profile.ts. We intentionally DO NOT import from there — that
+// file already imports VerificationTier/VERIFICATION_TIERS from this module
+// (lines 8-9), so the reverse direction would create a circular module dep.
+// Drift is caught by test #13 in audit.test.ts which imports both and asserts
+// deep equality. See spec.md §"Why duplicate, not import".
+
+export const ACTION_STREAM_SUBCATEGORIES = ['output_volume'] as const;
+export type ActionStreamSubcategory = (typeof ACTION_STREAM_SUBCATEGORIES)[number];
+
+export const ACTION_STREAM_UNIT_TYPES = [
+  'lines',
+  'decisions',
+  'claims',
+  'commits',
+] as const;
+export type ActionStreamUnitType = (typeof ACTION_STREAM_UNIT_TYPES)[number];
+
+// ─── ActionStreamPayload interface ───────────────────────────────────────────
+// Validated fields that accompany category='action_stream' audit events.
+// These ride inside the existing `details` JSON column; no schema migration.
+
+export interface ActionStreamPayload {
+  subcategory: ActionStreamSubcategory;
+  output_volume: number;     // integer ≥ 0
+  unit_type: ActionStreamUnitType;
+  session_id?: string;        // optional, matches ^[A-Za-z0-9_-]{8,128}$
+}
+
+// ─── Action-stream payload validator ─────────────────────────────────────────
+// Pure input → result function — no side effects. Returns error shape on fail,
+// or { ok: true, payload } on success.
+
+export function validateActionStreamPayload(body: Record<string, unknown>):
+  | { ok: true; payload: ActionStreamPayload }
+  | { ok: false; error: string; message: string; hint?: string } {
+
+  const { subcategory, output_volume, unit_type, session_id } = body as {
+    subcategory?: unknown;
+    output_volume?: unknown;
+    unit_type?: unknown;
+    session_id?: unknown;
+  };
+
+  // Validate subcategory
+  if (subcategory === undefined || subcategory === null) {
+    return { ok: false, error: 'missing_subcategory', message: 'Missing required field: subcategory.' };
+  }
+  if (typeof subcategory !== 'string' || !(ACTION_STREAM_SUBCATEGORIES as readonly string[]).includes(subcategory)) {
+    return {
+      ok: false,
+      error: 'invalid_subcategory',
+      message: 'Invalid subcategory.',
+      hint: `Allowed values: ${ACTION_STREAM_SUBCATEGORIES.join(', ')}`,
+    };
+  }
+
+  // Validate output_volume
+  if (output_volume === undefined || output_volume === null) {
+    return { ok: false, error: 'missing_output_volume', message: 'Missing required field: output_volume.' };
+  }
+  if (!Number.isInteger(output_volume) || (output_volume as number) < 0) {
+    return { ok: false, error: 'invalid_output_volume', message: 'output_volume must be a non-negative integer.' };
+  }
+
+  // Validate unit_type
+  if (unit_type === undefined || unit_type === null) {
+    return { ok: false, error: 'missing_unit_type', message: 'Missing required field: unit_type.' };
+  }
+  if (typeof unit_type !== 'string' || !(ACTION_STREAM_UNIT_TYPES as readonly string[]).includes(unit_type)) {
+    return {
+      ok: false,
+      error: 'invalid_unit_type',
+      message: 'Invalid unit_type.',
+      hint: `Allowed values: ${ACTION_STREAM_UNIT_TYPES.join(', ')}`,
+    };
+  }
+
+  // Validate session_id (optional)
+  if (session_id !== undefined && session_id !== null) {
+    if (typeof session_id !== 'string' || !/^[A-Za-z0-9_-]{8,128}$/.test(session_id)) {
+      return {
+        ok: false,
+        error: 'invalid_session_id',
+        message: 'session_id must match ^[A-Za-z0-9_-]{8,128}$.',
+      };
+    }
+  }
+
+  const payload: ActionStreamPayload = {
+    subcategory: subcategory as ActionStreamSubcategory,
+    output_volume: output_volume as number,
+    unit_type: unit_type as ActionStreamUnitType,
+  };
+  if (session_id !== undefined && session_id !== null) {
+    payload.session_id = session_id as string;
   }
 
   return { ok: true, payload };

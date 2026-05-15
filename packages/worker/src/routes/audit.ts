@@ -18,6 +18,7 @@ import {
   ACTION_REGEX,
   VERIFICATION_TIERS,
   validateVerificationPayload,
+  validateActionStreamPayload,
 } from '../middleware/audit.js';
 import { auditEntryToCAF } from '../caf.js';
 import { cafToSignedStatement } from '../caf-scitt.js';
@@ -184,6 +185,24 @@ auditRoutes.post('/log', async (c) => {
       verificationFields.output_hash = vResult.payload.output_hash;
     }
     mergedDetails = { ...(mergedDetails ?? {}), ...verificationFields };
+  }
+
+  // Validate action_stream-specific fields (Phase 2.5 Component 5)
+  if (category === 'action_stream') {
+    const asResult = validateActionStreamPayload(body);
+    if (!asResult.ok) {
+      return err(asResult.message, 400, asResult.error, asResult.hint);
+    }
+    // Merge: caller's details first, action_stream fields override (system-controlled keys win)
+    const actionStreamFields: Record<string, unknown> = {
+      subcategory: asResult.payload.subcategory,
+      output_volume: asResult.payload.output_volume,
+      unit_type: asResult.payload.unit_type,
+    };
+    if (asResult.payload.session_id !== undefined) {
+      actionStreamFields.session_id = asResult.payload.session_id;
+    }
+    mergedDetails = { ...(mergedDetails ?? {}), ...actionStreamFields };
   }
 
   // Resolve optional fields

@@ -13,7 +13,7 @@
 import { describe, test, expect } from 'bun:test';
 import { Hono } from 'hono';
 import { ed25519 } from '@noble/curves/ed25519.js';
-import { getCategory, getAction, getResult, signEntry, writeExplicitAuditEvent } from './middleware/audit';
+import { getCategory, getAction, getResult, signEntry, writeExplicitAuditEvent, ACTION_STREAM_UNIT_TYPES } from './middleware/audit';
 import type { AuditEntry } from './middleware/audit';
 import { auditRoutes } from './routes/audit';
 import type { HonoEnv } from './types';
@@ -559,6 +559,192 @@ describe('POST /v1/audit/log — verification category', () => {
       body: JSON.stringify({ category: 'task', action: 'task.complete' }),
     }, mockEnv as never);
     expect(res.status).toBe(201);
+  });
+});
+
+describe('POST /v1/audit/log — action_stream category', () => {
+  const { privateKeyB64 } = makeTestSigningKey();
+  const mockD1 = makeMockD1();
+  const storedRows = (mockD1 as unknown as { rows: Record<string, unknown>[] }).rows;
+  const mockEnv = { AUDIT: mockD1, AUDIT_SIGNING_KEY: privateKeyB64 };
+  const app = makeAuditApp({ id: 'acc_test' });
+
+  const HAPPY_BODY = {
+    category: 'action_stream',
+    action: 'action_stream.output',
+    subcategory: 'output_volume',
+    output_volume: 250,
+    unit_type: 'lines',
+    session_id: 'sess-abc12345',
+  };
+
+  // Test 1: happy path, with session_id
+  test('happy path, with session_id — 201, details has all four fields', async () => {
+    storedRows.length = 0;
+    const res = await app.request('/log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(HAPPY_BODY),
+    }, mockEnv as never);
+    expect(res.status).toBe(201);
+    expect(storedRows.length).toBe(1);
+    const storedDetails = JSON.parse(storedRows[0].details as string);
+    expect(storedDetails.subcategory).toBe('output_volume');
+    expect(storedDetails.output_volume).toBe(250);
+    expect(storedDetails.unit_type).toBe('lines');
+    expect(storedDetails.session_id).toBe('sess-abc12345');
+  });
+
+  // Test 2: happy path, no session_id
+  test('happy path, no session_id — 201, details has no session_id key', async () => {
+    storedRows.length = 0;
+    const { session_id: _omit, ...bodyWithoutSession } = HAPPY_BODY;
+    const res = await app.request('/log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(bodyWithoutSession),
+    }, mockEnv as never);
+    expect(res.status).toBe(201);
+    expect(storedRows.length).toBe(1);
+    const storedDetails = JSON.parse(storedRows[0].details as string);
+    expect(storedDetails.subcategory).toBe('output_volume');
+    expect(storedDetails.output_volume).toBe(250);
+    expect(storedDetails.unit_type).toBe('lines');
+    expect('session_id' in storedDetails).toBe(false);
+  });
+
+  // Test 3: happy path, output_volume = 0 boundary
+  test('happy path, output_volume = 0 boundary — 201, stored details.output_volume === 0', async () => {
+    storedRows.length = 0;
+    const res = await app.request('/log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...HAPPY_BODY, output_volume: 0 }),
+    }, mockEnv as never);
+    expect(res.status).toBe(201);
+    expect(storedRows.length).toBe(1);
+    const storedDetails = JSON.parse(storedRows[0].details as string);
+    expect(storedDetails.output_volume).toBe(0);
+  });
+
+  // Test 4: missing subcategory
+  test('missing subcategory — 400 missing_subcategory', async () => {
+    const { subcategory: _omit, ...bodyWithout } = HAPPY_BODY;
+    const res = await app.request('/log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(bodyWithout),
+    }, mockEnv as never);
+    expect(res.status).toBe(400);
+    const body = await res.json() as { error: string };
+    expect(body.error).toBe('missing_subcategory');
+  });
+
+  // Test 5: invalid subcategory
+  test('invalid subcategory — 400 invalid_subcategory, hint includes output_volume', async () => {
+    const res = await app.request('/log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...HAPPY_BODY, subcategory: 'something_else' }),
+    }, mockEnv as never);
+    expect(res.status).toBe(400);
+    const body = await res.json() as { error: string; hint?: string };
+    expect(body.error).toBe('invalid_subcategory');
+    expect(body.hint).toContain('output_volume');
+  });
+
+  // Test 6: missing output_volume
+  test('missing output_volume — 400 missing_output_volume', async () => {
+    const { output_volume: _omit, ...bodyWithout } = HAPPY_BODY;
+    const res = await app.request('/log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(bodyWithout),
+    }, mockEnv as never);
+    expect(res.status).toBe(400);
+    const body = await res.json() as { error: string };
+    expect(body.error).toBe('missing_output_volume');
+  });
+
+  // Test 7: non-integer output_volume
+  test('non-integer output_volume — 400 invalid_output_volume', async () => {
+    const res = await app.request('/log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...HAPPY_BODY, output_volume: 1.5 }),
+    }, mockEnv as never);
+    expect(res.status).toBe(400);
+    const body = await res.json() as { error: string };
+    expect(body.error).toBe('invalid_output_volume');
+  });
+
+  // Test 8: negative output_volume
+  test('negative output_volume — 400 invalid_output_volume', async () => {
+    const res = await app.request('/log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...HAPPY_BODY, output_volume: -1 }),
+    }, mockEnv as never);
+    expect(res.status).toBe(400);
+    const body = await res.json() as { error: string };
+    expect(body.error).toBe('invalid_output_volume');
+  });
+
+  // Test 9: missing unit_type
+  test('missing unit_type — 400 missing_unit_type', async () => {
+    const { unit_type: _omit, ...bodyWithout } = HAPPY_BODY;
+    const res = await app.request('/log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(bodyWithout),
+    }, mockEnv as never);
+    expect(res.status).toBe(400);
+    const body = await res.json() as { error: string };
+    expect(body.error).toBe('missing_unit_type');
+  });
+
+  // Test 10: invalid unit_type
+  test('invalid unit_type — 400 invalid_unit_type, hint includes lines', async () => {
+    const res = await app.request('/log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...HAPPY_BODY, unit_type: 'foobar' }),
+    }, mockEnv as never);
+    expect(res.status).toBe(400);
+    const body = await res.json() as { error: string; hint?: string };
+    expect(body.error).toBe('invalid_unit_type');
+    expect(body.hint).toContain('lines');
+  });
+
+  // Test 11: invalid session_id (too short)
+  test('invalid session_id (5 chars, below 8-char minimum) — 400 invalid_session_id', async () => {
+    const res = await app.request('/log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...HAPPY_BODY, session_id: 'short' }),
+    }, mockEnv as never);
+    expect(res.status).toBe(400);
+    const body = await res.json() as { error: string };
+    expect(body.error).toBe('invalid_session_id');
+  });
+
+  // Test 12: non-action_stream category unaffected (regression guard)
+  test('non-action_stream category unaffected — task.complete → 201 without subcategory/output_volume/unit_type', async () => {
+    storedRows.length = 0;
+    const res = await app.request('/log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ category: 'task', action: 'task.complete' }),
+    }, mockEnv as never);
+    expect(res.status).toBe(201);
+  });
+
+  // Test 13: ACTION_STREAM_UNIT_TYPES ↔ REVIEW_UNIT_TYPES drift guard
+  describe('action_stream unit-type drift guard', () => {
+    test('ACTION_STREAM_UNIT_TYPES deep-equals REVIEW_UNIT_TYPES (order-significant)', async () => {
+      const { REVIEW_UNIT_TYPES } = await import('./lib/operator-profile.js');
+      expect([...ACTION_STREAM_UNIT_TYPES]).toEqual([...REVIEW_UNIT_TYPES]);
+    });
   });
 });
 
