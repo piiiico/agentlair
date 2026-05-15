@@ -1,23 +1,26 @@
 /**
  * AgentLair Trust Engine — Unit Tests
  *
- * Tests for the behavioral trust scoring algorithm (Phase 1):
- * - PHASE1_WEIGHTS
+ * Tests for the behavioral trust scoring algorithm (Phase 1 + Phase 2.5):
+ * - DIMENSION_WEIGHTS + effectiveWeights (Phase 2.5)
  * - computeConsistency
  * - computeRestraint
  * - computeTransparency
  * - applyColdStartPrior
  * - deriveATFLevel
  * - computeConfidenceInterval
+ * - Phase 2.5 epistemic activation gate (C10)
  */
 
 import { describe, test, expect } from 'bun:test';
-import type { AuditEvent } from './trust-engine';
+import type { AuditEvent, TrustProfile } from './trust-engine';
 import {
-  PHASE1_WEIGHTS,
+  DIMENSION_WEIGHTS,
+  effectiveWeights,
   computeConsistency,
   computeRestraint,
   computeTransparency,
+  computeTrustScore,
   applyColdStartPrior,
   deriveATFLevel,
   computeConfidenceInterval,
@@ -173,29 +176,26 @@ function makeSessions(
   return events;
 }
 
-// ─── PHASE1_WEIGHTS ───────────────────────────────────────────────────────────
+// ─── DIMENSION_WEIGHTS ───────────────────────────────────────────────────────
 
-describe('PHASE1_WEIGHTS', () => {
+describe('DIMENSION_WEIGHTS', () => {
   test('sum to 1.0 within floating-point tolerance', () => {
-    const sum = PHASE1_WEIGHTS.consistency + PHASE1_WEIGHTS.restraint + PHASE1_WEIGHTS.transparency;
-    expect(sum).toBeCloseTo(1.0, 10);
+    const sum = Object.values(DIMENSION_WEIGHTS).reduce((a, b) => a + b, 0);
+    expect(sum).toBeCloseTo(1.0, 9);
   });
 
-  test('consistency ≈ 0.3571 (0.25 / 0.70)', () => {
-    expect(PHASE1_WEIGHTS.consistency).toBeCloseTo(0.25 / 0.70, 10);
+  test('six keys present with correct v2 base values', () => {
+    expect(DIMENSION_WEIGHTS.consistency).toBeCloseTo(0.22, 10);
+    expect(DIMENSION_WEIGHTS.restraint).toBeCloseTo(0.27, 10);
+    expect(DIMENSION_WEIGHTS.transparency).toBeCloseTo(0.10, 10);
+    expect(DIMENSION_WEIGHTS.resilience).toBeCloseTo(0.08, 10);
+    expect(DIMENSION_WEIGHTS.crossOrgCoherence).toBeCloseTo(0.18, 10);
+    expect(DIMENSION_WEIGHTS.epistemicIntegrity).toBeCloseTo(0.15, 10);
   });
 
-  test('restraint ≈ 0.4286 (0.30 / 0.70)', () => {
-    expect(PHASE1_WEIGHTS.restraint).toBeCloseTo(0.30 / 0.70, 10);
-  });
-
-  test('transparency ≈ 0.2143 (0.15 / 0.70)', () => {
-    expect(PHASE1_WEIGHTS.transparency).toBeCloseTo(0.15 / 0.70, 10);
-  });
-
-  test('restraint has the highest weight', () => {
-    expect(PHASE1_WEIGHTS.restraint).toBeGreaterThan(PHASE1_WEIGHTS.consistency);
-    expect(PHASE1_WEIGHTS.restraint).toBeGreaterThan(PHASE1_WEIGHTS.transparency);
+  test('restraint has the highest single-dimension weight', () => {
+    expect(DIMENSION_WEIGHTS.restraint).toBeGreaterThan(DIMENSION_WEIGHTS.consistency);
+    expect(DIMENSION_WEIGHTS.restraint).toBeGreaterThan(DIMENSION_WEIGHTS.transparency);
   });
 });
 
@@ -856,5 +856,383 @@ describe('computeConfidenceInterval', () => {
       expect(ci.confidence).toBeGreaterThanOrEqual(0);
       expect(ci.confidence).toBeLessThanOrEqual(1);
     }
+  });
+});
+
+// ─── Phase 2.5 — Epistemic Activation Gate (C10) ─────────────────────────────
+
+// ─── Mock D1 helpers ────────────────────────────────────────────────────────
+
+type MockD1Config = {
+  /** Rows from operator_profiles — null means the table returns no row */
+  operatorProfileRow: {
+    attestation_workflow_json: string;
+    review_bandwidth_json: string;
+  } | null;
+  /** Rows from telemetry_feedback */
+  feedbackRows: Array<{
+    id: string;
+    account_id: string;
+    claim_id: string;
+    outcome_correct: 0 | 1;
+    evidence_type: string;
+    confidence_stated: number | null;
+    created_at: number;
+  }>;
+  /** Audit events returned from audit_log / behavioral_events */
+  events: AuditEvent[];
+};
+
+/** Creates a mock D1Database that routes prepare() calls by SQL substring. */
+function createMockD1Multi(config: MockD1Config): D1Database {
+  return {
+    prepare(sql: string) {
+      const isOperatorProfile = sql.includes("operator_profiles");
+      const isTelemetryFeedback = sql.includes("telemetry_feedback");
+
+      return {
+        bind(..._args: unknown[]) {
+          return {
+            async first<T>(): Promise<T | null> {
+              if (isOperatorProfile) {
+                return config.operatorProfileRow as T | null;
+              }
+              return null;
+            },
+            async all<T>() {
+              if (isTelemetryFeedback) {
+                return { results: config.feedbackRows as T[], success: true, meta: {} };
+              }
+              // audit_log / behavioral_events — return events
+              return { results: config.events as T[], success: true, meta: {} };
+            },
+            async run() {
+              return { success: true, meta: {} };
+            },
+          };
+        },
+      };
+    },
+    async batch() { return []; },
+    async dump() { return new ArrayBuffer(0); },
+    async exec() { return { count: 0, duration: 0 }; },
+  } as unknown as D1Database;
+}
+
+/** Builds N minimal verification-category audit events. */
+function makeVerificationEvents(n: number, agentId = "agent-test"): AuditEvent[] {
+  return Array.from({ length: n }, (_, i) => ({
+    id: `evt-verif-${String(i).padStart(4, "0")}`,
+    timestamp: `2026-05-15T${String(i % 24).padStart(2, "0")}:00:00.000Z`,
+    account_id: agentId,
+    actor_id: agentId,
+    category: "verification",
+    action: "run",
+    result: "success",
+    prev_hash: "aabbcc",
+    signature: "sigxyz",
+    _source: "internal" as const,
+    details: JSON.stringify({
+      tool: "cargo-test",
+      tier: "automated_tooling",
+      exit_code: 0,
+      session_id: `sess-${String(i).padStart(4, "0")}`,
+    }),
+  }));
+}
+
+/** Standard operator profile JSON fixtures. */
+const ATTESTATION_WORKFLOW_JSON = JSON.stringify({
+  declaredTier: "automated_tooling",
+  declaredTools: ["cargo-test"],
+  coverageEstimate: 0.7,
+  priorCoverage: 0.4,
+});
+
+const REVIEW_BANDWIDTH_JSON = JSON.stringify({
+  reviewersCount: 2,
+  unitsPerHour: 200,
+  timeToNextApprovalHours: 8,
+  unitType: "lines",
+});
+
+const OPERATOR_PROFILE_ROW = {
+  attestation_workflow_json: ATTESTATION_WORKFLOW_JSON,
+  review_bandwidth_json: REVIEW_BANDWIDTH_JSON,
+};
+
+/** Builds N valid telemetry feedback rows. */
+function makeFeedbackRows(
+  n: number,
+  agentId = "agent-test",
+  outcomePattern: (0 | 1)[] = [],
+): Array<{
+  id: string;
+  account_id: string;
+  claim_id: string;
+  outcome_correct: 0 | 1;
+  evidence_type: string;
+  confidence_stated: number | null;
+  created_at: number;
+}> {
+  return Array.from({ length: n }, (_, i) => ({
+    id: `fb-${String(i).padStart(4, "0")}`,
+    account_id: agentId,
+    claim_id: `claim-${String(i).padStart(4, "0")}`,
+    outcome_correct: outcomePattern.length > 0 ? (outcomePattern[i % outcomePattern.length]!) : (i % 2 === 0 ? 1 : 0) as 0 | 1,
+    evidence_type: "test_result",
+    confidence_stated: 0.8,
+    created_at: 1747267200000 + i * 1000,
+  }));
+}
+
+describe("Phase 2.5 — epistemic activation gate (C10)", () => {
+  // G1: effectiveWeights(1, false) matches Phase 1 redistribution math exactly
+  test("G1: effectiveWeights(1, false) — inactive path: correct Phase 1 redistribution", () => {
+    const w = effectiveWeights(1, false);
+    // inactive = { resilience, crossOrgCoherence, epistemicIntegrity }
+    // remaining = 0.22 + 0.27 + 0.10 = 0.59
+    expect(w.consistency).toBeCloseTo(0.22 / 0.59, 9);
+    expect(w.restraint).toBeCloseTo(0.27 / 0.59, 9);
+    expect(w.transparency).toBeCloseTo(0.10 / 0.59, 9);
+    expect(w.resilience).toBe(0);
+    expect(w.crossOrgCoherence).toBe(0);
+    expect(w.epistemicIntegrity).toBe(0);
+    const sum = Object.values(w).reduce((a, b) => a + b, 0);
+    expect(sum).toBeCloseTo(1.0, 9);
+  });
+
+  // G2: effectiveWeights(1, true) activates epistemic dimension
+  test("G2: effectiveWeights(1, true) — active path: correct 4-dim redistribution", () => {
+    const w = effectiveWeights(1, true);
+    // inactive = { resilience, crossOrgCoherence }
+    // remaining = 0.22 + 0.27 + 0.10 + 0.15 = 0.74
+    expect(w.consistency).toBeCloseTo(0.22 / 0.74, 9);
+    expect(w.restraint).toBeCloseTo(0.27 / 0.74, 9);
+    expect(w.transparency).toBeCloseTo(0.10 / 0.74, 9);
+    expect(w.epistemicIntegrity).toBeCloseTo(0.15 / 0.74, 9);
+    expect(w.resilience).toBe(0);
+    expect(w.crossOrgCoherence).toBe(0);
+    const sum = Object.values(w).reduce((a, b) => a + b, 0);
+    expect(sum).toBeCloseTo(1.0, 9);
+  });
+
+  // G3: effectiveWeights(2, true) — cross-org activated
+  test("G3: effectiveWeights(2, true) — cross-org activated, 5-dim active", () => {
+    const w = effectiveWeights(2, true);
+    // inactive = { resilience } only
+    // remaining = 1 - 0.08 = 0.92
+    expect(w.consistency).toBeCloseTo(0.22 / 0.92, 9);
+    expect(w.restraint).toBeCloseTo(0.27 / 0.92, 9);
+    expect(w.transparency).toBeCloseTo(0.10 / 0.92, 9);
+    expect(w.crossOrgCoherence).toBeCloseTo(0.18 / 0.92, 9);
+    expect(w.epistemicIntegrity).toBeCloseTo(0.15 / 0.92, 9);
+    expect(w.resilience).toBe(0);
+    const sum = Object.values(w).reduce((a, b) => a + b, 0);
+    expect(sum).toBeCloseTo(1.0, 9);
+  });
+
+  // G4: New inactive weights differ from retired v1 weights — documented v1->v2 transition
+  test("G4: effectiveWeights(1, false) produces documented v1->v2 weight shift", () => {
+    const w = effectiveWeights(1, false);
+    // Old v1 weights: consistency = 0.25/0.70, restraint = 0.30/0.70, transparency = 0.15/0.70
+    // New inactive: consistency = 0.22/0.59, restraint = 0.27/0.59, transparency = 0.10/0.59
+    expect(w.consistency).toBeCloseTo(0.22 / 0.59, 4); // approx 0.3729 vs old 0.3571: +0.0157
+    expect(w.transparency).toBeCloseTo(0.10 / 0.59, 4); // approx 0.1695 vs old 0.2143: -0.0448
+    // New consistency is HIGHER than old v1 consistency weight (0.25/0.70 approx 0.3571)
+    expect(w.consistency).toBeGreaterThan(0.25 / 0.70);
+    // New transparency is LOWER than old v1 transparency weight (0.15/0.70 approx 0.2143)
+    expect(w.transparency).toBeLessThan(0.15 / 0.70);
+  });
+
+  // G5: DIMENSION_WEIGHTS sums to 1.0
+  test("G5: DIMENSION_WEIGHTS sums to exactly 1.0", () => {
+    const sum = Object.values(DIMENSION_WEIGHTS).reduce((a, b) => a + b, 0);
+    expect(sum).toBeCloseTo(1.0, 9);
+  });
+
+  // G6: Inactive path end-to-end — no operator profile, no epistemic key in output
+  test("G6: inactive path — no operator_profile -> epistemicIntegrity key absent", async () => {
+    const events = makeVerificationEvents(15);
+    const db = createMockD1Multi({
+      operatorProfileRow: null,
+      feedbackRows: [],
+      events,
+    });
+    const profile = await computeTrustScore(db, "agent-test", "free");
+    expect(Object.keys(profile.dimensions).sort()).toEqual(["consistency", "restraint", "transparency"]);
+    expect("epistemicIntegrity" in profile.dimensions).toBe(false);
+    expect(profile.score).toBeGreaterThanOrEqual(0);
+    expect(profile.score).toBeLessThanOrEqual(100);
+  });
+
+  // G7: Active-via-events path
+  test("G7: active-via-events path — operator profile + >=10 verification events -> dimension present", async () => {
+    const events = makeVerificationEvents(15);
+    const db = createMockD1Multi({
+      operatorProfileRow: OPERATOR_PROFILE_ROW,
+      feedbackRows: [],
+      events,
+    });
+    const profile = await computeTrustScore(db, "agent-test", "free");
+    expect("epistemicIntegrity" in profile.dimensions).toBe(true);
+    expect(profile.dimensions.epistemicIntegrity).toBeDefined();
+    expect(profile.dimensions.epistemicIntegrity!.score).toBeGreaterThanOrEqual(0);
+    expect(profile.dimensions.epistemicIntegrity!.score).toBeLessThanOrEqual(100);
+    expect(Number.isInteger(profile.dimensions.epistemicIntegrity!.score)).toBe(true);
+    expect(profile.dimensions.epistemicIntegrity!.signals.feedback_count).toBe(0);
+    expect(profile.dimensions.consistency).toBeDefined();
+    expect(profile.dimensions.restraint).toBeDefined();
+    expect(profile.dimensions.transparency).toBeDefined();
+  });
+
+  // G8: Active-via-feedback path
+  test("G8: active-via-feedback path — operator profile + >=10 feedback rows -> dimension present", async () => {
+    const events = makeVerificationEvents(5);
+    const feedbackRows = makeFeedbackRows(10);
+    const db = createMockD1Multi({
+      operatorProfileRow: OPERATOR_PROFILE_ROW,
+      feedbackRows,
+      events,
+    });
+    const profile = await computeTrustScore(db, "agent-test", "free");
+    expect("epistemicIntegrity" in profile.dimensions).toBe(true);
+    expect(profile.dimensions.epistemicIntegrity!.signals.feedback_count).toBe(10);
+  });
+
+  // G9: Inactive when feedback present but operator_profile missing (V1 narrowing)
+  test("G9: no operator_profile + 10 feedback rows -> epistemicIntegrity still absent (V1 narrowing)", async () => {
+    const events = makeVerificationEvents(5);
+    const feedbackRows = makeFeedbackRows(10);
+    const db = createMockD1Multi({
+      operatorProfileRow: null,
+      feedbackRows,
+      events,
+    });
+    const profile = await computeTrustScore(db, "agent-test", "free");
+    expect("epistemicIntegrity" in profile.dimensions).toBe(false);
+  });
+
+  // G10: D1 query error degrades gracefully
+  test("G10: operator_profiles throws -> computeTrustScore does NOT throw, no epistemicIntegrity key", async () => {
+    const throwingDb: D1Database = {
+      prepare(sql: string) {
+        return {
+          bind(..._args: unknown[]) {
+            return {
+              async first<T>(): Promise<T | null> {
+                if (sql.includes("operator_profiles")) throw new Error("no such table: operator_profiles");
+                return null;
+              },
+              async all<T>() {
+                return { results: [] as T[], success: true, meta: {} };
+              },
+              async run() { return { success: true, meta: {} }; },
+            };
+          },
+        };
+      },
+      async batch() { return []; },
+      async dump() { return new ArrayBuffer(0); },
+      async exec() { return { count: 0, duration: 0 }; },
+    } as unknown as D1Database;
+
+    let profile: TrustProfile | undefined;
+    let threw = false;
+    try {
+      profile = await computeTrustScore(throwingDb, "agent-test", "free");
+    } catch {
+      threw = true;
+    }
+    expect(threw).toBe(false);
+    expect(profile).toBeDefined();
+    expect("epistemicIntegrity" in profile!.dimensions).toBe(false);
+    expect(typeof profile!.score).toBe("number");
+    expect(typeof profile!.confidence).toBe("number");
+  });
+
+  // G11: Flags surfaced when unfalsifiable_at_scale triggered
+  test("G11: flags surfaced on epistemicIntegrity when unfalsifiable_at_scale detected", async () => {
+    const actionStreamEvents: AuditEvent[] = Array.from({ length: 10 }, (_, i) => ({
+      id: `evt-action-${String(i).padStart(4, "0")}`,
+      timestamp: `2026-05-15T${String(i).padStart(2, "0")}:00:00.000Z`,
+      account_id: "agent-test",
+      actor_id: "agent-test",
+      category: "action_stream",
+      action: "output",
+      result: "success",
+      prev_hash: "aabbcc",
+      signature: "sigxyz",
+      _source: "internal" as const,
+      details: JSON.stringify({
+        subcategory: "output_volume",
+        output_volume: 100000,
+        session_id: `sess-action-${String(i).padStart(4, "0")}`,
+      }),
+    }));
+    const verifEvents = makeVerificationEvents(15);
+    const events = [...actionStreamEvents, ...verifEvents];
+    const tightBandwidthProfileRow = {
+      attestation_workflow_json: ATTESTATION_WORKFLOW_JSON,
+      review_bandwidth_json: JSON.stringify({
+        reviewersCount: 1,
+        unitsPerHour: 10,
+        timeToNextApprovalHours: 1,
+        unitType: "lines",
+      }),
+    };
+    const db = createMockD1Multi({
+      operatorProfileRow: tightBandwidthProfileRow,
+      feedbackRows: [],
+      events,
+    });
+    const profile = await computeTrustScore(db, "agent-test", "free");
+    expect("epistemicIntegrity" in profile.dimensions).toBe(true);
+    expect(profile.dimensions.epistemicIntegrity!.flags).toBeDefined();
+    expect(profile.dimensions.epistemicIntegrity!.flags!.includes("unfalsifiable_at_scale")).toBe(true);
+  });
+
+  // G12: Flags absent when no anomaly
+  test("G12: flags absent from epistemicIntegrity when no anomaly detected", async () => {
+    const events = makeVerificationEvents(15);
+    const db = createMockD1Multi({
+      operatorProfileRow: OPERATOR_PROFILE_ROW,
+      feedbackRows: [],
+      events,
+    });
+    const profile = await computeTrustScore(db, "agent-test", "free");
+    expect("epistemicIntegrity" in profile.dimensions).toBe(true);
+    expect("flags" in profile.dimensions.epistemicIntegrity!).toBe(false);
+  });
+
+  // G13: Score shift bounded vs pre-C10 baseline for inactive path
+  test("G13: v1->v2 weight shift bounded for inactive path (max ~5 points on 0-100 scale)", () => {
+    const oldWeights = {
+      consistency:  0.25 / 0.70,
+      restraint:    0.30 / 0.70,
+      transparency: 0.15 / 0.70,
+    };
+    const newWeights = effectiveWeights(1, false);
+    const cs = 0.5, rs = 0.7, ts = 0.3;
+    const oldRaw = cs * oldWeights.consistency + rs * oldWeights.restraint + ts * oldWeights.transparency;
+    const newRaw = cs * newWeights.consistency + rs * newWeights.restraint + ts * newWeights.transparency;
+    expect(Math.abs(newRaw - oldRaw)).toBeLessThan(0.05);
+    expect(newRaw).toBeCloseTo(cs * (0.22 / 0.59) + rs * (0.27 / 0.59) + ts * (0.10 / 0.59), 6);
+  });
+
+  // G14: TypeScript surface check via runtime assertions
+  test("G14: TypeScript shape — epistemicIntegrity optional, flags optional, DIMENSION_WEIGHTS has 6 keys", () => {
+    const keys = Object.keys(DIMENSION_WEIGHTS) as (keyof typeof DIMENSION_WEIGHTS)[];
+    expect(keys).toContain("epistemicIntegrity");
+    expect(keys).toContain("consistency");
+    expect(keys).toHaveLength(6);
+
+    const wActive = effectiveWeights(1, true);
+    const wInactive = effectiveWeights(1, false);
+    expect(Object.keys(wActive)).toHaveLength(6);
+    expect(Object.keys(wInactive)).toHaveLength(6);
+
+    expect(wInactive.epistemicIntegrity).toBe(0);
+    expect(wActive.epistemicIntegrity).toBeGreaterThan(0);
   });
 });

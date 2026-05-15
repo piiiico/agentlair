@@ -1,4 +1,11 @@
 import { sha256hex } from './utils.js';
+import {
+  computeEpistemicIntegrity,
+  hasEpistemicEvidence,
+  type ClaimFeedback,
+  type EpistemicIntegrityResult,
+} from './lib/trust-engine-epistemic.js';
+import { type AttestationWorkflow, type ReviewBandwidth } from './lib/operator-profile.js';
 
 // ─── AgentLair Trust Engine — Phase 2b ──────────────────────────────────────────
 //
@@ -129,6 +136,9 @@ export interface DimensionScore {
   confidence: number;
   /** Signal name → normalized value [0.0, 1.0] */
   signals: Record<string, number>;
+  /** v2 — dimension-level flags. Currently only `epistemicIntegrity` surfaces flags
+   *  ('unfalsifiable_at_scale', 'verification_coverage_low', 'anti_calibration_detected'). */
+  flags?: string[];
 }
 
 export interface ConfidenceInterval {
@@ -152,6 +162,8 @@ export interface TrustProfile {
     consistency: DimensionScore;
     restraint: DimensionScore;
     transparency: DimensionScore;
+    /** Phase 2.5 — present iff operator has declared a profile AND hasEpistemicEvidence. */
+    epistemicIntegrity?: DimensionScore;
   };
   observationCount: number;
   computedAt: string;
@@ -827,15 +839,57 @@ export async function computeTransparency(
   };
 }
 
-// ─── Phase 1 Effective Weights (spec §2.2) ────────────────────────────────────────
-// Redistributes crossOrgCoherence (0.20) + resilience (0.10) to 3 active dimensions.
-// Active total: 0.25 + 0.30 + 0.15 = 0.70. Divide each by 0.70 to renormalize.
+// ─── Phase 2.5 v2 Dimension Weights (spec §2.2 lines 644-651) ────────────────────
+// Six-dimension base. Use `effectiveWeights()` for live scoring (inactive dims zeroed).
+// v1 weights constant removed in pipeline agentlair-trust-activation-gate-20260515 (C10).
 
-export const PHASE1_WEIGHTS = {
-  consistency:  0.25 / 0.70,   // ≈ 0.3571
-  restraint:    0.30 / 0.70,   // ≈ 0.4286
-  transparency: 0.15 / 0.70,   // ≈ 0.2143
+/**
+ * Phase 2.5 v2 base dimension weights. Source: algorithm-doc §2.2 lines 644-651.
+ * Sum = 1.00. Use `effectiveWeights()` to obtain the live weights with inactive
+ * dimensions redistributed.
+ */
+export const DIMENSION_WEIGHTS = {
+  consistency:        0.22,
+  restraint:          0.27,
+  transparency:       0.10,
+  resilience:         0.08,
+  crossOrgCoherence:  0.18,
+  epistemicIntegrity: 0.15,
 } as const;
+
+/**
+ * Returns dimension weights that sum to 1.0, with inactive dimensions zeroed and
+ * their weight redistributed proportionally to active dimensions.
+ *
+ * Spec source: algorithm-doc §2.2 lines 687-715.
+ *
+ * Phase 2.5 caveat: `resilience` and `crossOrgCoherence` are treated as
+ * permanently inactive because their scorers don't exist yet. When Phase 3
+ * lands those scorers, drop their entries from the unconditional inactive list.
+ */
+export function effectiveWeights(
+  orgCount: number,
+  hasEpistemicEvidenceFlag: boolean,
+): Record<keyof typeof DIMENSION_WEIGHTS, number> {
+  const inactive = new Set<keyof typeof DIMENSION_WEIGHTS>([
+    // Phase 2.5: scorers not yet implemented
+    'resilience',
+    // Phase 1: single-org world
+    ...((orgCount < 2 ? ['crossOrgCoherence'] : []) as Array<keyof typeof DIMENSION_WEIGHTS>),
+    // Phase 2.5: epistemic dimension is data-gated
+    ...((hasEpistemicEvidenceFlag ? [] : ['epistemicIntegrity']) as Array<keyof typeof DIMENSION_WEIGHTS>),
+  ]);
+
+  let redistributed = 0;
+  for (const dim of inactive) redistributed += DIMENSION_WEIGHTS[dim];
+  const remainingTotal = 1 - redistributed;
+
+  const out = {} as Record<keyof typeof DIMENSION_WEIGHTS, number>;
+  for (const dim of Object.keys(DIMENSION_WEIGHTS) as Array<keyof typeof DIMENSION_WEIGHTS>) {
+    out[dim] = inactive.has(dim) ? 0 : DIMENSION_WEIGHTS[dim] / remainingTotal;
+  }
+  return out;
+}
 
 // ─── Cold-Start Prior (spec §2.5) ─────────────────────────────────────────────────
 
@@ -925,6 +979,72 @@ async function lookupAccountTier(kv: KVNamespace, agentId: string): Promise<Trus
   }
 }
 
+// ─── Phase 2.5 — D1 fetch helpers for epistemic substrate ─────────────────────────
+
+interface OperatorProfileRow {
+  account_id: string;
+  attestation_workflow_json: string;
+  review_bandwidth_json: string;
+  created_at: string;
+  updated_at: string;
+}
+
+async function fetchOperatorProfileFromDb(
+  db: D1Database,
+  accountId: string,
+): Promise<{ attestationWorkflow: AttestationWorkflow; reviewBandwidth: ReviewBandwidth } | null> {
+  try {
+    const row = await db
+      .prepare(
+        'SELECT account_id, attestation_workflow_json, review_bandwidth_json, created_at, updated_at FROM operator_profiles WHERE account_id = ?',
+      )
+      .bind(accountId)
+      .first<OperatorProfileRow>();
+    if (!row) return null;
+    const attestationWorkflow = JSON.parse(row.attestation_workflow_json) as AttestationWorkflow;
+    const reviewBandwidth = JSON.parse(row.review_bandwidth_json) as ReviewBandwidth;
+    return { attestationWorkflow, reviewBandwidth };
+  } catch {
+    return null;
+  }
+}
+
+interface TelemetryFeedbackRow {
+  id: string;
+  account_id: string;
+  claim_id: string;
+  outcome_correct: 0 | 1;
+  evidence_type: string;
+  confidence_stated: number | null;
+  created_at: number;
+}
+
+async function fetchTelemetryFeedbackFromDb(
+  db: D1Database,
+  accountId: string,
+): Promise<ClaimFeedback[]> {
+  try {
+    const { results } = await db
+      .prepare(
+        'SELECT id, account_id, claim_id, outcome_correct, evidence_type, confidence_stated, created_at FROM telemetry_feedback WHERE account_id = ? ORDER BY created_at ASC LIMIT 5000',
+      )
+      .bind(accountId)
+      .all<TelemetryFeedbackRow>();
+    return (results ?? []).map((row) => ({
+      agentId:          row.account_id,
+      claimId:          row.claim_id,
+      // D1 stores 0|1 (no null); the C6 ClaimFeedback shape allows null for inconclusive
+      // but C10 V1 doesn't surface that path because the wire payload is boolean-only.
+      outcomeCorrect:   row.outcome_correct === 1,
+      confidenceStated: row.confidence_stated ?? undefined,
+      evidenceType:     row.evidence_type,
+      submittedAt:      new Date(row.created_at).toISOString(),
+    }));
+  } catch {
+    return [];
+  }
+}
+
 // ─── Main: Compute Trust Score ────────────────────────────────────────────────────
 
 export async function computeTrustScore(
@@ -1003,11 +1123,39 @@ export async function computeTrustScore(
     telemetryRawSignal !== telemetrySignal ? telemetryRawSignal : undefined,
   );
 
+  // ─── Phase 2.5 — fetch epistemic substrate ───────────────────────────────
+  // V1 mapping: agentId is used as account_id for both fetches. See Decision 6
+  // in pipeline spec agentlair-trust-activation-gate-20260515 for caveats.
+  const operatorProfile = await fetchOperatorProfileFromDb(db, agentId);
+  const feedback = await fetchTelemetryFeedbackFromDb(db, agentId);
+
+  // Decision 3 (C10 V1): operator_profile MUST be present for epistemic activation.
+  // Feedback-only activation is deferred to a future component (see spec Decision 3).
+  const epistemicActive =
+    operatorProfile !== null &&
+    hasEpistemicEvidence(evtList, feedback, operatorProfile.attestationWorkflow);
+
+  let epistemicResult: EpistemicIntegrityResult | null = null;
+  if (epistemicActive && operatorProfile !== null) {
+    epistemicResult = computeEpistemicIntegrity(
+      evtList,
+      operatorProfile.attestationWorkflow,
+      operatorProfile.reviewBandwidth,
+      feedback,
+    );
+  }
+
+  const weights = effectiveWeights(/* orgCount = */ 1, epistemicActive);
+
   // Weighted raw score [0.0, 1.0]
-  const rawScore =
-    consistencyResult.score  * PHASE1_WEIGHTS.consistency +
-    restraintResult.score    * PHASE1_WEIGHTS.restraint +
-    transparencyResult.score * PHASE1_WEIGHTS.transparency;
+  let rawScore =
+    consistencyResult.score  * weights.consistency +
+    restraintResult.score    * weights.restraint +
+    transparencyResult.score * weights.transparency;
+
+  if (epistemicResult !== null) {
+    rawScore += epistemicResult.score * weights.epistemicIntegrity;
+  }
 
   // Apply selective reporting penalty (RFC-003 Section 7.3)
   const selectiveReportingMult = detectSelectiveReporting(evtList);
@@ -1055,6 +1203,35 @@ export async function computeTrustScore(
 
   const trend = computeTrend(score, previousScore);
 
+  // Build dimensions conditionally — epistemicIntegrity key is ABSENT (not undefined/null)
+  // when inactive so existing API consumers see no shape change (Decision 4).
+  const dimensions: TrustProfile['dimensions'] = {
+    consistency: {
+      score:      Math.round(consistencyResult.score * 100),
+      confidence: dimConf,
+      signals:    consistencyResult.signals,
+    },
+    restraint: {
+      score:      Math.round(restraintResult.score * 100),
+      confidence: dimConf,
+      signals:    restraintResult.signals,
+    },
+    transparency: {
+      score:      Math.round(transparencyResult.score * 100),
+      confidence: dimConf,
+      signals:    transparencyResult.signals,
+    },
+  };
+  if (epistemicResult !== null) {
+    dimensions.epistemicIntegrity = {
+      score:      Math.round(epistemicResult.score * 100),
+      confidence: dimConf,
+      signals:    epistemicResult.signals as unknown as Record<string, number>,
+      // flags surfaced on the dimension; BHC top-level lift is C8's job
+      ...(epistemicResult.flags.length > 0 ? { flags: epistemicResult.flags } : {}),
+    };
+  }
+
   const profile: TrustProfile = {
     agentId,
     score,
@@ -1062,23 +1239,7 @@ export async function computeTrustScore(
     confidenceInterval: ci,
     atfLevel,
     trend,
-    dimensions: {
-      consistency: {
-        score:      Math.round(consistencyResult.score * 100),
-        confidence: dimConf,
-        signals:    consistencyResult.signals,
-      },
-      restraint: {
-        score:      Math.round(restraintResult.score * 100),
-        confidence: dimConf,
-        signals:    restraintResult.signals,
-      },
-      transparency: {
-        score:      Math.round(transparencyResult.score * 100),
-        confidence: dimConf,
-        signals:    transparencyResult.signals,
-      },
-    },
+    dimensions,
     observationCount: evtList.length,
     computedAt: new Date().toISOString(),
     orgCount: 1,
