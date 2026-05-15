@@ -1,0 +1,47 @@
+{
+  "name": "@agentlair/x402-trust-gate",
+  "version": "0.1.0",
+  "description": "Trust-gated x402 payment middleware. Agents with AgentLair behavioral trust scores pay less — trusted agents get the base price, unknown agents pay 10x, flagged agents are blocked.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "agentlair",
+    "x402",
+    "trust",
+    "payment",
+    "cloudflare-workers",
+    "ai-agents",
+    "middleware"
+  ],
+  "author": "AgentLair <support@agentlair.dev>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hawkaa/agentlair",
+    "directory": "packages/x402-trust-gate"
+  },
+  "homepage": "https://agentlair.dev/docs/x402-trust-gate",
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260317.1",
+    "typescript": "^5.8.3",
+    "wrangler": "^4.73.0"
+  }
+}

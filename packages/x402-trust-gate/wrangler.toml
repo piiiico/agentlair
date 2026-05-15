@@ -1,0 +1,24 @@
+name = "agentlair-x402-trust-gate"
+main = "src/worker.ts"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+account_id = "1e3b03e4a8d2514f89998dbdda7d5140"
+
+# The PAY_TO env var must be set via `wrangler secret put PAY_TO`
+# Optional: UPSTREAM_URL, BASE_AMOUNT, AGENTLAIR_BASE
+
+[vars]
+# Base price in USDC atomic units (6 decimals)
+# 10000 = 0.01 USDC (base price for trusted agents)
+# Unknown agents pay 10x = 0.10 USDC
+# Junior agents pay 5x = 0.05 USDC
+BASE_AMOUNT = "10000"
+
+# AgentLair trust API base URL (override for self-hosted)
+# AGENTLAIR_BASE = "https://agentlair.dev"
+
+# Optional upstream to proxy to after payment verification
+# UPSTREAM_URL = "https://your-api.example.com"
+
+# Secrets (set via `wrangler secret put`):
+#   PAY_TO — USDC wallet address to receive payments
