@@ -46,12 +46,101 @@ export interface AuditEntry {
 export const ALLOWED_POST_CATEGORIES = new Set([
   // New L3 categories (agent self-attestation)
   'task', 'tool_call', 'observation', 'reasoning', 'output',
+  // Phase 2.5 Dimension 6 (Epistemic Integrity) — new in this pipeline
+  'verification',
   // Existing ambient categories — agents may explicitly attest these too
   'system', 'auth', 'email', 'vault', 'pod', 'calendar', 'memory', 'session', 'budget', 'git', 'webhook',
 ]);
 
 // action: 1–128 chars, lowercase letters/digits/underscores, dot-separated, starts with a letter
 export const ACTION_REGEX = /^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$/;
+
+// ─── Verification tier enum (Phase 2.5 Component 1) ──────────────────────────
+// Ordered from most to least trustworthy (scorer uses weights; not stored here).
+
+export const VERIFICATION_TIERS = [
+  'formal_verification',
+  'automated_tooling',
+  'independent_review',
+  'operator_review',
+  'agent_self_report',
+  'agent_self_annotation',
+] as const;
+export type VerificationTier = (typeof VERIFICATION_TIERS)[number];
+
+// ─── VerificationPayload interface ───────────────────────────────────────────
+// Validated fields that accompany category='verification' audit events.
+// These ride inside the existing `details` JSON column; no schema migration.
+
+export interface VerificationPayload {
+  tool: string;          // e.g. 'cargo-test', 'miri', 'lean', 'tsc'
+  tier: VerificationTier;
+  output_hash?: string;  // optional sha256 hex (lowercase, 64 chars) — purely metadata
+  exit_code: number;     // integer; 0 = pass, non-zero = fail
+}
+
+// ─── Verification payload validator ──────────────────────────────────────────
+// Pure input → result function — no side effects. Returns error shape on fail,
+// or { ok: true, payload } on success.
+
+export function validateVerificationPayload(body: Record<string, unknown>):
+  | { ok: true; payload: VerificationPayload }
+  | { ok: false; error: string; message: string; hint?: string } {
+
+  const { tool, tier, exit_code, output_hash } = body as {
+    tool?: unknown;
+    tier?: unknown;
+    exit_code?: unknown;
+    output_hash?: unknown;
+  };
+
+  // Validate tool
+  if (tool === undefined || tool === null) {
+    return { ok: false, error: 'missing_tool', message: 'Missing required field: tool.' };
+  }
+  if (typeof tool !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/.test(tool)) {
+    return { ok: false, error: 'invalid_tool', message: 'tool must be 1–128 chars, matching ^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$.' };
+  }
+
+  // Validate tier
+  if (tier === undefined || tier === null) {
+    return { ok: false, error: 'missing_tier', message: 'Missing required field: tier.' };
+  }
+  if (typeof tier !== 'string' || !(VERIFICATION_TIERS as readonly string[]).includes(tier)) {
+    return {
+      ok: false,
+      error: 'invalid_tier',
+      message: 'Invalid tier.',
+      hint: `Allowed values: ${VERIFICATION_TIERS.join(', ')}`,
+    };
+  }
+
+  // Validate exit_code
+  if (exit_code === undefined || exit_code === null) {
+    return { ok: false, error: 'missing_exit_code', message: 'Missing required field: exit_code.' };
+  }
+  if (!Number.isInteger(exit_code)) {
+    return { ok: false, error: 'invalid_exit_code', message: 'exit_code must be an integer.' };
+  }
+
+  // Validate output_hash (optional)
+  if (output_hash !== undefined && output_hash !== null) {
+    if (typeof output_hash !== 'string' || !/^[0-9a-f]{64}$/.test(output_hash)) {
+      return { ok: false, error: 'invalid_output_hash', message: 'output_hash must be a lowercase 64-char hex string (SHA-256).' };
+    }
+  }
+
+  const payload: VerificationPayload = {
+    tool: tool as string,
+    tier: tier as VerificationTier,
+    exit_code: exit_code as number,
+  };
+  if (output_hash !== undefined && output_hash !== null) {
+    payload.output_hash = output_hash as string;
+  }
+
+  return { ok: true, payload };
+}
 
 // ─── Module-level hash chain state (per-isolate) ─────────────────────────────
 

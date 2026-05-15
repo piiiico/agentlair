@@ -16,6 +16,8 @@ import {
   writeExplicitAuditEvent,
   ALLOWED_POST_CATEGORIES,
   ACTION_REGEX,
+  VERIFICATION_TIERS,
+  validateVerificationPayload,
 } from '../middleware/audit.js';
 import { auditEntryToCAF } from '../caf.js';
 import { cafToSignedStatement } from '../caf-scitt.js';
@@ -165,6 +167,25 @@ auditRoutes.post('/log', async (c) => {
     }
   }
 
+  // Validate verification-specific fields (must branch BEFORE resolving details)
+  let mergedDetails: Record<string, unknown> | null = (details != null ? details : null) as Record<string, unknown> | null;
+  if (category === 'verification') {
+    const vResult = validateVerificationPayload(body);
+    if (!vResult.ok) {
+      return err(vResult.message, 400, vResult.error, vResult.hint);
+    }
+    // Merge: caller's details first, verification fields override (system-controlled keys win)
+    const verificationFields: Record<string, unknown> = {
+      tool: vResult.payload.tool,
+      tier: vResult.payload.tier,
+      exit_code: vResult.payload.exit_code,
+    };
+    if (vResult.payload.output_hash !== undefined) {
+      verificationFields.output_hash = vResult.payload.output_hash;
+    }
+    mergedDetails = { ...(mergedDetails ?? {}), ...verificationFields };
+  }
+
   // Resolve optional fields
   const resolvedStatus = typeof status === 'number' ? status : 200;
   const VALID_RESULTS = new Set(['success', 'failure', 'denied']);
@@ -188,7 +209,7 @@ auditRoutes.post('/log', async (c) => {
     resourceId: typeof resource_id === 'string' ? resource_id : null,
     status: resolvedStatus,
     result: resolvedResult,
-    details: (details != null ? details : null) as Record<string, unknown> | null,
+    details: mergedDetails,
     ipHash,
   });
 

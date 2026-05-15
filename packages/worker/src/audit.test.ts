@@ -446,6 +446,122 @@ describe('POST /v1/audit/log — input validation (HTTP)', () => {
   });
 });
 
+describe('POST /v1/audit/log — verification category', () => {
+  const { privateKeyB64 } = makeTestSigningKey();
+  const mockD1 = makeMockD1();
+  const storedRows = (mockD1 as unknown as { rows: Record<string, unknown>[] }).rows;
+  const mockEnv = { AUDIT: mockD1, AUDIT_SIGNING_KEY: privateKeyB64 };
+  const app = makeAuditApp({ id: 'acc_test' });
+
+  const OUTPUT_HASH = '0000000000000000000000000000000000000000000000000000000000000001';
+
+  test('happy path — 201 with all four fields stored in details', async () => {
+    storedRows.length = 0;
+    const res = await app.request('/log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        category: 'verification',
+        action: 'verification.run',
+        tool: 'cargo-test',
+        tier: 'automated_tooling',
+        exit_code: 0,
+        output_hash: OUTPUT_HASH,
+      }),
+    }, mockEnv as never);
+    expect(res.status).toBe(201);
+    expect(storedRows.length).toBe(1);
+    const storedDetails = JSON.parse(storedRows[0].details as string);
+    expect(storedDetails.tool).toBe('cargo-test');
+    expect(storedDetails.tier).toBe('automated_tooling');
+    expect(storedDetails.exit_code).toBe(0);
+    expect(storedDetails.output_hash).toBe(OUTPUT_HASH);
+  });
+
+  test('happy path, no output_hash — 201, details has no output_hash key', async () => {
+    storedRows.length = 0;
+    const res = await app.request('/log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        category: 'verification',
+        action: 'verification.run',
+        tool: 'cargo-test',
+        tier: 'automated_tooling',
+        exit_code: 0,
+      }),
+    }, mockEnv as never);
+    expect(res.status).toBe(201);
+    expect(storedRows.length).toBe(1);
+    const storedDetails = JSON.parse(storedRows[0].details as string);
+    expect(storedDetails.tool).toBe('cargo-test');
+    expect(storedDetails.tier).toBe('automated_tooling');
+    expect(storedDetails.exit_code).toBe(0);
+    expect('output_hash' in storedDetails).toBe(false);
+  });
+
+  test('invalid tier → 400 invalid_tier with hint including agent_self_annotation', async () => {
+    const res = await app.request('/log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        category: 'verification',
+        action: 'verification.run',
+        tool: 'cargo-test',
+        tier: 'manual_glance',
+        exit_code: 0,
+      }),
+    }, mockEnv as never);
+    expect(res.status).toBe(400);
+    const body = await res.json() as { error: string; hint?: string };
+    expect(body.error).toBe('invalid_tier');
+    expect(body.hint).toContain('agent_self_annotation');
+  });
+
+  test('missing tool → 400 missing_tool', async () => {
+    const res = await app.request('/log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        category: 'verification',
+        action: 'verification.run',
+        tier: 'automated_tooling',
+        exit_code: 0,
+      }),
+    }, mockEnv as never);
+    expect(res.status).toBe(400);
+    const body = await res.json() as { error: string };
+    expect(body.error).toBe('missing_tool');
+  });
+
+  test('non-integer exit_code → 400 invalid_exit_code', async () => {
+    const res = await app.request('/log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        category: 'verification',
+        action: 'verification.run',
+        tool: 'cargo-test',
+        tier: 'automated_tooling',
+        exit_code: 1.5,
+      }),
+    }, mockEnv as never);
+    expect(res.status).toBe(400);
+    const body = await res.json() as { error: string };
+    expect(body.error).toBe('invalid_exit_code');
+  });
+
+  test('non-verification category unaffected — task.complete → 201 without tool/tier', async () => {
+    storedRows.length = 0;
+    const res = await app.request('/log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ category: 'task', action: 'task.complete' }),
+    }, mockEnv as never);
+    expect(res.status).toBe(201);
+  });
+});
+
 describe('POST /v1/audit/log — signature + hash chain (function-level)', () => {
   test('signature is verifiable with derived public key', async () => {
     const { privateKeyB64, publicKeyBytes } = makeTestSigningKey();
