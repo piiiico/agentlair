@@ -57,6 +57,7 @@ import { leaderboardA2ARoutes } from './routes/leaderboard.a2a.js';
 import { runLeaderboardRefresh } from './lib/a2a-leaderboard-job.js';
 import { handleTaskRoutes } from './routes/tasks.js';
 import { telemetryRoutes } from './routes/telemetry.js';
+import { telemetryFeedbackRoutes } from './routes/telemetry-feedback.js';
 import { eventRoutes } from './routes/events.js';
 import { didRoutes } from './routes/did.js';
 import { specRoutes } from './routes/spec.js';
@@ -1607,6 +1608,8 @@ app.route('/v1/operator', operatorProfileRoutes);
 // GET /v1/telemetry/status — integration health check (event count, last seen)
 // Integration: Springdrift (seamus-brady/springdrift issue #27) — first external partner
 app.route('/v1/telemetry', telemetryRoutes);
+// Phase 2.5 Component 4 — operator-submitted claim outcomes (POST /v1/telemetry/feedback)
+app.route('/v1/telemetry', telemetryFeedbackRoutes);
 
 // Behavioral event ingestion routes (RFC-003 Phase 2a):
 // POST /v1/events — ingest structured behavioral events from agent runtimes
