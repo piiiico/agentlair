@@ -94,6 +94,11 @@ export interface AATClaims {
   al_scopes: string[]; // Requested scopes
   al_audit_url: string; // Audit trail link
 
+  // Radicle NID binding — present iff the agent has registered an RFC 9421
+  // signing key. Format: did:key:z6Mk... (Ed25519 → multicodec 0xed01 → base58btc).
+  // External verifiers cross-reference this against Radicle repo delegate lists.
+  al_nid?: string;
+
   // Trust attestation — RFC-001 IdP: embedded trust score snapshot
   // Present when agent has sufficient behavioral history (>= 10 observations)
   al_trust?: {
@@ -261,6 +266,56 @@ export function verifyJWS(jws: string, publicKeyBytes: Uint8Array): Record<strin
  * - EdDSA / Ed25519 (AUDIT_SIGNING_KEY)  — active, all AATs signed with this
  * - ML-DSA / FIPS 204                    — planned, PQ Phase 1 (post-2028)
  */
+// ─── Base58btc encoder (no external dependencies) ────────────────────────────
+
+const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+
+function base58btcEncode(bytes: Uint8Array): string {
+  // Count leading zero bytes
+  let leadingZeros = 0;
+  for (const b of bytes) {
+    if (b !== 0) break;
+    leadingZeros++;
+  }
+  // Convert bytes to big integer
+  let num = BigInt(0);
+  for (const b of bytes) {
+    num = num * BigInt(256) + BigInt(b);
+  }
+  // Convert to base58
+  let result = '';
+  while (num > 0n) {
+    const remainder = Number(num % 58n);
+    result = BASE58_ALPHABET[remainder] + result;
+    num = num / 58n;
+  }
+  // Add leading '1's for zero bytes
+  return '1'.repeat(leadingZeros) + result;
+}
+
+// Multicodec prefix for ed25519-pub: 0xed 0x01 (varint)
+const ED25519_MULTICODEC_PREFIX = new Uint8Array([0xed, 0x01]);
+
+/**
+ * Derive a Radicle-compatible Node ID (did:key encoded Ed25519 pubkey) from
+ * raw 32-byte Ed25519 public key material.
+ *
+ * Format: "did:key:z" + base58btc(multicodec(0xed01) || pubkey)
+ *
+ * Verified against the Radicle reference standard (z6Mk prefix). Pure
+ * deterministic transform — no I/O, no key generation.
+ *
+ * Source: /workspace/tools/radicle-nid-poc.ts (2026-05-15 PoC).
+ */
+export function pubkeyToRadicleNid(publicKeyBytes: Uint8Array): string {
+  // Prepend multicodec prefix
+  const prefixed = new Uint8Array(ED25519_MULTICODEC_PREFIX.length + publicKeyBytes.length);
+  prefixed.set(ED25519_MULTICODEC_PREFIX);
+  prefixed.set(publicKeyBytes, ED25519_MULTICODEC_PREFIX.length);
+  // Base58btc encode with `z` multibase prefix
+  return 'did:key:z' + base58btcEncode(prefixed);
+}
+
 export async function buildJWKS(privateKeyB64: string): Promise<{ keys: Record<string, string>[] }> {
   const publicKeyBytes = getPublicKey(privateKeyB64);
   const kid = await computeKeyId(publicKeyBytes);

@@ -19,7 +19,7 @@
 
 import { Hono } from 'hono';
 import { err } from '../utils.js';
-import { getPublicKey, b64urlEncode } from '../jwt.js';
+import { getPublicKey, b64urlEncode, b64urlDecode, pubkeyToRadicleNid } from '../jwt.js';
 import type { HonoEnv, Env } from '../types.js';
 import type { SigningKeyRecord } from './signing-keys.js';
 
@@ -31,6 +31,7 @@ const ISSUER_BASE = `https://${ISSUER_DOMAIN}`;
 interface DIDDocument {
   '@context': string[];
   id: string;
+  alsoKnownAs?: string[]; // W3C DID Core — cross-method identity declaration
   verificationMethod: VerificationMethod[];
   authentication: string[];
   assertionMethod: string[];
@@ -111,6 +112,13 @@ export function buildDIDDocument(
   let publicKeyX: string | undefined;
   if (signingKey && signingKey.status === 'active') {
     publicKeyX = signingKey.public_key;
+    // Add alsoKnownAs with did:key NID derived from the per-agent signing key.
+    // W3C DID Core §5.1.3 — declares this DID identifies the same entity as
+    // the did:key. Omitted when no active signing key is present (not empty array).
+    const pubBytes = b64urlDecode(signingKey.public_key);
+    if (pubBytes.length === 32) {
+      doc.alsoKnownAs = [pubkeyToRadicleNid(pubBytes)];
+    }
   } else if (rootPublicKeyX) {
     publicKeyX = rootPublicKeyX;
   }

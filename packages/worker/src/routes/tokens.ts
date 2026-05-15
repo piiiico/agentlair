@@ -14,8 +14,9 @@
 import { Hono } from 'hono';
 import { json, err, nanoid } from '../utils.js';
 import type { HonoEnv } from '../types.js';
-import { createJWT, getPublicKey, computeKeyId, verifyJWT } from '../jwt.js';
+import { createJWT, getPublicKey, computeKeyId, verifyJWT, b64urlDecode, pubkeyToRadicleNid } from '../jwt.js';
 import type { AATClaims } from '../jwt.js';
+import { getSigningKeyForAccount } from './did.js';
 import { trackTokenIssuance, checkAndIncrementTokenVerify, TOKEN_VERIFY_LIMITS } from '../middleware/ratelimit.js';
 import { SERVICE_PRICES, make402Response } from '../x402.js';
 import { getTrustAttestationForEmbed } from '../idp/trust-embed.js';
@@ -209,6 +210,20 @@ tokenRoutes.post('/issue', async (c) => {
       claims.al_trust = trustAttestation;
     }
   } catch { /* fail-open — trust embedding is best-effort */ }
+
+  // ── Radicle NID binding ───────────────────────────────────────────────────
+  // If the agent has registered an RFC 9421 signing key, derive the
+  // Radicle-compatible NID and embed it as al_nid. Fail-open: if KV is
+  // unavailable or no key is registered, the AAT is issued without al_nid.
+  try {
+    const sk = await getSigningKeyForAccount(c.env, account.id);
+    if (sk && sk.status === 'active') {
+      const pubBytes = b64urlDecode(sk.public_key);
+      if (pubBytes.length === 32) {
+        claims.al_nid = pubkeyToRadicleNid(pubBytes);
+      }
+    }
+  } catch { /* fail-open — al_nid is best-effort */ }
 
   // ── Sign JWT ───────────────────────────────────────────────────────────
   const publicKeyBytes = getPublicKey(signingKey);

@@ -13,6 +13,7 @@ import { Hono } from 'hono';
 import { ed25519 } from '@noble/curves/ed25519.js';
 import { b64urlEncode, b64urlDecode } from './jwt';
 import { computeSigningKeyId, computeJwkThumbprint, getSigningKeyByThumbprint, signingKeyRoutes, type SigningKeyRecord } from './routes/signing-keys';
+import type { Env } from './types.js';
 import type { HonoEnv } from './types.js';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -215,6 +216,87 @@ function makeApp(account: { id: string; name?: string; email?: string }) {
   app.route('/v1/agents', signingKeyRoutes);
   return app;
 }
+
+// ─── Radicle NID exposure ─────────────────────────────────────────────────────
+
+describe('Radicle NID exposure', () => {
+  /** Build a full app with an in-memory KV store for integration-style tests. */
+  function makeKvApp(account: { id: string; name?: string; email?: string }) {
+    const kvStore = new Map<string, string>();
+    const kvMock = {
+      get: async (key: string) => kvStore.get(key) ?? null,
+      put: async (key: string, value: string) => { kvStore.set(key, value); },
+      delete: async (key: string) => { kvStore.delete(key); },
+    };
+    const env = { KEYS: kvMock } as unknown as Env;
+    const app = new Hono<import('./types').HonoEnv>();
+    app.use('*', async (c, next) => {
+      c.set('account', account as never);
+      return next();
+    });
+    app.route('/v1/agents', signingKeyRoutes);
+    // Return app + env so callers can pass env to fetch
+    return { app, env };
+  }
+
+  const seed = new Uint8Array(32).fill(7);
+  const testPubKey = ed25519.getPublicKey(seed);
+  const testPubKeyB64 = b64urlEncode(testPubKey);
+
+  test('POST new-registration response includes nid starting with did:key:z6Mk', async () => {
+    const { app, env } = makeKvApp({ id: 'acc_nid_test' });
+    const res = await app.fetch(new Request('http://localhost/v1/agents/signing-keys', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ public_key: testPubKeyB64 }),
+    }), env);
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    expect(typeof body.nid).toBe('string');
+    expect(body.nid.startsWith('did:key:z6Mk')).toBe(true);
+  });
+
+  test('POST idempotent response includes same nid', async () => {
+    const { app, env } = makeKvApp({ id: 'acc_nid_idem' });
+    // First registration
+    await app.fetch(new Request('http://localhost/v1/agents/signing-keys', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ public_key: testPubKeyB64 }),
+    }), env);
+    // Second registration (idempotent)
+    const res = await app.fetch(new Request('http://localhost/v1/agents/signing-keys', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ public_key: testPubKeyB64 }),
+    }), env);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(typeof body.nid).toBe('string');
+    expect(body.nid.startsWith('did:key:z6Mk')).toBe(true);
+  });
+
+  test('GET signing-key response includes nid matching POST response', async () => {
+    const { app, env } = makeKvApp({ id: 'acc_nid_get' });
+    // Register key
+    const postRes = await app.fetch(new Request('http://localhost/v1/agents/signing-keys', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ public_key: testPubKeyB64 }),
+    }), env);
+    const postBody = await postRes.json();
+    const postNid = postBody.nid;
+
+    // Fetch via GET
+    const getRes = await app.fetch(new Request('http://localhost/v1/agents/signing-keys', {
+      method: 'GET',
+    }), env);
+    expect(getRes.status).toBe(200);
+    const getBody = await getRes.json();
+    expect(typeof getBody.nid).toBe('string');
+    expect(getBody.nid).toBe(postNid);
+  });
+});
 
 describe('POST /v1/agents/signing-keys — input validation', () => {
   test('missing public_key → 400 missing_public_key', async () => {

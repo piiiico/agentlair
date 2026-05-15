@@ -23,6 +23,7 @@ import {
   createJWT,
   verifyJWT,
   buildJWKS,
+  pubkeyToRadicleNid,
 } from './jwt';
 import type { AATClaims } from './jwt';
 
@@ -456,6 +457,46 @@ describe('token expiry', () => {
     expect(verified).not.toBeNull();
     // iat should be within a few seconds of now
     expect(Math.abs(verified!.iat - now)).toBeLessThan(5);
+  });
+});
+
+// ─── pubkeyToRadicleNid ─────────────────────────────────────────────────────
+
+describe('pubkeyToRadicleNid', () => {
+  // T1: Reference vector — all-zero pubkey (pinned 2026-05-15 against PoC)
+  test('T1: all-zero pubkey produces pinned did:key output', () => {
+    const input = new Uint8Array(32); // 32 zero bytes
+    const result = pubkeyToRadicleNid(input);
+    expect(result).toBe('did:key:z6MkeTG3bFFSLYVU7VqhgZxqr6YzpaGrQtFMh1uvqGy1vDnP');
+  });
+
+  // T2: Reference vector — seed 0x42×32 (pinned 2026-05-15 against PoC)
+  test('T2: 0x42×32 pubkey produces pinned did:key output', () => {
+    const input = new Uint8Array(32).fill(0x42);
+    const result = pubkeyToRadicleNid(input);
+    expect(result).toBe('did:key:z6MkiuuZ37z7NE6RKUMCUHVV3sVLw4A8s5ZUZwuEgMvZED53');
+  });
+
+  // T3: Reference vector — bytes 1..32 (pinned 2026-05-15 against PoC)
+  test('T3: sequential bytes 1..32 pubkey produces pinned did:key output', () => {
+    const input = Uint8Array.from([1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32]);
+    const result = pubkeyToRadicleNid(input);
+    expect(result).toBe('did:key:z6MkeXCES4onVW4up9Qgz1KRnZsKmGufcaZxF6Zpv2w5QwUK');
+  });
+
+  // T4: Determinism — same input twice → identical output
+  test('T4: same input always produces identical output', () => {
+    const input = crypto.getRandomValues(new Uint8Array(32));
+    const result1 = pubkeyToRadicleNid(input);
+    const result2 = pubkeyToRadicleNid(input);
+    expect(result1).toBe(result2);
+  });
+
+  // T5: Length & prefix — must start with did:key:z6Mk (Ed25519 multicodec marker)
+  test('T5: output starts with did:key:z6Mk (z6 multibase + Mk ed25519-pub multicodec)', () => {
+    const input = crypto.getRandomValues(new Uint8Array(32));
+    const result = pubkeyToRadicleNid(input);
+    expect(result.startsWith('did:key:z6Mk')).toBe(true);
   });
 });
 

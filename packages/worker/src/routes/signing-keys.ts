@@ -21,7 +21,7 @@
 import { Hono } from 'hono';
 import { json, err } from '../utils.js';
 import type { HonoEnv, Env } from '../types.js';
-import { b64urlEncode, b64urlDecode } from '../jwt.js';
+import { b64urlEncode, b64urlDecode, pubkeyToRadicleNid } from '../jwt.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -212,6 +212,7 @@ signingKeyRoutes.post('/signing-keys', async (c) => {
         label: existing.label,
         status: existing.status,
         signature_agent_url: `https://agentlair.dev/agents/${thumbprint}`,
+        nid: pubkeyToRadicleNid(b64urlDecode(existing.public_key)),
       }, 200); // 200 = already registered
     }
     // Different account has this key — conflict (key IDs are global)
@@ -281,6 +282,7 @@ signingKeyRoutes.post('/signing-keys', async (c) => {
     ...(label !== undefined && { label }),
     status: 'active',
     signature_agent_url: `https://agentlair.dev/agents/${thumbprint}`,
+    nid: pubkeyToRadicleNid(publicKeyBytes),
   }, 201);
 });
 
@@ -316,6 +318,7 @@ signingKeyRoutes.get('/signing-keys', async (c) => {
     jwks_url: `https://agentlair.dev/.well-known/agent-keys/${record.keyid}/jwks.json`,
     // Computed on the fly for existing keys that may not have thumbprint stored
     signature_agent_url: `https://agentlair.dev/agents/${await computeJwkThumbprint(b64urlDecode(record.public_key))}`,
+    nid: pubkeyToRadicleNid(b64urlDecode(record.public_key)),
   });
 });
 

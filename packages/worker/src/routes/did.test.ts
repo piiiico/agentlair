@@ -9,6 +9,8 @@
  */
 
 import { describe, test, expect } from 'bun:test';
+import { ed25519 } from '@noble/curves/ed25519.js';
+import { b64urlEncode } from '../jwt.js';
 import { buildDIDDocument } from './did.js';
 import type { SigningKeyRecord } from './signing-keys.js';
 
@@ -168,6 +170,60 @@ describe('buildDIDDocument', () => {
     const doc2 = buildDIDDocument('acc_beta', null);
     expect(doc1.id).not.toBe(doc2.id);
     expect(doc1.service![0].serviceEndpoint).not.toBe(doc2.service![0].serviceEndpoint);
+  });
+});
+
+// ─── alsoKnownAs: Radicle NID in DID Document ───────────────────────────────
+
+describe('buildDIDDocument — alsoKnownAs (Radicle NID)', () => {
+  // A real 32-byte Ed25519 public key is required; the base fixture uses 25 bytes.
+  const seed = new Uint8Array(32).fill(7);
+  const realPubKey = ed25519.getPublicKey(seed);
+  const realPubKeyB64 = b64urlEncode(realPubKey);
+
+  function makeSigningKey32(overrides: Partial<SigningKeyRecord> = {}): SigningKeyRecord {
+    return {
+      keyid: 'test-keyid-abc123456789',
+      algorithm: 'ed25519',
+      public_key: realPubKeyB64,
+      agent_id: 'acc_nid_test',
+      registered_at: '2026-05-15T00:00:00.000Z',
+      status: 'active',
+      ...overrides,
+    };
+  }
+
+  test('active signing key produces alsoKnownAs array with one did:key entry', () => {
+    const key = makeSigningKey32();
+    const doc = buildDIDDocument('acc_nid_test', key);
+
+    expect(doc.alsoKnownAs).toBeDefined();
+    expect(Array.isArray(doc.alsoKnownAs)).toBe(true);
+    expect(doc.alsoKnownAs!.length).toBe(1);
+    expect(doc.alsoKnownAs![0].startsWith('did:key:z6Mk')).toBe(true);
+  });
+
+  test('alsoKnownAs entry is deterministic for a given public key', () => {
+    const key = makeSigningKey32();
+    const doc1 = buildDIDDocument('acc_nid_test', key);
+    const doc2 = buildDIDDocument('acc_nid_test', key);
+    expect(doc1.alsoKnownAs).toEqual(doc2.alsoKnownAs);
+  });
+
+  test('alsoKnownAs is absent (not empty array) when signing key is null', () => {
+    const doc = buildDIDDocument('acc_nid_test', null);
+    expect(doc.alsoKnownAs).toBeUndefined();
+  });
+
+  test('alsoKnownAs is absent (not empty array) when signing key is revoked', () => {
+    const revokedKey = makeSigningKey32({ status: 'revoked' });
+    const doc = buildDIDDocument('acc_nid_test', revokedKey);
+    expect(doc.alsoKnownAs).toBeUndefined();
+  });
+
+  test('alsoKnownAs is absent when root-key fallback is used (no per-agent key)', () => {
+    const doc = buildDIDDocument('acc_nid_test', null, 'cm9vdC1wdWJsaWMta2V5LXg');
+    expect(doc.alsoKnownAs).toBeUndefined();
   });
 });
 
