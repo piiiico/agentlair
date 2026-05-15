@@ -44,6 +44,7 @@ import { handleRegisterVerifyRoute } from './routes/register-verify.js';
 import { handleCredentialRoutes } from './routes/credentials.js';
 import { approvalRoutes, chargeRoutes } from './routes/approvals.js';
 import { trustRoutes, publicTrustRoutes } from './routes/trust.js';
+import { operatorProfileRoutes } from './routes/operator-profile.js';
 import { discoveryRoutes } from './routes/discovery.js';
 import { memoryTrustRoutes } from './routes/memory-trust.js';
 import { badgeRoutes } from './routes/badge.js';
@@ -1598,6 +1599,9 @@ app.use('/v1/credentials', legacyHandler(handleCredentialRoutes));
 
 // Trust scoring routes: GET /v1/trust/:agentId — behavioral trust score from observations
 app.route('/v1/trust', trustRoutes);
+
+// Operator profile routes: PUT/GET /v1/operator/profile — operator-declared attestation workflow + review bandwidth
+app.route('/v1/operator', operatorProfileRoutes);
 
 // Telemetry ingestion routes: POST /v1/telemetry/submit — ingest behavioral events from external runtimes
 // GET /v1/telemetry/status — integration health check (event count, last seen)
