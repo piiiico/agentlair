@@ -58,6 +58,7 @@ import { runLeaderboardRefresh } from './lib/a2a-leaderboard-job.js';
 import { handleTaskRoutes } from './routes/tasks.js';
 import { telemetryRoutes } from './routes/telemetry.js';
 import { telemetryFeedbackRoutes } from './routes/telemetry-feedback.js';
+import { tealIngestRoutes } from './routes/teal-ingest.js';
 import { eventRoutes } from './routes/events.js';
 import { didRoutes } from './routes/did.js';
 import { specRoutes } from './routes/spec.js';
@@ -547,7 +548,7 @@ app.get('/.well-known/did.json', async (c) => {
 
 // ── OpenID Connect Discovery (enhanced — RFC-001 Phase 1) ─────────────────────
 // Replaced minimal implementation with buildOIDCDiscovery() from IdP module.
-// Includes MCP-I extensions, revocation endpoint, and AgentLair L4 trust fields.
+// Includes MCP-I extensions, revocation endpoint, and AgentLair cross-org behavioral trust fields.
 app.get('/.well-known/openid-configuration', (_c) => {
   const config = buildOIDCDiscovery();
   return new Response(JSON.stringify(config, null, 2), {
@@ -1610,6 +1611,9 @@ app.route('/v1/operator', operatorProfileRoutes);
 app.route('/v1/telemetry', telemetryRoutes);
 // Phase 2.5 Component 4 — operator-submitted claim outcomes (POST /v1/telemetry/feedback)
 app.route('/v1/telemetry', telemetryFeedbackRoutes);
+
+// TEAL ingest route: POST /v1/teal/ingest — Lyrie ATP v2 hash-chained behavioral records
+app.route('/v1/teal', tealIngestRoutes);
 
 // Behavioral event ingestion routes (RFC-003 Phase 2a):
 // POST /v1/events — ingest structured behavioral events from agent runtimes

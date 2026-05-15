@@ -1,0 +1,187 @@
+---
+layout: ../../layouts/BasicLayout.astro
+title: "TEAL Ingest — AgentLair"
+description: "POST /v1/teal/ingest accepts Lyrie ATP v2 (TEAL) hash-chained behavioral records. Dual-writes to teal_records and behavioral_events for cross-org trust scoring."
+---
+
+# TEAL Ingest
+
+`POST /v1/teal/ingest` accepts [Lyrie ATP v2 (TEAL)](https://lyrie.ai) hash-chained behavioral records and stores them in AgentLair's trust substrate. Each batch is validated for chain integrity, optionally verified against the operator's registered Ed25519 signing key, and dual-written to `teal_records` and `behavioral_events`. The behavioral events feed directly into the trust scoring algorithm.
+
+---
+
+## What it does
+
+Each TEAL record carries a sequence number, timestamp, action type, payload hash, and a reference to the previous record's canonical hash. The endpoint verifies that the chain is unbroken—both within the submitted batch and across previous batches for the same session. If the operator has registered an Ed25519 signing key via `POST /v1/agents/signing-keys`, signatures on each record are verified before acceptance. Unsigned batches are accepted with `?unsigned_ok=1`, but they are marked `chain_signed: false` and weighted accordingly in trust scoring.
+
+---
+
+## Request schema
+
+```json
+{
+  "session_id": "string (required, max 256 chars)",
+  "records": [
+    {
+      "seq": "integer (required, >= 0, strictly increasing)",
+      "timestamp": "string (required, ISO 8601)",
+      "action_type": "string (required, max 256 chars)",
+      "payload_hash": "string (required, e.g. sha256:<hex>)",
+      "prev_hash": "string | null (null for first record in a new session)",
+      "agent_sig": "string (base64url Ed25519 signature, required unless unsigned_ok=1)"
+    }
+  ]
+}
+```
+
+Maximum 100 records per request.
+
+**Authentication:** `Authorization: Bearer al_<key>` (API key) or session token.
+
+**Query parameters:**
+
+| Parameter | Description |
+|-----------|-------------|
+| `unsigned_ok=1` | Skip signature verification. Records accepted but marked `chain_signed: false`. |
+
+---
+
+## Response
+
+```json
+{
+  "ok": true,
+  "operator_id": "acc_...",
+  "session_id": "sess_...",
+  "records_accepted": 3,
+  "records_idempotent": 0,
+  "chain_valid": true,
+  "chain_signed": true,
+  "session_id_continued": false,
+  "telemetry_id_first": "be_...",
+  "telemetry_id_last": "be_...",
+  "receipt_sig": "ed25519:<hex>"
+}
+```
+
+`receipt_sig` is present when `AUDIT_SIGNING_KEY` is configured on the server.
+
+---
+
+## Error codes
+
+| HTTP | `error` | Cause |
+|------|---------|-------|
+| 400 | `records_too_many` | More than 100 records submitted |
+| 400 | `invalid_record_schema` | A record failed schema validation (includes `index`) |
+| 400 | `seq_not_monotonic` | Records are not strictly increasing by seq |
+| 401 | `unauthorized` | Missing or invalid API key |
+| 403 | `chain_break` | prev_hash mismatch (includes `index`) |
+| 409 | `duplicate_seq` | All submitted records already exist for this session |
+| 422 | `no_signing_key_registered` | Signature required but no key registered |
+| 422 | `sig_invalid` | Ed25519 signature failed verification (includes `index`) |
+| 503 | `audit_unavailable` | AUDIT D1 binding not configured |
+
+---
+
+## Curl examples
+
+**Submit a 3-record chain (unsigned, development)**
+
+```bash
+curl -X POST https://agentlair.dev/v1/teal/ingest?unsigned_ok=1 \
+  -H "Authorization: Bearer al_your_key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "session_id": "sess_abc123",
+    "records": [
+      {
+        "seq": 0,
+        "timestamp": "2026-05-15T12:00:00Z",
+        "action_type": "tool.invoke",
+        "payload_hash": "sha256:a1b2c3d4...",
+        "prev_hash": null
+      },
+      {
+        "seq": 1,
+        "timestamp": "2026-05-15T12:00:01Z",
+        "action_type": "llm.inference",
+        "payload_hash": "sha256:e5f6a7b8...",
+        "prev_hash": "sha256:<canonical_hash_of_record_0>"
+      }
+    ]
+  }'
+```
+
+**Submit a signed batch**
+
+```bash
+# Register your signing key first:
+# POST /v1/agents/signing-keys with {"public_key": "<base64url>"}
+
+curl -X POST https://agentlair.dev/v1/teal/ingest \
+  -H "Authorization: Bearer al_your_key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "session_id": "sess_signed_001",
+    "records": [
+      {
+        "seq": 0,
+        "timestamp": "2026-05-15T12:00:00Z",
+        "action_type": "session.start",
+        "payload_hash": "sha256:deadbeef...",
+        "prev_hash": null,
+        "agent_sig": "<base64url_ed25519_signature>"
+      }
+    ]
+  }'
+```
+
+**Continue a session across multiple POSTs**
+
+```bash
+# Second batch for the same session_id — prev_hash of first record
+# must match canonical hash of last record from the previous POST.
+curl -X POST https://agentlair.dev/v1/teal/ingest?unsigned_ok=1 \
+  -H "Authorization: Bearer al_your_key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "session_id": "sess_abc123",
+    "records": [
+      {
+        "seq": 2,
+        "timestamp": "2026-05-15T12:00:02Z",
+        "action_type": "tool.result",
+        "payload_hash": "sha256:c9d0e1f2...",
+        "prev_hash": "sha256:<canonical_hash_of_seq_1>"
+      }
+    ]
+  }'
+```
+
+---
+
+## Wire to TEAL-emitting agents
+
+If your agent uses `@lyrie/atp`, configure the emitter to POST each session's accumulated records to `https://agentlair.dev/v1/teal/ingest` at session close or on a rolling basis. The canonical hash for each record is:
+
+```
+sha256: + hex(SHA-256(JSON.stringify({seq, timestamp, action_type, payload_hash, prev_hash})))
+```
+
+The signature message (Ed25519 over UTF-8 bytes) is:
+
+```
+seq|timestamp|action_type|payload_hash|(prev_hash ?? "null")
+```
+
+Register your agent's Ed25519 public key via `POST /v1/agents/signing-keys` before submitting signed batches.
+
+---
+
+## Limitations
+
+- Maximum 100 records per request. For longer sessions, POST in batches.
+- Partial writes are possible on D1 batch failure — D1 lacks true transactions. Resubmitting accepted records is idempotent; the duplicate count is returned in `records_idempotent`.
+- `chain_signed: false` records contribute less weight to the trust score than verified records.
+- Cross-session trust aggregation operates on behavioral summaries, not raw TEAL payloads. Payload content is never stored — only `action_type` and `payload_hash` are persisted.
