@@ -12,18 +12,21 @@ Radicle delegates are Node IDs (`did:key:z6Mk...`). AgentLair AATs carry an `al_
 
 ## Quickstart
 
-Pipe an AAT into the tool. It verifies the JWKS signature, cross-checks `al_nid` against the agent's DID document, and prints the `rad id update` invocation.
-
 ```bash
-# Issue an AAT for an agent with a registered signing key:
+# 1. Grab the tool (single file, ~290 LOC, no external deps).
+curl -sO https://raw.githubusercontent.com/piiiico/agentlair/main/tools/aat-to-radicle/aat-to-radicle.ts
+
+# 2. Issue an AAT for an agent that has a registered signing key, then pipe it in.
 curl -s -X POST https://agentlair.dev/v1/tokens/issue \
   -H "Authorization: Bearer $AGENTLAIR_API_KEY" \
   -d '{"audience":"https://example.com","scopes":["read"]}' \
   | jq -r .data.token \
-  | bun https://raw.githubusercontent.com/piiiico/agentlair/main/tools/aat-to-radicle/aat-to-radicle.ts --format sh
+  | bun aat-to-radicle.ts --format sh
 ```
 
-Output: a single line of the form `rad id update --delegate did:key:z6Mk...`. Run it inside the Radicle working copy.
+Output: a single line of the form `rad id update --delegate did:key:z6Mk...`. The tool verifies the JWKS signature and cross-checks the `al_nid` against the agent's DID document before printing anything. Run the resulting command inside the Radicle working copy.
+
+If your AAT has no `al_nid` claim, exit code 2 prints a pointer to [Web Bot Auth](/docs/web-bot-auth) for registering a signing key first.
 
 Formats:
 
