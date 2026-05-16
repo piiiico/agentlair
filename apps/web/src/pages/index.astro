@@ -10,12 +10,38 @@ import { Hero } from '@/components/blocks/hero';
 import { Integrations } from '@/components/blocks/integrations';
 import { Pricing } from '@/components/blocks/pricing';
 import DefaultLayout from '@/layouts/DefaultLayout.astro';
+import LeaderboardWidget from '@/components/blocks/leaderboard-widget.astro';
+
+// ─── Build-time leaderboard fetch ────────────────────────────────────────────
+// Public endpoint at /leaderboard (no /v1 prefix) — no auth required.
+// Cloudflare Pages rebuilds nightly, so data stays fresh automatically.
+let leaderboardEntries: Array<{
+  name: string; url: string; score: number; grade: string;
+  layers: { l1: number; l2: number; l3: number; l4: number };
+  ts: string;
+}> = [];
+let leaderboardTotal = 0;
+
+try {
+  const res = await fetch('https://api.agentlair.dev/leaderboard/a2a.json');
+  if (res.ok) {
+    const data = await res.json() as {
+      results: typeof leaderboardEntries;
+      total: number;
+    };
+    leaderboardEntries = (data.results ?? []).slice(0, 10);
+    leaderboardTotal = data.total ?? 0;
+  }
+} catch {
+  // Fallback: widget renders "Leaderboard refreshing" placeholder
+}
 ---
 
 <DefaultLayout title={SITE_TITLE} description={SITE_DESCRIPTION}>
   <Background className="via-muted to-muted/80">
     <Hero />
     <DemoScores />
+    <LeaderboardWidget entries={leaderboardEntries} total={leaderboardTotal} />
     <Features />
     <Analysts />
     <Integrations />
