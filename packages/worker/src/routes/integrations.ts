@@ -23,7 +23,7 @@ interface Integration {
   notes: string;
 }
 
-const INTEGRATIONS: readonly Integration[] = [
+export const INTEGRATIONS: readonly Integration[] = [
   {
     kind: 'npm-package',
     name: '@agentlair/mastra',
