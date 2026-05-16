@@ -12,50 +12,12 @@ import { Hono } from 'hono';
 import { json, err } from '../utils.js';
 import type { HonoEnv } from '../types.js';
 import { pubkeyToRadicleNid, b64urlDecode } from '../jwt.js';
+import { base58btcDecode } from '../lib/base58btc.js';
 import { computeTrustScore } from '../trust-engine.js';
 import type { SigningKeyRecord } from './signing-keys.js';
 
 export const agentsByNidRoutes = new Hono<HonoEnv>();
 
-// ─── Base58btc alphabet ───────────────────────────────────────────────────────
-
-const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
-const BASE58_MAP = new Map<string, number>(
-  [...BASE58_ALPHABET].map((c, i) => [c, i]),
-);
-
-/**
- * Decode a base58btc string to bytes.
- * Returns null if any character is not in the alphabet.
- */
-function base58btcDecode(str: string): Uint8Array | null {
-  // Count leading '1's (zero bytes)
-  let leadingZeros = 0;
-  for (const c of str) {
-    if (c !== '1') break;
-    leadingZeros++;
-  }
-
-  // Convert base58 to big integer
-  let num = BigInt(0);
-  for (const c of str) {
-    const val = BASE58_MAP.get(c);
-    if (val === undefined) return null; // invalid character
-    num = num * BigInt(58) + BigInt(val);
-  }
-
-  // Convert big integer to bytes
-  const result: number[] = [];
-  while (num > 0n) {
-    result.unshift(Number(num & 0xffn));
-    num >>= 8n;
-  }
-
-  // Prepend leading zero bytes
-  const bytes = new Uint8Array(leadingZeros + result.length);
-  bytes.set(result, leadingZeros);
-  return bytes;
-}
 
 // ─── NID validation ───────────────────────────────────────────────────────────
 
