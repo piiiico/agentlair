@@ -48,6 +48,7 @@ import { operatorProfileRoutes } from './routes/operator-profile.js';
 import { discoveryRoutes } from './routes/discovery.js';
 import { agentsByNidRoutes } from './routes/agents-by-nid.js';
 import { sovereignBridgesRoutes } from './routes/sovereign-bridges.js';
+import { integrationsRoutes } from './routes/integrations.js';
 import { memoryTrustRoutes } from './routes/memory-trust.js';
 import { badgeRoutes } from './routes/badge.js';
 import { a2aCardRoutes } from './routes/a2a-cards.js';
@@ -1068,6 +1069,10 @@ app.route('/v1/agents', agentsByNidRoutes);
 // Sovereign bridge registry: machine-readable companion to /docs/sovereign-bridges
 // GET /v1/sovereign-bridges — substrate + anchor map (live + roadmap), no auth
 app.route('/v1/sovereign-bridges', sovereignBridgesRoutes);
+
+// Integrations manifest: machine-readable list of all verified AgentLair integrations
+// GET /v1/integrations — npm packages, GitHub repos, GitHub Actions, public endpoints, no auth
+app.route('/v1/integrations', integrationsRoutes);
 
 // Memory trust: always public, always requires x402 (0.01 USDC)
 // GET /v1/agents/:id/memory-trust — verified memory behavioral patterns
