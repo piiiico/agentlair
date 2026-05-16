@@ -15,6 +15,7 @@ const DOCS_ITEMS = [
   { label: "Audit Logger", href: "/docs/audit-logger" },
   { label: "MCP Server", href: "/docs/mcp" },
   { label: "Vault Docs", href: "/docs/vault" },
+  { label: "Security", href: "/security" },
   { label: "Verify Receipt", href: "/verify-receipt" },
 ];
 
@@ -26,6 +27,7 @@ const ITEMS = [
   { label: "Demo", href: "/demo" },
   { label: "Blog", href: "/blog" },
   { label: "Pricing", href: "/pricing" },
+  { label: "About", href: "/about" },
   { label: "Start Free", href: "/register" },
 ];
 
