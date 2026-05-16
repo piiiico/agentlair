@@ -298,6 +298,114 @@ describe('Radicle NID exposure', () => {
   });
 });
 
+// ─── Inverse NID index writes ─────────────────────────────────────────────────
+
+describe('Inverse NID index writes', () => {
+  /** Build a full app with in-memory KV, returning the raw KV store for inspection. */
+  function makeKvAppWithStore(account: { id: string }) {
+    const kvStore = new Map<string, string>();
+    const kvMock = {
+      get: async (key: string) => kvStore.get(key) ?? null,
+      put: async (key: string, value: string) => { kvStore.set(key, value); },
+      delete: async (key: string) => { kvStore.delete(key); },
+    };
+    const env = { KEYS: kvMock } as unknown as Env;
+    const app = new Hono<import('./types').HonoEnv>();
+    app.use('*', async (c, next) => {
+      c.set('account', account as never);
+      return next();
+    });
+    app.route('/v1/agents', signingKeyRoutes);
+    return { app, env, kvStore };
+  }
+
+  test('POST registration writes nid:<did> inverse index', async () => {
+    const { app, env, kvStore } = makeKvAppWithStore({ id: 'acc_nididx1' });
+    const seed = crypto.getRandomValues(new Uint8Array(32));
+    const pubKey = ed25519.getPublicKey(seed);
+    const pubKeyB64 = b64urlEncode(pubKey);
+
+    const res = await app.fetch(new Request('http://localhost/v1/agents/signing-keys', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ public_key: pubKeyB64 }),
+    }), env);
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    const nid = body.nid as string;
+
+    // Directly inspect KV for nid:<did>
+    const raw = kvStore.get('nid:' + nid);
+    expect(raw).toBeDefined();
+    const indexed = JSON.parse(raw!) as { account_id: string; keyid: string };
+    expect(indexed.account_id).toBe('acc_nididx1');
+    expect(typeof indexed.keyid).toBe('string');
+    expect(indexed.keyid.length).toBeGreaterThan(0);
+  });
+
+  test('POST rotation deletes previous nid:<did> entry', async () => {
+    const { app, env, kvStore } = makeKvAppWithStore({ id: 'acc_nidrot1' });
+    const seed1 = crypto.getRandomValues(new Uint8Array(32));
+    const pubKey1 = ed25519.getPublicKey(seed1);
+    const seed2 = crypto.getRandomValues(new Uint8Array(32));
+    const pubKey2 = ed25519.getPublicKey(seed2);
+
+    // Register key1
+    const res1 = await app.fetch(new Request('http://localhost/v1/agents/signing-keys', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ public_key: b64urlEncode(pubKey1) }),
+    }), env);
+    expect(res1.status).toBe(201);
+    const body1 = await res1.json();
+    const nid1 = body1.nid as string;
+    expect(kvStore.has('nid:' + nid1)).toBe(true);
+
+    // Rotate to key2
+    const res2 = await app.fetch(new Request('http://localhost/v1/agents/signing-keys', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ public_key: b64urlEncode(pubKey2) }),
+    }), env);
+    expect(res2.status).toBe(201);
+    const body2 = await res2.json();
+    const nid2 = body2.nid as string;
+
+    // Previous NID entry should be gone
+    expect(kvStore.has('nid:' + nid1)).toBe(false);
+    // New NID entry should exist
+    expect(kvStore.has('nid:' + nid2)).toBe(true);
+    const indexed2 = JSON.parse(kvStore.get('nid:' + nid2)!) as { account_id: string };
+    expect(indexed2.account_id).toBe('acc_nidrot1');
+  });
+
+  test('DELETE revocation removes nid:<did> entry', async () => {
+    const { app, env, kvStore } = makeKvAppWithStore({ id: 'acc_nidrev1' });
+    const seed = crypto.getRandomValues(new Uint8Array(32));
+    const pubKey = ed25519.getPublicKey(seed);
+
+    // Register
+    const postRes = await app.fetch(new Request('http://localhost/v1/agents/signing-keys', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ public_key: b64urlEncode(pubKey) }),
+    }), env);
+    expect(postRes.status).toBe(201);
+    const postBody = await postRes.json();
+    const nid = postBody.nid as string;
+    expect(kvStore.has('nid:' + nid)).toBe(true);
+
+    // Revoke
+    const delRes = await app.fetch(new Request('http://localhost/v1/agents/signing-keys', {
+      method: 'DELETE',
+    }), env);
+    expect(delRes.status).toBe(200);
+
+    // NID entry should be removed
+    expect(kvStore.has('nid:' + nid)).toBe(false);
+  });
+});
+
 describe('POST /v1/agents/signing-keys — input validation', () => {
   test('missing public_key → 400 missing_public_key', async () => {
     const app = makeApp({ id: 'acc_test' });

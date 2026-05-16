@@ -219,14 +219,17 @@ signingKeyRoutes.post('/signing-keys', async (c) => {
     return err('This public key is already registered by another agent.', 409, 'key_conflict');
   }
 
-  // Revoke previous key if exists
+  // Revoke previous key if exists; capture previous NID for inverse-index cleanup
   const prevKeyidRaw = await c.env.KEYS.get('signing-key-by-account:' + account.id);
+  let prevNidToDelete: string | undefined;
   if (prevKeyidRaw) {
     const prevRecord = JSON.parse(prevKeyidRaw) as { keyid: string };
     if (prevRecord.keyid) {
       const prevKeyRaw = await c.env.KEYS.get('signing-key:' + prevRecord.keyid);
       if (prevKeyRaw) {
         const prevKey = JSON.parse(prevKeyRaw) as SigningKeyRecord;
+        // Compute previous NID before marking revoked (public_key is still valid)
+        prevNidToDelete = pubkeyToRadicleNid(b64urlDecode(prevKey.public_key));
         prevKey.status = 'revoked';
         try {
           await c.env.KEYS.put('signing-key:' + prevRecord.keyid, JSON.stringify(prevKey));
@@ -258,7 +261,7 @@ signingKeyRoutes.post('/signing-keys', async (c) => {
     status: 'active',
   };
 
-  // Store key record and account index
+  // Store key record, account index, and inverse NID index
   try {
     await c.env.KEYS.put('signing-key:' + keyid, JSON.stringify(record));
     await c.env.KEYS.put(
@@ -266,6 +269,18 @@ signingKeyRoutes.post('/signing-keys', async (c) => {
       JSON.stringify({ keyid }),
     );
     await c.env.KEYS.put('signing-key-thumbprint:' + thumbprint, JSON.stringify({ keyid }));
+    // Inverse index: nid → { account_id, keyid }. Enables GET /v1/agents/by-nid/:al_nid.
+    const nid = pubkeyToRadicleNid(publicKeyBytes);
+    await c.env.KEYS.put('nid:' + nid, JSON.stringify({ account_id: account.id, keyid }));
+    // On rotation: remove the inverse index entry for the previous key's NID
+    if (prevNidToDelete && prevNidToDelete !== nid) {
+      try {
+        await c.env.KEYS.delete('nid:' + prevNidToDelete);
+      } catch (delErr: unknown) {
+        // Delete failure is non-fatal — dangling entry overwritten on next backfill
+        console.error('nid inverse index cleanup failed for rotation:', delErr);
+      }
+    }
   } catch (kvErr: unknown) {
     const msg = kvErr instanceof Error ? kvErr.message : '';
     if (msg.includes('free usage limit') || msg.includes('KV') || msg.includes('quota')) {
@@ -362,6 +377,17 @@ signingKeyRoutes.delete('/signing-keys', async (c) => {
   // Remove account index (no active key)
   try {
     await c.env.KEYS.delete('signing-key-by-account:' + account.id);
+  } catch (kvErr: unknown) {
+    const msg = kvErr instanceof Error ? kvErr.message : '';
+    if (msg.includes('free usage limit') || msg.includes('KV') || msg.includes('quota')) {
+      return err('Signing key revocation temporarily unavailable — KV write quota exceeded. Try again later.', 503, 'kv_quota_exceeded');
+    }
+    throw kvErr;
+  }
+  // Remove inverse NID index (revoked key should not resolve)
+  try {
+    const nid = pubkeyToRadicleNid(b64urlDecode(record.public_key));
+    await c.env.KEYS.delete('nid:' + nid);
   } catch (kvErr: unknown) {
     const msg = kvErr instanceof Error ? kvErr.message : '';
     if (msg.includes('free usage limit') || msg.includes('KV') || msg.includes('quota')) {
