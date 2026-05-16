@@ -6,11 +6,13 @@ import { Navbar } from "@/components/blocks/navbar";
 const { frontmatter, title: directTitle, description: directDescription } = Astro.props;
 const title = frontmatter?.title || directTitle;
 const description = frontmatter?.description || directDescription;
+const alternateJson = frontmatter?.alternateJson;
 ---
 
 <html lang="en">
   <head>
     <BaseHead title={title} description={description} />
+    {alternateJson && <link rel="alternate" type="application/json" href={alternateJson} />}
     <slot name="extraHead" />
   </head>
   <body class={`h-screen antialiased`}>
