@@ -4,6 +4,10 @@ title: "Sovereign bridges — AgentLair"
 description: "Credibility-anchors and execution-substrate are distinct layers. AgentLair is the substrate; this page maps the anchors it speaks to (Radicle NID, DID:Web today; ENS, GitHub commit-signing, npm Trusted Publishing on the roadmap)."
 ---
 
+<Fragment slot="extraHead">
+  <link rel="alternate" type="application/json" href="https://api.agentlair.dev/v1/sovereign-bridges" />
+</Fragment>
+
 # Sovereign bridges
 
 Identity gets conflated all the time. There is the layer where humans assert who they are: a DNS record, a git history, an ENS name, an npm publisher account. And there is the layer where an agent actually runs requests, holds an API key, pays for inference, and gets rate-limited. AgentLair lives on the second layer.

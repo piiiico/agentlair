@@ -11,6 +11,7 @@ const description = frontmatter?.description || directDescription;
 <html lang="en">
   <head>
     <BaseHead title={title} description={description} />
+    <slot name="extraHead" />
   </head>
   <body class={`h-screen antialiased`}>
     <Navbar client:only='react' />
