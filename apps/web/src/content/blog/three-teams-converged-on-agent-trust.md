@@ -19,7 +19,7 @@ Here's what shipped.
 
 [ATTP](https://datatracker.ietf.org/doc/draft-sharif-attp-agent-trust-transport/) (CyberSecAI / Raza Sharif, individual IETF draft `draft-sharif-attp-agent-trust-transport-00`, submitted March 29, 2026) defines an `attp://` URI scheme over port 8443 with per-request and per-response ECDSA P-256 signatures. Middleware records every request-response pair into a SHA-256 hash chain. The spec defines trust levels L0 through L4, where L4 means the agent's private key lives in an HSM or secure enclave.
 
-AgentLair shipped AAT, an EdDSA JWT issued per session and verifiable at `agentlair.dev/.well-known/jwks.json`. The substrate behind it ingests behavioral telemetry — Springdrift (a Gleam MCP memory server contributed by an external developer) and task-orchestrator (a Python orchestration framework, version 3.2.0) verify AATs in production; DashClaw EmDash and a Mastra integration are in review.
+AgentLair shipped AAT, an EdDSA JWT issued per session and verifiable at `agentlair.dev/.well-known/jwks.json`. The substrate behind it ingests behavioral telemetry — Springdrift (a Gleam MCP memory server contributed by an external developer) and task-orchestrator (a Kotlin orchestration framework, JWKS verifier shipped in v3.2.0) verify AATs in production; DashClaw EmDash and a Mastra integration are in review.
 
 Three specs. Three credentialing approaches. One identical conclusion: session-level behavioral evidence has to be cryptographically anchored.
 
