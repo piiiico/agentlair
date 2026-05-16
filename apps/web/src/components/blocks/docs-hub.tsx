@@ -9,6 +9,7 @@ import {
   Box,
   CalendarDays,
   KeyRound,
+  GitBranch,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -94,6 +95,13 @@ const DOC_SECTIONS = [
       "Sign and verify HTTP requests in your browser. See the L3 cryptographic verdict and the behavioral attestation chain side by side.",
     badge: "New",
     badgeColor: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
+  },
+  {
+    title: "al_nid claim",
+    href: "/docs/al-nid",
+    icon: GitBranch,
+    description:
+      "AATs carry an al_nid claim binding the token to a Radicle Node ID — derived from the same Ed25519 signing key. One key, two identities.",
   },
 ];
 

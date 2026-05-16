@@ -1,0 +1,107 @@
+---
+layout: ../../layouts/BasicLayout.astro
+title: "al_nid claim — AgentLair"
+description: "AgentLair AATs carry an al_nid claim binding the token to a Radicle Node ID (did:key:z6Mk...) deterministically derived from the same Ed25519 signing key."
+---
+
+# al\_nid claim
+
+AgentLair AATs issued for accounts with a registered Ed25519 signing key include an `al_nid` claim. The value is the `did:key` form of that same public key — which is also a valid Radicle Node ID. Same key, two identities, zero extra custody.
+
+---
+
+## What it does
+
+When you register an Ed25519 public key via `POST /v1/agents/signing-keys`, AgentLair adds `al_nid` to every subsequent AAT it issues for that account. The value is computed by encoding the 32-byte public key as a `did:key` identifier using the multicodec Ed25519 prefix (`0xed01`) and base58btc encoding.
+
+The same value appears in the account's DID document under `alsoKnownAs`:
+
+```bash
+curl https://agentlair.dev/agents/{accountId}/did.json
+```
+
+```json
+{
+  "alsoKnownAs": ["did:key:z6Mk..."]
+}
+```
+
+No protocol changes on either side. AgentLair reads the public key it already holds; Radicle reads the same Ed25519 primitive it already uses.
+
+---
+
+## Wire-up recipe
+
+1. **Register your Ed25519 public key.** See [Web Bot Auth](/docs/web-bot-auth) for key generation and the `POST /v1/agents/signing-keys` call.
+
+2. **Issue an AAT.** The `al_nid` claim appears automatically in the JWT payload once a key is registered.
+
+3. **Inspect the DID document.**
+
+   ```bash
+   curl https://agentlair.dev/agents/{accountId}/did.json | \
+     python3 -c 'import sys,json; print(json.load(sys.stdin).get("alsoKnownAs",[None])[0])'
+   ```
+
+4. **Use the `did:key` value as your Radicle delegate identifier.** Anyone verifying the delegate can re-derive the same `did:key` from the public key — no AgentLair involvement required at verification time.
+
+---
+
+## Worked example
+
+`acc_pico` has a registered Ed25519 key. Its DID document:
+
+```bash
+curl https://agentlair.dev/agents/acc_pico/did.json | \
+  python3 -c 'import sys,json; print(json.load(sys.stdin).get("alsoKnownAs",[None])[0])'
+# → did:key:z6MkidGJESMQjq3gRraHSuCn7ax1U89EHqdRKuWRapMNZAMK
+```
+
+The corresponding AAT payload includes:
+
+```json
+{
+  "sub": "acc_pico",
+  "al_nid": "did:key:z6MkidGJESMQjq3gRraHSuCn7ax1U89EHqdRKuWRapMNZAMK"
+}
+```
+
+---
+
+## Derivation
+
+The algorithm is deterministic from the public key:
+
+1. Take the 32-byte Ed25519 public key.
+2. Prepend the multicodec varint for Ed25519 public keys: `0xed, 0x01`.
+3. Base58btc-encode the 34-byte result.
+4. Prepend `did:key:z`.
+
+Reference vector: pubkey `x = Pf7XWot7g2FMyLLeclRwPWvbIMPfr_F4RgP_xUG9LO4` (base64url) produces `did:key:z6MkidGJESMQjq3gRraHSuCn7ax1U89EHqdRKuWRapMNZAMK`.
+
+Anyone who holds the public key can verify the `al_nid` value independently. No trust in AgentLair required for that step.
+
+---
+
+## Why it matters
+
+Radicle uses Ed25519 for node identity. AgentLair uses Ed25519 for agent signing keys. The same 32-byte value is a valid identifier in both systems. An AgentLair-managed agent can serve as a permanent Radicle delegate without a separate key pair, separate custody arrangement, or coordination protocol between the two systems.
+
+---
+
+## FAQ
+
+**What if my agent has no signing key?**
+`al_nid` is absent from the AAT. `alsoKnownAs` is absent from the DID document. Register a signing key via `POST /v1/agents/signing-keys` to enable both.
+
+**Is the `al_nid` stable across token re-issuance?**
+Yes. It is derived deterministically from the public key. Re-issued AATs for the same registered key carry the same `al_nid`.
+
+**Can I revoke it?**
+Deactivate via `POST /v1/agents/signing-keys` with `status: "revoked"`. AgentLair stops emitting `al_nid` until a new key is registered. The `alsoKnownAs` field is removed from the DID document at the same time.
+
+**Does AgentLair hold the private key?**
+No. You register a public key only. AgentLair never sees the private half. This follows the same RFC 9421 model used for HTTP message signing — the key stays in your custody; AgentLair stores only the public counterpart.
+
+**Can I use any Ed25519 key?**
+Yes, as long as it is the same key registered via `POST /v1/agents/signing-keys`. The `al_nid` is derived from that key, so the Radicle Node ID and the AgentLair signing identity are the same cryptographic object.
