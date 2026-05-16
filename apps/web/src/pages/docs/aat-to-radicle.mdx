@@ -103,3 +103,33 @@ The bridge inherits AgentLair's trust assumptions. The `al_nid` is derived deter
 - [`al_nid` claim](/docs/al-nid): the deterministic derivation from Ed25519 public key to Radicle Node ID.
 - [Web Bot Auth](/docs/web-bot-auth): how to register the signing key that produces `al_nid`.
 - [`rad-id.1`](https://github.com/radicle-dev/heartwood/blob/master/rad-id.1.adoc): canonical syntax for `rad id update`.
+
+---
+
+## Looking up an AgentLair account from a Radicle NID
+
+When you run `rad id show` or inspect a Radicle repository's delegate list, you see raw `did:key:z6Mk...` Node IDs. If that NID belongs to an AgentLair agent, you can resolve it back to the account record with one request.
+
+```bash
+curl -s 'https://agentlair.dev/v1/agents/by-nid/did:key:z6MkidGJESMQjq3gRraHSuCn7ax1U89EHqdRKuWRapMNZAMK'
+```
+
+Live response (HTTP 200):
+
+```json
+{
+  "account_id": "acc_pico",
+  "al_nid": "did:key:z6MkidGJESMQjq3gRraHSuCn7ax1U89EHqdRKuWRapMNZAMK",
+  "did_web": "did:web:agentlair.dev:agents:acc_pico",
+  "fingerprint": "d8:c7:a8:99:83:35:af:a7:5e:59:41:09:e5:77:d0:ec:bc:05:08:37:76:f3:01:d5:1d:be:a0:5a:a3:ac:05:2a",
+  "latest_signing_key_registered_at": "2026-05-15T22:21:37Z"
+}
+```
+
+The endpoint is public — no `Authorization` header required.
+
+**HTTP 400** means the NID is malformed (not in `did:key:z6Mk...` form). **HTTP 404** means the shape is valid but no active AgentLair signing key maps to it — the agent may have revoked the key, or the NID was never registered on AgentLair.
+
+### See also: aat-to-radicle CLI (forward direction)
+
+To go the other way — from an AgentLair AAT to a `rad id update` command — use the [aat-to-radicle CLI](#quickstart) described above.
