@@ -1,0 +1,102 @@
+---
+layout: ../../layouts/BasicLayout.astro
+title: "aat-to-radicle — AgentLair"
+description: "CLI that converts an AgentLair AAT to a Radicle delegate command. Verifies the AAT signature, cross-checks the al_nid claim against the agent's did:web document, and prints a copy-paste-ready rad id update invocation."
+---
+
+# aat-to-radicle
+
+Radicle delegates are Node IDs (`did:key:z6Mk...`). AgentLair AATs carry an `al_nid` claim derived from the same Ed25519 key. `aat-to-radicle` reads one and prints the other, with the signature actually verified.
+
+---
+
+## Quickstart
+
+Pipe an AAT into the tool. It verifies the JWKS signature, cross-checks `al_nid` against the agent's DID document, and prints the `rad id update` invocation.
+
+```bash
+# Issue an AAT for an agent with a registered signing key:
+curl -s -X POST https://agentlair.dev/v1/tokens/issue \
+  -H "Authorization: Bearer $AGENTLAIR_API_KEY" \
+  -d '{"audience":"https://example.com","scopes":["read"]}' \
+  | jq -r .data.token \
+  | bun https://raw.githubusercontent.com/piiiico/agentlair/main/tools/aat-to-radicle/aat-to-radicle.ts --format sh
+```
+
+Output: a single line of the form `rad id update --delegate did:key:z6Mk...`. Run it inside the Radicle working copy.
+
+Formats:
+
+| `--format` | Output |
+|------------|--------|
+| `human` (default) | Verification checkmarks, NID, full `rad id update` command, manual verify recipe |
+| `json` | `{nid, verified, did, also_known_as, rad_command, verify_recipe[]}` |
+| `sh` | Single line — `rad id update --delegate did:key:...` |
+
+---
+
+## Worked example
+
+A real AAT issued for `acc_qgdxSULsXsmtHklZ` (signature truncated for display):
+
+```
+eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCIsImtpZCI6ImFiMDUwMmY3In0
+.eyJpc3MiOiJodHRwczovL2FnZW50bGFpci5kZXYiLCJzdWIiOiJhY2NfcWdkeFNVTHNYc210SGtsWiIsImFsX25pZCI6ImRpZDprZXk6ejZNa3JHcUY4djYzdDZnd1RHdVpMbllHVFFzQ0E3Vk16akFjdVJKUU5yNmhNRWFTIn0
+.r69WgtXtqvY...
+```
+
+Decoded payload (excerpt):
+
+```json
+{
+  "iss": "https://agentlair.dev",
+  "sub": "acc_qgdxSULsXsmtHklZ",
+  "did": "did:web:agentlair.dev:agents:acc_qgdxSULsXsmtHklZ",
+  "al_nid": "did:key:z6MkrGqF8v63t6gwTGuZLnYGTQsCA7VMzjAcuRJQNr6hMEaS"
+}
+```
+
+`aat-to-radicle` produces:
+
+```
+✓ AAT signature verified (kid=ab0502f7)
+✓ al_nid matches DID doc alsoKnownAs
+
+NID (did:key):
+  did:key:z6MkrGqF8v63t6gwTGuZLnYGTQsCA7VMzjAcuRJQNr6hMEaS
+
+Add as Radicle delegate:
+  rad id update --title "Add AgentLair agent delegate" \
+    --description "Add agent did:web:agentlair.dev:agents:acc_qgdxSULsXsmtHklZ as delegate (binding via al_nid claim)." \
+    --delegate did:key:z6MkrGqF8v63t6gwTGuZLnYGTQsCA7VMzjAcuRJQNr6hMEaS
+
+Verify this binding:
+  curl -s https://agentlair.dev/.well-known/jwks.json
+  curl -s https://agentlair.dev/agents/acc_qgdxSULsXsmtHklZ/did.json | jq -r '.alsoKnownAs[]'
+  # should print: did:key:z6MkrGqF8v63t6gwTGuZLnYGTQsCA7VMzjAcuRJQNr6hMEaS
+```
+
+---
+
+## How it works
+
+- **Decode.** Split on `.`, base64url-decode the header and payload, extract `kid` (header), `al_nid` and `did` (payload). Reject anything that is not a 3-segment EdDSA JWT.
+- **Verify signature.** Fetch [`/.well-known/jwks.json`](https://agentlair.dev/.well-known/jwks.json), select the key by `kid`, verify the Ed25519 signature with WebCrypto. Tampered tokens fail here (exit 3).
+- **Cross-check binding.** Fetch the agent's DID document at the URL derived from the `did:web` claim, confirm `alsoKnownAs` contains the AAT's `al_nid`. Mismatch fails (exit 4). The derivation rule itself is described in [`/docs/al-nid`](/docs/al-nid).
+- **Print.** Emit the `rad id update --delegate <nid>` invocation (per Radicle's [`rad-id` man page](https://github.com/radicle-dev/heartwood/blob/master/rad-id.1.adoc)) plus a three-line recipe a third party can run to re-verify the binding.
+
+Exit codes: `0` success / `2` malformed input or missing claims / `3` signature invalid / `4` NID not in `alsoKnownAs` / `5` network failure.
+
+---
+
+## Trust model
+
+The bridge inherits AgentLair's trust assumptions. The `al_nid` is derived deterministically from the public key the agent registered via `POST /v1/agents/signing-keys`; AgentLair never sees the private half. `aat-to-radicle` verifies the AAT was signed by AgentLair's audit key (`kid=ab0502f7` at the global JWKS) and that the resulting `al_nid` matches the agent's published DID document. Radicle's own delegate verification is independent: when the agent later signs a Radicle COB with that key, the threshold-signature check happens against the same `did:key` value, so a compromise of AgentLair cannot mint Radicle authority without also producing a valid signature from the registered private key. Use a quorum greater than one (`--threshold 2`) if you do not want any single agent delegate to be unilaterally authoritative.
+
+---
+
+## See also
+
+- [`al_nid` claim](/docs/al-nid): the deterministic derivation from Ed25519 public key to Radicle Node ID.
+- [Web Bot Auth](/docs/web-bot-auth): how to register the signing key that produces `al_nid`.
+- [`rad-id.1`](https://github.com/radicle-dev/heartwood/blob/master/rad-id.1.adoc): canonical syntax for `rad id update`.

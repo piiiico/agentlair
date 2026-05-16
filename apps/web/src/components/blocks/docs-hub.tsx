@@ -103,6 +103,15 @@ const DOC_SECTIONS = [
     description:
       "AATs carry an al_nid claim binding the token to a Radicle Node ID — derived from the same Ed25519 signing key. One key, two identities.",
   },
+  {
+    title: "aat-to-radicle",
+    href: "/docs/aat-to-radicle",
+    icon: GitBranch,
+    description:
+      "CLI: pipe in an AAT, get a verified rad id update --delegate command. Checks signature against JWKS and cross-references the al_nid against the agent's DID document.",
+    badge: "New",
+    badgeColor: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
+  },
 ];
 
 export function DocsHub() {
