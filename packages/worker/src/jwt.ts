@@ -11,6 +11,7 @@
  */
 
 import { ed25519 } from '@noble/curves/ed25519.js';
+import { base58btcEncode } from './lib/base58btc.js';
 
 // ─── Base64url helpers ────────────────────────────────────────────────────────
 
@@ -266,33 +267,6 @@ export function verifyJWS(jws: string, publicKeyBytes: Uint8Array): Record<strin
  * - EdDSA / Ed25519 (AUDIT_SIGNING_KEY)  — active, all AATs signed with this
  * - ML-DSA / FIPS 204                    — planned, PQ Phase 1 (post-2028)
  */
-// ─── Base58btc encoder (no external dependencies) ────────────────────────────
-
-const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
-
-function base58btcEncode(bytes: Uint8Array): string {
-  // Count leading zero bytes
-  let leadingZeros = 0;
-  for (const b of bytes) {
-    if (b !== 0) break;
-    leadingZeros++;
-  }
-  // Convert bytes to big integer
-  let num = BigInt(0);
-  for (const b of bytes) {
-    num = num * BigInt(256) + BigInt(b);
-  }
-  // Convert to base58
-  let result = '';
-  while (num > 0n) {
-    const remainder = Number(num % 58n);
-    result = BASE58_ALPHABET[remainder] + result;
-    num = num / 58n;
-  }
-  // Add leading '1's for zero bytes
-  return '1'.repeat(leadingZeros) + result;
-}
-
 // Multicodec prefix for ed25519-pub: 0xed 0x01 (varint)
 const ED25519_MULTICODEC_PREFIX = new Uint8Array([0xed, 0x01]);
 

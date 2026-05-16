@@ -46,6 +46,7 @@ import { approvalRoutes, chargeRoutes } from './routes/approvals.js';
 import { trustRoutes, publicTrustRoutes } from './routes/trust.js';
 import { operatorProfileRoutes } from './routes/operator-profile.js';
 import { discoveryRoutes } from './routes/discovery.js';
+import { agentsByNidRoutes } from './routes/agents-by-nid.js';
 import { memoryTrustRoutes } from './routes/memory-trust.js';
 import { badgeRoutes } from './routes/badge.js';
 import { a2aCardRoutes } from './routes/a2a-cards.js';
@@ -1058,6 +1059,10 @@ app.route('/v1/trust', publicTrustRoutes);
 // Agent discovery: always public, always requires x402 (0.005 USDC)
 // GET /v1/agents/lookup?handle=<name>&email=<email>&id=<acc_...>
 app.route('/v1/agents', discoveryRoutes);
+
+// Inverse AAT-NID bridge: free public read, no auth, no x402
+// GET /v1/agents/by-nid/:al_nid — resolve Radicle NID → AgentLair account
+app.route('/v1/agents', agentsByNidRoutes);
 
 // Memory trust: always public, always requires x402 (0.01 USDC)
 // GET /v1/agents/:id/memory-trust — verified memory behavioral patterns
