@@ -177,8 +177,6 @@ The memory server verifies the AAT via standard JWKS — no AgentLair SDK requir
 Without AATs: shared memory = shared notepad. Any agent writes anything, contested state has no provenance.  
 With AATs: shared memory = trust graph. Every write is signed, attributed, and auditable.
 
-→ [Trust-gating MCP memory writes](https://agentlair.dev/docs/patterns/memory-trust)
-
 ## SDK
 
 ```bash
