@@ -50,6 +50,7 @@ import { agentsByNidRoutes } from './routes/agents-by-nid.js';
 import { sovereignBridgesRoutes } from './routes/sovereign-bridges.js';
 import { integrationsRoutes } from './routes/integrations.js';
 import { proofOfLifeRoutes } from './routes/proof-of-life.js';
+import { rfc9421VerifyRoutes } from './routes/rfc9421-verify.js';
 import { memoryTrustRoutes } from './routes/memory-trust.js';
 import { badgeRoutes } from './routes/badge.js';
 import { a2aCardRoutes } from './routes/a2a-cards.js';
@@ -1078,6 +1079,11 @@ app.route('/v1/integrations', integrationsRoutes);
 // Behavioural heartbeat: live commit + deploy age + substrate identity, no auth
 // GET /v1/proof-of-life — companion to /v1/integrations (verb to its nouns)
 app.route('/v1/proof-of-life', proofOfLifeRoutes);
+
+// RFC 9421 HTTP Message Signature verifier — public, no auth, rate-limited by IP
+// POST /v1/rfc9421/verify — Ed25519 only in v1; accepts did:key or JWKS-URL keyid
+// Mounted BEFORE /v1/* auth middleware. Same protocol as Visa Trusted Agent Protocol.
+app.route('/v1/rfc9421/verify', rfc9421VerifyRoutes);
 
 // Memory trust: always public, always requires x402 (0.01 USDC)
 // GET /v1/agents/:id/memory-trust — verified memory behavioral patterns

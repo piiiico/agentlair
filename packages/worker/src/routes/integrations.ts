@@ -152,6 +152,15 @@ export const INTEGRATIONS: readonly Integration[] = [
     evidence: 'https://agentlair.dev/leaderboard/a2a',
     notes: 'Daily-refreshed a2a-card audit leaderboard — public corpus of behavioral trust grades.',
   },
+  {
+    kind: 'public-endpoint',
+    name: '/v1/rfc9421/verify',
+    url: 'https://api.agentlair.dev/v1/rfc9421/verify',
+    status: 'live',
+    evidence: 'https://agentlair.dev/docs/rfc9421',
+    notes:
+      'RFC 9421 HTTP Message Signatures verifier — Ed25519 only in v1; accepts did:key keyid or JWKS-URL keyid. Same protocol Visa TAP uses.',
+  },
 ];
 
 integrationsRoutes.get('/', (c) => {
