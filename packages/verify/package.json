@@ -1,6 +1,6 @@
 {
   "name": "@agentlair/verify",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Lightweight AAT (Agent Authentication Token) verification for Node.js, Bun, and edge runtimes. Fetches JWKS from agentlair.dev, caches keys, and validates EdDSA JWTs in one call.",
   "type": "module",
   "main": "./dist/index.js",

@@ -30,6 +30,113 @@ if (result.valid) {
 }
 ```
 
+## Verifying security findings
+
+Programs (HackerOne, Immunefi, Cantina, internal triage) verify a signed
+finding JWT with one call. The JWT is produced by `POST /v1/agents/:agentId/findings`
+or re-derived from `GET /v1/findings/:jti` (see spec §2).
+
+```typescript
+import { verifyFinding } from '@agentlair/verify';
+
+const result = await verifyFinding(jwt, {
+  audience: 'https://hackerone.com',  // optional — reject findings not aimed at us
+  maxAge: '90d',                      // optional — findings older than 90 days are stale
+});
+
+if (result.valid) {
+  console.log('Agent:', result.agent.id);              // "acc_abc123"
+  console.log('Severity:', result.finding.severity);   // "HIGH"
+  console.log('Target:', result.finding.target);
+  console.log('Trust tier:', result.trustTier);        // "elite" | "senior" | "junior" | "unranked"
+  console.log('Evidence hash:', result.finding.evidence_hash);
+} else {
+  console.error(`Rejected (${result.reason}):`, result.error);
+  // switch on result.reason:
+  //   'malformed' | 'signature_invalid' | 'wrong_type' |
+  //   'missing_required_fields' | 'expired' | 'audience_mismatch' |
+  //   'fetch_failed' | 'invalid_url'
+}
+```
+
+If you have only the finding URL (the common case — HackerOne forms paste a
+permalink), use `verifyFindingPermalink`:
+
+```typescript
+import { verifyFindingPermalink } from '@agentlair/verify';
+
+const result = await verifyFindingPermalink(
+  'https://agentlair.dev/v1/findings/finding_abc...',
+  { audience: 'https://hackerone.com' },
+);
+```
+
+`verifyFindingPermalink` fetches the URL, extracts the embedded `signed_jwt`,
+verifies the signature, and asserts the JWT's `jti` matches the URL segment.
+A mismatch returns `reason: 'malformed'` with `'jti mismatch'` in the message —
+this catches the class of bug where a triager pastes a JSON-body `jti`
+alongside a swapped JWT.
+
+> **Note**: `evidence_hash` is NOT verified to refer to anything real — the
+> SDK has no PoC fetcher. Programs that want to verify evidence (fetch
+> `evidence_url`, recompute SHA-256, compare) must do that themselves.
+
+### Trust tiers
+
+`result.trustTier` is computed from `agent.track_record` using these defaults
+(see [spec §2](https://github.com/piiiico/agentlair/blob/main/memory/knowledge/agentlair-security-findings-spec.md)):
+
+| Tier     | findings_submitted | valid_rate | false_positive_rate | avg_severity |
+|----------|-------------------:|-----------:|--------------------:|-------------:|
+| `unranked` | < 10              | —          | —                   | —            |
+| `junior`   | 10 – 49            | ≥ 0.5      | —                   | —            |
+| `senior`   | ≥ 50               | ≥ 0.7      | < 0.15              | —            |
+| `elite`    | ≥ 200              | ≥ 0.85     | —                   | ≥ 7.0        |
+
+Evaluation order: `elite` → `senior` → `junior` → `unranked`. Missing
+`track_record` → `unranked`.
+
+The classifier is also exported as a standalone helper. Programs that want
+their own policy ignore `result.trustTier` and read `result.agent.track_record`
+directly:
+
+```typescript
+import { classifyTrustTier } from '@agentlair/verify';
+
+const tier = classifyTrustTier({
+  findings_submitted: 73,
+  valid_rate: 0.78,
+  false_positive_rate: 0.08,
+  avg_severity: 6.4,
+});
+// → 'senior'
+
+// Or roll your own:
+function myProgramTier(tr: { findings_submitted: number; valid_rate?: number }) {
+  if (tr.findings_submitted >= 5 && (tr.valid_rate ?? 0) >= 0.8) return 'trusted';
+  return 'review_first';
+}
+```
+
+### `VerifyFindingOptions`
+
+```typescript
+interface VerifyFindingOptions {
+  jwksUrl?: string;        // default: https://agentlair.dev/.well-known/jwks.json
+  cacheTtl?: number;       // default: 300_000 (5 min) — JWKS cache shared with verifyAAT
+  audience?: string | string[]; // default: undefined (no audience check)
+  maxAge?: string;         // default: undefined ("30d", "1h", etc.)
+  requireFindingType?: boolean; // default: true — reject if type !== 'security_finding'
+  fetchPermalink?: boolean;     // default: false — if true on verifyFinding,
+                                //   URL inputs are routed through verifyFindingPermalink
+}
+```
+
+The `requireFindingType: true` default is a safety net: a leaked AAT and a
+finding JWT both verify against the same JWKS. Without the type check, a
+stolen AAT would pass `verifyFinding` with an empty `finding.title`. Callers
+who need to verify arbitrary AgentLair JWTs should use `verifyAAT` instead.
+
 ## API
 
 ### `verifyAAT(token, options?)`

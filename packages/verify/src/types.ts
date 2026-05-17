@@ -202,3 +202,178 @@ export interface EventBuffer {
   /** Destroy the buffer: flush remaining events and clear the interval timer. */
   destroy(): Promise<void>;
 }
+
+// ─── Finding Types (v0.2.0) ──────────────────────────────────────────────────
+
+/**
+ * Severity of a security finding (matches the worker's persisted set).
+ */
+export type FindingSeverity = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'INFO';
+
+/**
+ * Behavioral trust tier derived from a `TrackRecord`.
+ *
+ * Defaults (per `classifyTrustTier`):
+ *  - `unranked` — fewer than 10 findings submitted, or no track record
+ *  - `junior`   — 10–49 findings, valid_rate ≥ 0.5
+ *  - `senior`   — ≥ 50 findings, valid_rate ≥ 0.7, false_positive_rate < 0.15
+ *  - `elite`    — ≥ 200 findings, valid_rate ≥ 0.85, avg_severity ≥ 7.0
+ *
+ * Evaluation order: elite → senior → junior → unranked.
+ */
+export type TrustTier = 'unranked' | 'junior' | 'senior' | 'elite';
+
+/**
+ * A behavioral track record carried inside a finding JWT's `agent.track_record`.
+ *
+ * `valid_rate` and `false_positive_rate` are expressed in [0, 1].
+ * `avg_severity` is a numeric severity score (e.g. CRITICAL=10, HIGH=8…).
+ */
+export interface TrackRecord {
+  /** Total findings the agent has ever submitted. */
+  findings_submitted: number;
+  /** Fraction of submitted findings the receiving program marked as valid. [0,1] */
+  valid_rate?: number;
+  /** Fraction of submitted findings flagged as false-positives by the program. [0,1] */
+  false_positive_rate?: number;
+  /** Mean severity (numeric) across the agent's confirmed findings. */
+  avg_severity?: number;
+}
+
+/**
+ * Decoded claims of a security-finding JWT (post-signature-verification).
+ *
+ * Matches the worker's `buildFindingClaims` shape (packages/worker/src/routes/findings.ts).
+ */
+export interface FindingClaims {
+  // Standard JWT
+  iss: string;          // "https://agentlair.dev"
+  sub: string;          // AgentLair account ID — the agent that filed the finding
+  aud: string | string[]; // Target audience (program URI). Default 'https://agentlair.dev'.
+  iat: number;          // Issued-at (Unix seconds)
+  jti: string;          // "finding_<21-char-nanoid>"
+  type: 'security_finding';
+
+  // Optional agent name (display)
+  agent_name?: string;
+
+  // Finding body
+  finding: {
+    title: string;
+    severity: FindingSeverity;
+    cwe?: string;
+    target: string;
+    evidence_hash: string;
+    evidence_url?: string;
+    tools_used?: string[];
+    time_to_find_ms?: number;
+  };
+
+  // Optional trust attestation snapshot (cold-start agents omit it)
+  behavioral_score?: number;
+  trust?: {
+    level: string;
+    confidence: number | null;
+  };
+
+  // Optional track record — feeds classifyTrustTier()
+  track_record?: TrackRecord;
+
+  // Forward-compatible passthrough
+  [key: string]: unknown;
+}
+
+/**
+ * Discriminated machine-readable error reasons for `verifyFinding`/`verifyFindingPermalink`.
+ *
+ * Triagers should switch on `result.reason` (not `result.error`) for recovery paths.
+ */
+export type VerifyFindingErrorReason =
+  | 'malformed'              // Not a valid JWT shape, or jti/URL mismatch on permalink path
+  | 'signature_invalid'      // JWKS or signature check failed
+  | 'wrong_type'             // Verified, but `type !== 'security_finding'` and requireFindingType=true
+  | 'missing_required_fields'// type ok, but required fields missing (sub/iss/jti/finding.*)
+  | 'expired'                // `maxAge` set and exceeded
+  | 'audience_mismatch'      // `audience` set and `aud` doesn't match
+  | 'fetch_failed'           // verifyFindingPermalink network/non-200
+  | 'invalid_url';           // fetchPermalink=true and URL didn't match the expected pattern
+
+/**
+ * Options for `verifyFinding` and `verifyFindingPermalink`.
+ *
+ * Inherits JWKS plumbing (`jwksUrl`, `cacheTtl`) and `maxAge` from `VerifyOptions`.
+ * The `audience` field is widened to also accept a string array.
+ */
+export interface VerifyFindingOptions
+  extends Omit<VerifyOptions, 'audience' | 'requiredClaims'> {
+  /**
+   * Expected `aud` claim. Pass an array to allow several caller identities
+   * (e.g. `['https://hackerone.com', 'https://agentlair.dev']`).
+   * If unset, no audience check is performed.
+   */
+  audience?: string | string[];
+
+  /**
+   * Reject finding JWTs whose claims don't include `type: 'security_finding'`.
+   * @default true
+   */
+  requireFindingType?: boolean;
+
+  /**
+   * Only meaningful on `verifyFinding`: if the input value isn't a JWT (3 dots)
+   * and looks like a `https://.../v1/findings/finding_...` URL, fetch the
+   * permalink first and verify the embedded `signed_jwt`.
+   *
+   * Always-on inside `verifyFindingPermalink`.
+   * @default false
+   */
+  fetchPermalink?: boolean;
+}
+
+/**
+ * Result of `verifyFinding` / `verifyFindingPermalink`.
+ *
+ * Discriminated union on `valid: true | false`. On failure, only `error`
+ * (human-readable) and `reason` (machine-readable enum) are populated.
+ */
+export type VerifyFindingResult =
+  | {
+      valid: true;
+      /** Agent identity + optional trust signals. */
+      agent: {
+        /** AgentLair account ID (`sub` claim). */
+        id: string;
+        /** Agent's display name, if the finding carries one. */
+        name?: string;
+        /** Behavioral score [0,100] at the time the finding was signed. */
+        behavioral_score?: number;
+        /** Raw track-record passthrough — programs can apply their own classifier. */
+        track_record?: TrackRecord;
+      };
+      /** Finding body (all required-by-spec fields are non-optional here). */
+      finding: {
+        title: string;
+        severity: FindingSeverity;
+        cwe?: string;
+        target: string;
+        evidence_hash: string;
+        evidence_url?: string;
+        tools_used?: string[];
+        time_to_find_ms?: number;
+      };
+      /** Behavioral trust tier (per `classifyTrustTier`). */
+      trustTier: TrustTier;
+      /** Finding ID — `finding_<21-char-nanoid>`. */
+      jti: string;
+      /** Issue time. */
+      issuedAt: Date;
+      /** Full decoded claims for advanced use. */
+      claims: FindingClaims;
+    }
+  | {
+      valid: false;
+      /** Human-readable explanation. */
+      error: string;
+      /** Machine-readable failure class — switch on this in triager UIs. */
+      reason: VerifyFindingErrorReason;
+    };
