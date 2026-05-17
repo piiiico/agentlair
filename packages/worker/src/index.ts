@@ -37,6 +37,7 @@ import { tokenRoutes, publicTokenRoutes } from './routes/tokens.js';
 import { signingKeyRoutes, getSigningKey, getSigningKeyByThumbprint } from './routes/signing-keys.js';
 import { auditRoutes, publicAuditRoutes } from './routes/audit.js';
 import { findingsRoutes, findingsPublicRoutes } from './routes/findings.js';
+import { findingOutcomesRoutes } from './routes/finding-outcomes.js';
 import { sessionRoutes } from './routes/sessions.js';
 import { budgetRoutes } from './routes/budget.js';
 import { gatewayRoutes } from './routes/gateway.js';
@@ -1141,6 +1142,13 @@ app.route('/v1', skillProvenanceRoutes);
 // Mounted BEFORE auth middleware so anonymous verifiers can fetch by jti.
 app.route('/v1', findingsPublicRoutes);
 
+// Program outcome attestation: POST /v1/findings/:jti/outcome — programs
+// attest accept/reject on a finding using a prog_ API key (NOT agent AAT).
+// Mounted BEFORE the /v1/* auth middleware so the AAT-style auth (al_ bearer)
+// does not preempt the handler's own program-key resolver. The matching
+// bypass clause sits in the /v1/* middleware below.
+app.route('/v1', findingOutcomesRoutes);
+
 // ── Waitlist: lead capture for paid tiers (no auth required) ────────────────
 // Captures email + company before Stripe checkout is live.
 // Stores in AUDIT D1 (waitlist table). Sends confirmation via Resend.
@@ -1347,6 +1355,14 @@ app.use('/v1/*', async (c: Context<HonoEnv>, next: Next): Promise<void | Respons
   // Only bypass for the lookup path (/v1/findings/...); submission lives under
   // /v1/agents/:agentId/findings and stays auth-gated.
   if (c.req.method === 'GET' && c.req.path.startsWith('/v1/findings/')) {
+    await next();
+    return;
+  }
+
+  // Outcome attestation runs its own program-key (prog_) auth — bypass /v1/* AAT auth
+  // for POST /v1/findings/:jti/outcome. Path-shape match keeps the bypass tight
+  // (other POSTs under /v1/findings/... continue to flow through AAT auth).
+  if (c.req.method === 'POST' && /^\/v1\/findings\/finding_[A-Za-z0-9_-]{21}\/outcome$/.test(c.req.path)) {
     await next();
     return;
   }
