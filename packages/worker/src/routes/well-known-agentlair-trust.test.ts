@@ -43,7 +43,7 @@ describe('GET /.well-known/agentlair-trust', () => {
     expect(() => JSON.parse(text)).not.toThrow();
   });
 
-  test('body contains the 12 documented keys', async () => {
+  test('body contains the 11 documented keys', async () => {
     const app = buildApp();
     const res = await app.request(PATH);
     const body = await res.json() as Record<string, unknown>;
@@ -151,7 +151,7 @@ describe('GET /.well-known/agentlair-trust', () => {
     expect([404, 405]).toContain(res.status);
   });
 
-  test('exported TRUST_DESCRIPTOR has the 12 documented keys', () => {
+  test('exported TRUST_DESCRIPTOR has the 11 documented keys', () => {
     // Sanity check: the exported constant matches the spec shape so consumers
     // who import it directly (e.g. for type-level reuse) don't see drift.
     expect(Object.keys(TRUST_DESCRIPTOR).sort()).toEqual([
