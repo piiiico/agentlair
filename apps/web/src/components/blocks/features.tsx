@@ -1,4 +1,4 @@
-import { Mail, Shield, Box, ScrollText, Sparkles } from "lucide-react";
+import { Mail, Shield, Box, ScrollText, Sparkles, Bug, ShoppingCart, FileCheck } from "lucide-react";
 
 import { DashedLine } from "../dashed-line";
 import { Card, CardContent } from "@/components/ui/card";
@@ -183,6 +183,66 @@ export const Features = () => {
                 </tbody>
               </table>
             </div>
+          </div>
+        </div>
+
+        {/* Use Cases */}
+        <div className="mt-20 lg:mt-28">
+          <div className="relative flex items-center justify-center">
+            <DashedLine className="text-muted-foreground" />
+            <span className="bg-muted text-muted-foreground absolute px-3 font-mono text-sm font-medium tracking-wide max-md:hidden">
+              DEPLOYMENT PATTERNS
+            </span>
+          </div>
+
+          <div className="mx-auto mt-10 grid max-w-4xl items-center gap-3 md:gap-0 lg:mt-24 lg:grid-cols-2">
+            <h2 className="text-2xl tracking-tight md:text-4xl lg:text-5xl">
+              Who deploys AgentLair
+            </h2>
+            <p className="text-muted-foreground leading-snug">
+              Named use cases for the cross-org behavioral trust layer — from autonomous security fleets to regulated agentic commerce.
+            </p>
+          </div>
+
+          <div className="mt-8 grid gap-4 sm:grid-cols-3 md:mt-12 lg:mt-16">
+            {[
+              {
+                icon: Bug,
+                label: "AUTONOMOUS SECURITY AGENT GOVERNANCE",
+                title: "Govern your security agent fleet",
+                body: "Microsoft MDASH runs 100+ adversarial agents simultaneously. OpenAI Codex Security is GA across Enterprise, Business, and Edu tiers. Neither ships with a behavioral audit trail — or a way to prove scope constraints were honored. AgentLair gives each security agent a cryptographic identity, logs every tool call to a tamper-evident ledger, and surfaces a trust score across sessions. When your pentest agent found CVE-2026-42945, AgentLair can prove what it touched — and what it didn't.",
+              },
+              {
+                icon: ShoppingCart,
+                label: "AGENTIC COMMERCE",
+                title: "Trust-gated x402 transactions",
+                body: "Every x402-gated API call is a behavioral event. AgentLair checks trust before payment, prices access by reputation (trusted agents pay less, unknown agents pay more), and logs the payment outcome to the agent's behavioral record. The result: dynamic pricing that compounds into a portable trust signal — not just a transaction receipt.",
+              },
+              {
+                icon: FileCheck,
+                label: "EU AI ACT COMPLIANCE",
+                title: "Audit artifacts for regulated industries",
+                body: "EU AI Act full enforcement lands August 2026. Every agentic deployment in healthcare, finance, and critical infrastructure needs behavioral accountability infrastructure — not just logs, but tamper-evident records an auditor can independently verify. AgentLair's hash-chained attestation ledger is that artifact. One URL per agent per session, verifiable in a browser.",
+              },
+            ].map((uc) => {
+              const Icon = uc.icon;
+              return (
+                <div key={uc.label} className="rounded-2xl border bg-card p-6 md:p-8">
+                  <div className="bg-primary/10 inline-flex rounded-xl p-3 mb-4">
+                    <Icon className="text-primary size-5" />
+                  </div>
+                  <p className="font-mono text-xs font-semibold tracking-widest text-muted-foreground mb-2">
+                    {uc.label}
+                  </p>
+                  <h3 className="font-display text-lg font-bold tracking-tight mb-3">
+                    {uc.title}
+                  </h3>
+                  <p className="text-sm text-muted-foreground leading-relaxed">
+                    {uc.body}
+                  </p>
+                </div>
+              );
+            })}
           </div>
         </div>
 
