@@ -57,6 +57,7 @@ import { rfc9421VerifyRoutes } from './routes/rfc9421-verify.js';
 import { rfc9421DemoRoutes } from './routes/rfc9421-demo.js';
 import { memoryTrustRoutes } from './routes/memory-trust.js';
 import { badgeRoutes } from './routes/badge.js';
+import { wellKnownAgentlairTrustRoutes } from './routes/well-known-agentlair-trust.js';
 import { a2aCardRoutes } from './routes/a2a-cards.js';
 import { ogA2aRoutes } from './routes/og-a2a.js';
 import { ogA2aStatsRoutes } from './routes/og-a2a-stats.js';
@@ -452,6 +453,13 @@ app.get('/.well-known/rsl.xml', () =>
     headers: { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=86400' },
   })
 );
+
+// ── BHC-S Trust Discovery — Behavioral Health Certificate Server ─────────────
+// Static descriptor advertising AgentLair as a behavioral trust issuer for
+// MCP and HTTP API servers (RFC 8414-style metadata). Public, unauth.
+// Sub-router lives at packages/worker/src/routes/well-known-agentlair-trust.ts.
+
+app.route('/.well-known/agentlair-trust', wellKnownAgentlairTrustRoutes);
 
 // ── agents.json — Agent Discovery ────────────────────────────────────────────
 // First-mover convention: AAT issuer DID, citation policy, x402 receiver,
