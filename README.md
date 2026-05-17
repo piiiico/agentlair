@@ -138,6 +138,47 @@ npx @agentlair/mcp@latest
 
 Adds 9 tools to your MCP client: agent registration, email send/receive, vault store/get, audit event emission, and trust score queries.
 
+## Agent memory needs a trust layer
+
+Agent memory is real infrastructure. 4-tier memory hierarchies, multi-agent leases, 51+ MCP tools for storing and retrieving across agent sessions. When multiple agents share a memory pool, the category works.
+
+The gap: any agent can write anything to shared memory. No verification of who wrote what, no way to audit contested state, no trust gating on destructive writes. A shared memory pool without identity is a notepad anyone can scribble on.
+
+**Every write should be attributable.** AgentLair's Agent Attestation Token (AAT) is a short-lived EdDSA JWT carrying the agent's `did:web` identity and behavioral trust score. Present it as the `Authorization` header in a memory write — the write is now cryptographically signed and auditable:
+
+```typescript
+import { AgentLair } from '@agentlair/sdk';
+
+const lair = new AgentLair(process.env.AGENTLAIR_API_KEY!);
+
+// Issue a short-lived AAT (5 min) scoped to the memory server
+const { token } = await lair.tokens.issue({
+  audience: 'memory.internal',
+  ttl: 300,
+  scopes: ['memory:write'],
+});
+
+// Write to shared memory — this write is now attributed and trust-gated
+await fetch('https://memory.internal/mcp/memory/write', {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${token}`,  // signed agent identity
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify({
+    key: 'research/competitor-analysis',
+    value: { /* ... */ },
+  }),
+});
+```
+
+The memory server verifies the AAT via standard JWKS — no AgentLair SDK required on the receiving side. The `al_trust` claim lets it gate writes by behavioral trust level (e.g., reject writes from agents below `junior`).
+
+Without AATs: shared memory = shared notepad. Any agent writes anything, contested state has no provenance.  
+With AATs: shared memory = trust graph. Every write is signed, attributed, and auditable.
+
+→ [Trust-gating MCP memory writes](https://agentlair.dev/docs/patterns/memory-trust)
+
 ## SDK
 
 ```bash
