@@ -9,6 +9,7 @@ import { Features } from '@/components/blocks/features';
 import { Hero } from '@/components/blocks/hero';
 import { Integrations } from '@/components/blocks/integrations';
 import { Pricing } from '@/components/blocks/pricing';
+import { X402Callout } from '@/components/blocks/x402-callout';
 import DefaultLayout from '@/layouts/DefaultLayout.astro';
 import LeaderboardWidget from '@/components/blocks/leaderboard-widget.astro';
 
@@ -41,6 +42,7 @@ try {
   <Background className="via-muted to-muted/80">
     <Hero />
     <DemoScores />
+    <X402Callout />
     <LeaderboardWidget entries={leaderboardEntries} total={leaderboardTotal} />
     <Features />
     <Analysts />

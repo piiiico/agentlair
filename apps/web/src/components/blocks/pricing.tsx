@@ -244,6 +244,32 @@ export const Pricing = ({ className }: { className?: string }) => {
             );
           })}
         </div>
+
+        {/* x402 pay-as-you-go callout */}
+        <div className="mt-12 rounded-2xl border border-dashed border-primary/40 bg-primary/5 px-6 py-8 text-center lg:mt-16">
+          <p className="text-xs font-semibold uppercase tracking-widest text-primary">Pay-as-you-go</p>
+          <h3 className="mt-2 text-xl font-bold tracking-tight">
+            0.01 USDC per trust query — no subscription
+          </h3>
+          <p className="text-muted-foreground mx-auto mt-2 max-w-lg text-sm leading-relaxed">
+            AI agents query{" "}
+            <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">
+              /v1/trust/:agent_id
+            </code>
+            , receive HTTP 402 with an x402 v2 payment manifest, pay on Base, and retry. Settles on-chain in seconds. No account required.
+          </p>
+          <div className="mt-4 overflow-x-auto rounded-lg bg-muted p-4 text-left">
+            <pre className="font-mono text-xs leading-relaxed text-muted-foreground">
+              {`curl https://agentlair.dev/v1/trust/acc_abc123\n# → HTTP 402  x402Version: 2\n# maxAmountRequired: 10000 (0.01 USDC)  network: eip155:8453`}
+            </pre>
+          </div>
+          <a
+            href="/docs/api-reference#trust"
+            className="mt-4 inline-block text-sm text-primary underline underline-offset-4 hover:no-underline"
+          >
+            Read the x402 API docs →
+          </a>
+        </div>
       </div>
 
       {modalTier && (
