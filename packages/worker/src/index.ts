@@ -1729,6 +1729,12 @@ app.get('/popa/leaderboard', (c) => proxyToPages(c, '/popa/leaderboard'));
 // to extract the DID and fetches attestation data client-side.
 app.get('/popa/*', (c) => proxyToPages(c, '/popa/'));
 
+// Finding permalink — serve SPA shell for any /f/:jti path.
+// The Astro page at /f/ is a React island that reads window.location.pathname
+// to extract the JTI and fetches finding data client-side.
+// CF Pages _redirects alone is insufficient when requests pass through the worker.
+app.get('/f/*', (c) => proxyToPages(c, '/f/'));
+
 // All other routes proxy to CF Pages (Astro) — handles /security, /blog/*, /pricing, /privacy,
 // /calendar, /integrations, /dashboard, and any future Astro pages automatically.
 app.all('*', (c) => proxyToPages(c));
