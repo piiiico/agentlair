@@ -36,6 +36,7 @@ import { handleCalendarRoutes } from './routes/calendar.js';
 import { tokenRoutes, publicTokenRoutes } from './routes/tokens.js';
 import { signingKeyRoutes, getSigningKey, getSigningKeyByThumbprint } from './routes/signing-keys.js';
 import { auditRoutes, publicAuditRoutes } from './routes/audit.js';
+import { findingsRoutes, findingsPublicRoutes } from './routes/findings.js';
 import { sessionRoutes } from './routes/sessions.js';
 import { budgetRoutes } from './routes/budget.js';
 import { gatewayRoutes } from './routes/gateway.js';
@@ -1134,6 +1135,12 @@ app.route('/v1/stats', publicStatsRoutes);
 // Mounted BEFORE auth middleware so anonymous callers can verify skills.
 app.route('/v1', skillProvenanceRoutes);
 
+// Public security-finding lookup: GET /v1/findings/:jti — programs verify
+// signed finding envelopes without onboarding each agent. Submit endpoint
+// (POST /v1/agents/:agentId/findings) is auth-gated and mounted below.
+// Mounted BEFORE auth middleware so anonymous verifiers can fetch by jti.
+app.route('/v1', findingsPublicRoutes);
+
 // ── Waitlist: lead capture for paid tiers (no auth required) ────────────────
 // Captures email + company before Stripe checkout is live.
 // Stores in AUDIT D1 (waitlist table). Sends confirmation via Resend.
@@ -1332,6 +1339,14 @@ app.use('/v1/*', async (c: Context<HonoEnv>, next: Next): Promise<void | Respons
   // Public audit JTI endpoint — external verifiers check AAT metadata without needing an account.
   // Only bypass for JTI format (aat_[A-Za-z0-9]{16}); literal paths like /log fall through to auditRoutes.
   if (c.req.method === 'GET' && /^\/v1\/audit\/aat_[A-Za-z0-9]{16}$/.test(c.req.path)) {
+    await next();
+    return;
+  }
+
+  // Public security-finding lookup — anonymous verifiers fetch signed envelopes by jti.
+  // Only bypass for the lookup path (/v1/findings/...); submission lives under
+  // /v1/agents/:agentId/findings and stays auth-gated.
+  if (c.req.method === 'GET' && c.req.path.startsWith('/v1/findings/')) {
     await next();
     return;
   }
@@ -1597,6 +1612,10 @@ app.route('/v1', auditRoutes);
 // Mounted AFTER auditRoutes so specific paths (/log, /verification-key, /attestations) match first.
 // Auth middleware bypasses this route for the JTI format (aat_[A-Za-z0-9]{16}) — see section 5.
 app.route('/v1/audit', publicAuditRoutes);
+
+// Findings routes: POST /v1/agents/:agentId/findings — auth-gated submission with IDOR guard.
+// (The public GET /v1/findings/:jti lookup is mounted BEFORE auth middleware above.)
+app.route('/v1', findingsRoutes);
 
 // SCITT Transparency Service routes: POST /v1/scitt/entries, GET /v1/scitt/entries/:id, GET /v1/scitt/entries/:id/receipt
 app.route('/v1/scitt', scittRoutes);
