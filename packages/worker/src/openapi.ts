@@ -73,6 +73,10 @@ export const API_DISCOVERY = {
       score: 'GET /v1/trust/score?agent_id={agentId} — behavioral trust score for an agent (query-param style)',
       profile: 'GET /v1/trust/{agentId} — behavioral trust score for an agent (path-param style)',
     },
+    findings: {
+      submit_outcome: 'POST /v1/findings/{jti}/outcome — program-attested outcome on a security finding (Bearer prog_... key required)',
+      note: 'Auth: program API key (Bearer prog_...), not agent AAT. One outcome per (finding × program). Recomputes agent track_record on each write.',
+    },
   },
   note: 'Beta: email live (inbound + outbound), shared observations live. E2E key rotation live. Vault (encrypted seed storage) live. Credential device flow live. DNS/hosting Q2 2026.',
 };
@@ -168,6 +172,10 @@ export const OPENAPI_SPEC = {
     {
       "name": "trust",
       "description": "Behavioral trust scores for agents"
+    },
+    {
+      "name": "findings",
+      "description": "Security finding outcomes — program attestation and agent track-record aggregation"
     }
   ],
   "components": {
@@ -5273,6 +5281,150 @@ export const OPENAPI_SPEC = {
                     "detail": { "type": "string" }
                   }
                 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/findings/{jti}/outcome": {
+      "post": {
+        "tags": ["findings"],
+        "summary": "Submit outcome for a security finding",
+        "description": "Program-attested accept/reject on a security finding, identified by its JTI.\n\n**Auth:** Program API key (`Bearer prog_...`) — not an agent AAT. Program keys are issued by AgentLair to bug-bounty program operators.\n\n**IDOR guard:** The program's bound audience (e.g. `https://hackerone.com`) must match the finding's audience. Cross-platform attestation is rejected.\n\n**Idempotency:** One outcome per (finding × program). Duplicate submissions return 409.\n\n**Side effect:** On every successful write the agent's `findings_track_record` row is recomputed (valid_rate, false_positive_rate, avg_severity).",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "jti",
+            "in": "path",
+            "required": true,
+            "description": "Finding JTI — issued at finding submission time",
+            "schema": {
+              "type": "string",
+              "pattern": "^finding_[A-Za-z0-9_-]{21}$",
+              "example": "finding_aBcDeFgHiJkLmNoPqRsTu"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["outcome"],
+                "properties": {
+                  "outcome": {
+                    "type": "string",
+                    "enum": ["accepted", "rejected"],
+                    "description": "Program verdict on the finding"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "enum": ["duplicate", "invalid", "out_of_scope", "informative", "other"],
+                    "description": "Optional reason for rejection (or context for acceptance)"
+                  },
+                  "severity_confirmed": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 10,
+                    "description": "Program-confirmed severity score (0–10). Used to compute avg_severity in track_record."
+                  },
+                  "payout_usd": {
+                    "type": "number",
+                    "minimum": 0,
+                    "description": "Payout amount in USD (non-negative). Stored for record-keeping; not transferred by AgentLair."
+                  }
+                }
+              },
+              "example": {
+                "outcome": "accepted",
+                "severity_confirmed": 7.5,
+                "payout_usd": 1500
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Outcome recorded. Returns the updated agent track_record snapshot.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["jti", "outcome", "agent_id", "track_record"],
+                  "properties": {
+                    "jti": { "type": "string", "example": "finding_aBcDeFgHiJkLmNoPqRsTu" },
+                    "outcome": { "type": "string", "enum": ["accepted", "rejected"] },
+                    "agent_id": { "type": "string", "example": "acc_k7x9m2p4abcd1234" },
+                    "track_record": {
+                      "type": "object",
+                      "properties": {
+                        "findings_submitted": { "type": "integer", "minimum": 0 },
+                        "findings_accepted": { "type": "integer", "minimum": 0 },
+                        "findings_rejected": { "type": "integer", "minimum": 0 },
+                        "valid_rate": { "type": "number", "minimum": 0, "maximum": 1, "description": "accepted / (accepted + rejected)" },
+                        "false_positive_rate": { "type": "number", "minimum": 0, "maximum": 1, "description": "rejected / (accepted + rejected)" },
+                        "avg_severity": { "type": ["number", "null"], "description": "Average severity_confirmed across accepted findings, or null if none" },
+                        "updated_ts": { "type": "integer", "description": "Unix timestamp of last recompute" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid jti format or invalid body field",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" },
+                "example": { "error": "invalid_jti", "message": "Finding id must match format finding_[A-Za-z0-9_-]{21}" }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid program API key",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" },
+                "example": { "error": "unauthorized", "message": "Program API key required. Pass Bearer prog_..." }
+              }
+            }
+          },
+          "403": {
+            "description": "Program audience does not match finding audience (IDOR guard)",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" },
+                "example": { "error": "audience_mismatch", "message": "Program audience does not match finding audience." }
+              }
+            }
+          },
+          "404": {
+            "description": "Finding not found",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" },
+                "example": { "error": "finding_not_found" }
+              }
+            }
+          },
+          "409": {
+            "description": "Outcome already submitted for this (finding, program) pair",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" },
+                "example": { "error": "outcome_already_submitted" }
+              }
+            }
+          },
+          "503": {
+            "description": "Findings store not available",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" },
+                "example": { "error": "audit_unavailable" }
               }
             }
           }
