@@ -51,6 +51,7 @@ import { sovereignBridgesRoutes } from './routes/sovereign-bridges.js';
 import { integrationsRoutes } from './routes/integrations.js';
 import { proofOfLifeRoutes } from './routes/proof-of-life.js';
 import { rfc9421VerifyRoutes } from './routes/rfc9421-verify.js';
+import { rfc9421DemoRoutes } from './routes/rfc9421-demo.js';
 import { memoryTrustRoutes } from './routes/memory-trust.js';
 import { badgeRoutes } from './routes/badge.js';
 import { a2aCardRoutes } from './routes/a2a-cards.js';
@@ -1084,6 +1085,11 @@ app.route('/v1/proof-of-life', proofOfLifeRoutes);
 // POST /v1/rfc9421/verify — Ed25519 only in v1; accepts did:key or JWKS-URL keyid
 // Mounted BEFORE /v1/* auth middleware. Same protocol as Visa Trusted Agent Protocol.
 app.route('/v1/rfc9421/verify', rfc9421VerifyRoutes);
+
+// GET /v1/rfc9421/demo — self-verifying example envelope (companion to /verify)
+// Returns deterministic demo keypair + fresh signed request + curl one-liner.
+// Mounted BEFORE /v1/* auth middleware so it's public.
+app.route('/v1/rfc9421/demo', rfc9421DemoRoutes);
 
 // Memory trust: always public, always requires x402 (0.01 USDC)
 // GET /v1/agents/:id/memory-trust — verified memory behavioral patterns

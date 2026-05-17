@@ -161,6 +161,15 @@ export const INTEGRATIONS: readonly Integration[] = [
     notes:
       'RFC 9421 HTTP Message Signatures verifier — Ed25519 only in v1; accepts did:key keyid or JWKS-URL keyid. Same protocol Visa TAP uses.',
   },
+  {
+    kind: 'public-endpoint',
+    name: '/v1/rfc9421/demo',
+    url: 'https://api.agentlair.dev/v1/rfc9421/demo',
+    status: 'live',
+    evidence: 'https://agentlair.dev/docs/rfc9421',
+    notes:
+      'Self-verifying RFC 9421 example — GET returns a fresh signed envelope you can POST to /v1/rfc9421/verify in one curl. Same protocol Visa TAP uses.',
+  },
 ];
 
 integrationsRoutes.get('/', (c) => {
