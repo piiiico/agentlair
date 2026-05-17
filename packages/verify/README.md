@@ -71,6 +71,12 @@ const result = await verifyFindingPermalink(
 );
 ```
 
+> **Public vs. API permalink**: `https://agentlair.dev/f/:jti` is the
+> canonical public URL for sharing a finding (human-readable, open in a
+> browser). `https://agentlair.dev/v1/findings/:jti` is the API endpoint
+> that returns `{ signed_jwt }` — the one `verifyFindingPermalink` fetches.
+> Pass the `/v1/findings/` URL here, not the `/f/` URL.
+
 `verifyFindingPermalink` fetches the URL, extracts the embedded `signed_jwt`,
 verifies the signature, and asserts the JWT's `jti` matches the URL segment.
 A mismatch returns `reason: 'malformed'` with `'jti mismatch'` in the message —
