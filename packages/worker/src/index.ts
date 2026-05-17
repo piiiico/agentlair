@@ -38,6 +38,7 @@ import { signingKeyRoutes, getSigningKey, getSigningKeyByThumbprint } from './ro
 import { auditRoutes, publicAuditRoutes } from './routes/audit.js';
 import { findingsRoutes, findingsPublicRoutes } from './routes/findings.js';
 import { findingOutcomesRoutes } from './routes/finding-outcomes.js';
+import { agentTrackRecordRoutes } from './routes/agent-track-record.js';
 import { sessionRoutes } from './routes/sessions.js';
 import { budgetRoutes } from './routes/budget.js';
 import { gatewayRoutes } from './routes/gateway.js';
@@ -1149,6 +1150,11 @@ app.route('/v1', findingsPublicRoutes);
 // bypass clause sits in the /v1/* middleware below.
 app.route('/v1', findingOutcomesRoutes);
 
+// Public agent track_record snapshot: GET /v1/agents/:agentId/track_record
+// Anonymous read — programs verify an agent's aggregate reputation without
+// onboarding. Mounted BEFORE auth middleware (matching bypass clause below).
+app.route('/v1', agentTrackRecordRoutes);
+
 // ── Waitlist: lead capture for paid tiers (no auth required) ────────────────
 // Captures email + company before Stripe checkout is live.
 // Stores in AUDIT D1 (waitlist table). Sends confirmation via Resend.
@@ -1363,6 +1369,14 @@ app.use('/v1/*', async (c: Context<HonoEnv>, next: Next): Promise<void | Respons
   // for POST /v1/findings/:jti/outcome. Path-shape match keeps the bypass tight
   // (other POSTs under /v1/findings/... continue to flow through AAT auth).
   if (c.req.method === 'POST' && /^\/v1\/findings\/finding_[A-Za-z0-9_-]{21}\/outcome$/.test(c.req.path)) {
+    await next();
+    return;
+  }
+
+  // Public agent track_record read — anonymous programs fetch reputation snapshots.
+  // Matches GET /v1/agents/<id>/track_record specifically; other GETs under
+  // /v1/agents/ stay auth-gated.
+  if (c.req.method === 'GET' && /^\/v1\/agents\/[^/]+\/track_record$/.test(c.req.path)) {
     await next();
     return;
   }
