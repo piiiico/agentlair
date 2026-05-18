@@ -23,6 +23,7 @@ const ITEMS = [
   { label: "Playground", href: "/playground" },
   { label: "Pods", href: "/pods" },
   { label: "Vault", href: "/vault" },
+  { label: "Verify", href: "/verify" },
   { label: "Explore", href: "/explore" },
   { label: "Demo", href: "/demo" },
   { label: "Blog", href: "/blog" },
