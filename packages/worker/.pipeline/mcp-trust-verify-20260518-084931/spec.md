@@ -281,7 +281,7 @@ Do NOT add new npm dependencies.
 
 All 6 must be verified after deploy and captured in `deploy-output.md`:
 
-1. **Attested server returns verified**: `POST /v1/trust/mcp/verify {"url":"https://agentlair.dev"}` → HTTP 200, `verified=true`, `server_id` is non-null, `errors` is empty array.
+1. **Issuer discovery descriptor is reachable** (corrected 2026-05-18 — agentlair.dev is the BHC-S issuer, not a self-attested subject): `POST /v1/trust/mcp/verify {"url":"https://agentlair.dev"}` → HTTP 200, `verified=false`, `raw_descriptor` is a non-null JSON object containing `issuer === "https://agentlair.dev"` and `jwks_uri === "https://agentlair.dev/.well-known/jwks.json"`, and `errors` contains a string mentioning `"attestation token"`. Self-attestation of the issuer is out of scope until `/v1/trust/server/{server_id}` ships.
 
 2. **Malformed JSON returns 400**: `POST /v1/trust/mcp/verify` with body `not-json` → HTTP 400 (not 500).
 

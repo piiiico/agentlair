@@ -20,10 +20,12 @@
  */
 
 import { Hono } from 'hono';
-import type { HonoEnv } from '../types.js';
+import type { HonoEnv, Env } from '../types.js';
 import { isBlockedHost } from '../lib/ssrf-guard.js';
-import { b64urlDecode } from '../jwt.js';
+import { isSelfHost } from '../lib/safe-fetch.js';
+import { b64urlDecode, buildJWKS } from '../jwt.js';
 import { verifyJWS, verifyJWT } from '../jwt.js';
+import { TRUST_DESCRIPTOR } from './well-known-agentlair-trust.js';
 
 export const mcpTrustVerifyRoutes = new Hono<HonoEnv>();
 
@@ -159,12 +161,65 @@ function decodeJwtPayload(token: string): Record<string, unknown> | null {
   }
 }
 
+// ─── Self-host-aware fetch helpers ───────────────────────────────────────────
+
+/**
+ * Fetch the BHC-S descriptor, short-circuiting self-hosts to avoid CF Worker
+ * self-subrequest abort (documented failure mode: 2026-05-13 self-card audit,
+ * 2026-05-18 mcp-trust-verify F1).
+ */
+async function getDescriptorBody(
+  wellKnownUrl: string,
+): Promise<{ ok: boolean; body: string | null; status: number; error?: string }> {
+  let u: URL;
+  try {
+    u = new URL(wellKnownUrl);
+  } catch {
+    return { ok: false, body: null, status: 0, error: 'invalid URL' };
+  }
+  if (isSelfHost(u.hostname)) {
+    // CF Workers cannot fetch their own origin — use in-process descriptor.
+    return { ok: true, body: JSON.stringify(TRUST_DESCRIPTOR), status: 200 };
+  }
+  return fetchCapped(wellKnownUrl);
+}
+
+/**
+ * Fetch the JWKS, short-circuiting self-hosts. Third-party MCP servers may
+ * embed `https://agentlair.dev/.well-known/jwks.json` in their descriptors,
+ * so this guard is forward-looking, not just for agentlair.dev itself.
+ */
+async function getJwksBody(
+  jwksUri: string,
+  env: Env,
+): Promise<{ ok: boolean; body: string | null; status: number; error?: string }> {
+  let u: URL;
+  try {
+    u = new URL(jwksUri);
+  } catch {
+    return { ok: false, body: null, status: 0, error: 'invalid jwks_uri URL' };
+  }
+  if (isSelfHost(u.hostname)) {
+    if (!env.AUDIT_SIGNING_KEY) {
+      return {
+        ok: false,
+        body: null,
+        status: 503,
+        error: 'self-host JWKS unavailable: AUDIT_SIGNING_KEY not configured',
+      };
+    }
+    const jwks = await buildJWKS(env.AUDIT_SIGNING_KEY);
+    return { ok: true, body: JSON.stringify(jwks), status: 200 };
+  }
+  return fetchCapped(jwksUri);
+}
+
 // ─── Core verification logic ──────────────────────────────────────────────────
 
-async function verifyMcpServer(normalizedUrl: string): Promise<VerifyResponse> {
+async function verifyMcpServer(normalizedUrl: string, env: Env): Promise<VerifyResponse> {
   // Fetch .well-known/agentlair-trust
   const wellKnownUrl = `${normalizedUrl}${WELL_KNOWN_PATH}`;
-  const { ok: fetchOk, body: rawBody, status, error: fetchErr } = await fetchCapped(wellKnownUrl);
+  const { ok: fetchOk, body: rawBody, status, error: fetchErr } = await getDescriptorBody(wellKnownUrl);
 
   if (fetchErr) {
     // Size errors returned verbatim
@@ -249,7 +304,7 @@ async function verifyMcpServer(normalizedUrl: string): Promise<VerifyResponse> {
   }
 
   // Fetch JWKS
-  const { ok: jwksOk, body: jwksBody, status: jwksStatus, error: jwksErr } = await fetchCapped(descriptor.jwks_uri as string);
+  const { ok: jwksOk, body: jwksBody, status: jwksStatus, error: jwksErr } = await getJwksBody(descriptor.jwks_uri as string, env);
 
   if (jwksErr || !jwksOk || !jwksBody) {
     const msg = jwksErr ?? `JWKS fetch failed (HTTP ${jwksStatus})`;
@@ -437,7 +492,7 @@ mcpTrustVerifyRoutes.post('/mcp/verify', async (c) => {
   // Compute response
   let response: VerifyResponse;
   try {
-    response = await verifyMcpServer(normalizedUrl);
+    response = await verifyMcpServer(normalizedUrl, c.env);
   } catch (e) {
     return c.json({ error: 'internal error', errors: ['internal error'] }, 500);
   }

@@ -11,8 +11,8 @@
   "fitness_assertions": [
     {
       "id": "F1",
-      "description": "POST /v1/trust/mcp/verify {url:'https://agentlair.dev'} returns 200, verified=true, server_id non-null, errors empty",
-      "method": "curl -s -X POST https://agentlair.dev/v1/trust/mcp/verify -H 'Content-Type: application/json' -d '{\"url\":\"https://agentlair.dev\"}' | jq '{verified,server_id,errors}'"
+      "description": "POST /v1/trust/mcp/verify {url:'https://agentlair.dev'} returns 200, raw_descriptor is non-null with issuer=https://agentlair.dev, errors mentions 'attestation token' (issuer discovery — self-attestation deferred)",
+      "method": "curl -s -X POST https://agentlair.dev/v1/trust/mcp/verify -H 'Content-Type: application/json' -d '{\"url\":\"https://agentlair.dev\"}' | python3 -c \"import json,sys; r=json.load(sys.stdin); assert r['verified']==False, r; assert r['raw_descriptor'] is not None, r; assert r['raw_descriptor'].get('issuer')=='https://agentlair.dev', r; assert any('attestation token' in e for e in r['errors']), r; print('ok')\""
     },
     {
       "id": "F2",
