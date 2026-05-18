@@ -107,8 +107,24 @@ describe('mcp-trust-verify: self-host short-circuit', () => {
     expect(errors.some((e) => e.includes('attestation token'))).toBe(true);
   });
 
-  test('Test 3: subdomain self-host is short-circuited', async () => {
-    globalThis.fetch = () => Promise.reject(new Error('network not allowed in this test'));
+  test('Test 3: agentlair.dev subdomains go through network path (no short-circuit)', async () => {
+    // *.agentlair.dev was removed from SELF_HOSTS so mcp-demo.agentlair.dev
+    // (and other subdomains) fall through to fetchCapped instead of being
+    // short-circuited to the parent worker's inline TRUST_DESCRIPTOR.
+    // Stub fetch to return 404 — verifier should report "no agentlair-trust descriptor found".
+    globalThis.fetch = (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : (input as Request).url;
+      if (url.includes('api.agentlair.dev')) {
+        const body = new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode('Not Found'));
+            controller.close();
+          },
+        });
+        return Promise.resolve(new Response(body, { status: 404, headers: { 'Content-Type': 'text/plain' } }));
+      }
+      return Promise.reject(new Error(`unexpected fetch: ${url}`));
+    };
 
     const app = makeApp();
     const req = new Request('http://localhost/v1/trust/mcp/verify', {
@@ -119,13 +135,10 @@ describe('mcp-trust-verify: self-host short-circuit', () => {
     const res = await appFetch(app, req);
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, unknown>;
-    expect(body.raw_descriptor).not.toBeNull();
-    const rd = body.raw_descriptor as Record<string, unknown>;
-    expect(rd.issuer).toBe('https://agentlair.dev');
-    expect(rd.jwks_uri).toBe('https://agentlair.dev/.well-known/jwks.json');
     expect(body.verified).toBe(false);
     const errors = body.errors as string[];
-    expect(errors.some((e) => e.includes('attestation token'))).toBe(true);
+    // Falls through to fetchCapped — 404 → descriptor not found, not the inline self-host descriptor
+    expect(errors.some((e) => /no agentlair-trust descriptor found.*HTTP 404/i.test(e))).toBe(true);
   });
 
   test('Test 4: non-self-host falls through to fetchCapped (404 → descriptor not found)', async () => {
