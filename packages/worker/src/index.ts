@@ -58,6 +58,7 @@ import { rfc9421DemoRoutes } from './routes/rfc9421-demo.js';
 import { memoryTrustRoutes } from './routes/memory-trust.js';
 import { badgeRoutes } from './routes/badge.js';
 import { wellKnownAgentlairTrustRoutes } from './routes/well-known-agentlair-trust.js';
+import { mcpTrustVerifyRoutes } from './routes/mcp-trust-verify.js';
 import { a2aCardRoutes } from './routes/a2a-cards.js';
 import { ogA2aRoutes } from './routes/og-a2a.js';
 import { ogA2aStatsRoutes } from './routes/og-a2a-stats.js';
@@ -1071,6 +1072,10 @@ app.use('/v1/calendar/feed.ics', publicHandler(handleCalendarRoutes));
 // Mounted before auth middleware so anonymous agents can access GET /v1/trust/:agentId
 // Handlers call authenticateAny internally: authenticated callers pay nothing.
 app.route('/v1/trust', publicTrustRoutes);
+
+// MCP server trust attestation verifier — free public utility, no auth, no x402
+// POST /v1/trust/mcp/verify — discovers + verifies BHC-S attestation at any MCP server URL
+app.route('/v1/trust', mcpTrustVerifyRoutes);
 
 // Agent discovery: always public, always requires x402 (0.005 USDC)
 // GET /v1/agents/lookup?handle=<name>&email=<email>&id=<acc_...>

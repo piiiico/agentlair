@@ -44,6 +44,8 @@ export interface Env {
   // Stripe webhook signing secret — verify events from Stripe
   // Set via: wrangler secret put STRIPE_WEBHOOK_SECRET
   STRIPE_WEBHOOK_SECRET?: string;
+  // MCP server trust attestation cache (optional — graceful degradation if absent)
+  TRUST_VERIFY_CACHE?: KVNamespace;
 }
 
 export interface Account {
