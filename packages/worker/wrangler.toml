@@ -26,6 +26,11 @@ id = "5eb916dd7125415da51c15cd85c3b761"
 binding = "A2A_LEADERBOARD"
 id = "0d8118945ba44294a5a6e76b1ef6122a"
 
+[[kv_namespaces]]
+binding = "TRUST_VERIFY_CACHE"
+id = "TO_BE_FILLED_BY_DEPLOY"
+preview_id = "TO_BE_FILLED_BY_DEPLOY"
+
 # Secrets (set via wrangler secret put — NOT stored here):
 #   PLATFORM_ENCRYPTION_KEY  — base64-encoded 32-byte AES-256 key for email body encryption at rest
 #                              Generate: openssl rand -base64 32
