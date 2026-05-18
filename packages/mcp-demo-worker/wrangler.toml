@@ -1,0 +1,14 @@
+name = "agentlair-mcp-demo"
+main = "src/index.ts"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+account_id = "1e3b03e4a8d2514f89998dbdda7d5140"
+
+# Route: mcp-demo.agentlair.dev/*
+[[routes]]
+pattern = "mcp-demo.agentlair.dev/*"
+zone_name = "agentlair.dev"
+
+# Secrets (set via wrangler secret put):
+#   AUDIT_SIGNING_KEY — base64-encoded Ed25519 private key (same as main worker)
+#                       wrangler secret put AUDIT_SIGNING_KEY --name agentlair-mcp-demo
