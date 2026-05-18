@@ -28,8 +28,8 @@ id = "0d8118945ba44294a5a6e76b1ef6122a"
 
 [[kv_namespaces]]
 binding = "TRUST_VERIFY_CACHE"
-id = "TO_BE_FILLED_BY_DEPLOY"
-preview_id = "TO_BE_FILLED_BY_DEPLOY"
+id = "27d362b566ad4ea9986277a309388d5a"
+preview_id = "c6c161e1797e419f9a774c11b7ab9590"
 
 # Secrets (set via wrangler secret put — NOT stored here):
 #   PLATFORM_ENCRYPTION_KEY  — base64-encoded 32-byte AES-256 key for email body encryption at rest
