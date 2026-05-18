@@ -1,0 +1,58 @@
+{
+  "name": "@agentlair/mcp-trust-attestation",
+  "version": "0.1.0",
+  "description": "Drop-in Hono middleware that mounts AgentLair's BHC-S behavioral trust descriptor and per-subject attestation endpoint on any HTTP-transport MCP server in 3 lines. Implements the SEP-2133 unofficial extension dev.agentlair/trust-attestation (BHC-S spec urn:agentlair:bhc-s:v1).",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "bun run build"
+  },
+  "keywords": [
+    "agentlair",
+    "mcp",
+    "model-context-protocol",
+    "trust",
+    "attestation",
+    "bhc-s",
+    "sep-2133",
+    "hono",
+    "middleware",
+    "ai-agent"
+  ],
+  "author": "AgentLair <hello@agentlair.dev>",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/piiiico/agentlair",
+    "directory": "packages/mcp-trust-attestation"
+  },
+  "homepage": "https://agentlair.dev/docs/bhc-s",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "jose": "^5.0.0"
+  },
+  "peerDependencies": {
+    "hono": "^4"
+  },
+  "devDependencies": {
+    "hono": "^4.12.8",
+    "typescript": "^5.9.3"
+  }
+}
