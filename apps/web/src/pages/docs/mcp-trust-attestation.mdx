@@ -1,0 +1,168 @@
+---
+layout: ../../layouts/BasicLayout.astro
+title: "MCP Trust Attestation — AgentLair"
+description: "Add BHC-S behavioral trust attestation to any MCP server in three lines of code. Copy-paste patterns for Hono, Express, and stdio servers."
+---
+
+# MCP Trust Attestation Integration Guide
+
+`@agentlair/mcp-trust-attestation` mounts AgentLair's BHC-S behavioral trust descriptor and per-subject attestation endpoint on any HTTP-transport MCP server. Three imports, two `app.use()` calls, done. The SDK handles descriptor serving, per-agent attestation proxying, JWKS caching, and the well-known route — so your server speaks the trust protocol without writing any of that machinery yourself.
+
+[Why this matters](/blog/mcp-trust-attestation-three-lines) · [npm: @agentlair/mcp-trust-attestation](https://www.npmjs.com/package/@agentlair/mcp-trust-attestation)
+
+---
+
+## Install
+
+```bash
+npm install @agentlair/mcp-trust-attestation
+```
+
+No account required to install. The package is zero-config for the descriptor. The behavioral attestation endpoint proxies to AgentLair's trust engine, which requires a free account only if you want to issue attestations, not to serve the descriptor.
+
+---
+
+## Your server ID
+
+Every server needs a `serverId`. The supported forms are:
+
+| Form | Example |
+|------|---------|
+| `url_sha256:<hex>` | SHA-256 of your server's canonical URL, hex-encoded |
+| `agentlair_alias:<alias>` | Your AgentLair-registered server alias |
+| `did_key:<did>` | A DID key identifier |
+
+The simplest path: compute the SHA-256 of your deployment URL and use `url_sha256:<hex>`.
+
+---
+
+## Pattern A: stdio MCP server (with sidecar HTTP for attestation)
+
+stdio transport carries MCP tool calls; attestation routes need HTTP. Run both in the same process — the MCP server connects over stdio, the attestation surface listens on a separate port.
+
+```typescript
+import { Hono } from 'hono';
+import { serve } from '@hono/node-server';
+import { createAttestationMiddleware, buildServerCardExtension } from '@agentlair/mcp-trust-attestation';
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+
+const SERVER_ID = process.env.ATTESTED_SERVER_ID ?? 'url_sha256:<your-hex>';
+
+// Attestation HTTP sidecar (port 8787)
+const app = new Hono();
+app.use('/.well-known/agentlair-trust', createAttestationMiddleware({ serverId: SERVER_ID }));
+app.use('/agentlair/trust-attestation/:subject', createAttestationMiddleware({ serverId: SERVER_ID }));
+serve({ fetch: app.fetch, port: 8787 });
+
+// MCP server over stdio
+const mcpServer = new Server(
+  { name: 'my-server', version: '1.0.0' },
+  { capabilities: { tools: {} } },
+);
+// Spread the trust extension into your initialize extensions field:
+// extensions: { ...buildServerCardExtension({ serverId: SERVER_ID }) }
+
+const transport = new StdioServerTransport();
+await mcpServer.connect(transport);
+```
+
+The attestation routes are now reachable at `http://localhost:8787/.well-known/agentlair-trust` independently from the stdio connection. Clients that support MCP + BHC-S will use the descriptor URL from your server card extension to locate the trust surface.
+
+---
+
+## Pattern B: HTTP/SSE with Hono
+
+If your MCP server already uses Hono for HTTP/SSE transport, mount the two attestation routes on the same app:
+
+```typescript
+import { Hono } from 'hono';
+import { createAttestationMiddleware } from '@agentlair/mcp-trust-attestation';
+
+const app = new Hono();
+
+// Mount attestation routes (3 lines)
+app.use('/.well-known/agentlair-trust', createAttestationMiddleware({ serverId: 'url_sha256:<your-hex>' }));
+app.use('/agentlair/trust-attestation/:subject', createAttestationMiddleware({ serverId: 'url_sha256:<your-hex>' }));
+
+// Your existing MCP SSE routes go here
+app.get('/sse', /* ... */);
+app.post('/messages', /* ... */);
+```
+
+The middleware dispatches by request path — it serves the static descriptor at `/.well-known/agentlair-trust` and proxies per-subject attestation requests at the second route. No other configuration.
+
+---
+
+## Pattern C: HTTP/SSE with Express
+
+Same two-route pattern for Express:
+
+```typescript
+import express from 'express';
+import { createNodeHttpHandler } from '@agentlair/mcp-trust-attestation';
+
+const app = express();
+const SERVER_ID = 'url_sha256:<your-hex>';
+
+// Attestation handler (wraps node:http interface)
+const attestationHandler = createNodeHttpHandler({ serverId: SERVER_ID });
+
+// Mount the well-known descriptor
+app.use('/.well-known/agentlair-trust', (req, res) => attestationHandler(req, res));
+// Mount the per-subject attestation route
+app.use('/agentlair/trust-attestation/:subject', (req, res) => attestationHandler(req, res));
+
+// Your existing MCP routes
+app.post('/messages', /* ... */);
+app.listen(3000);
+```
+
+`createNodeHttpHandler` returns a standard `(req, res) => void` handler compatible with Express middleware. The path dispatch is the same as Pattern B.
+
+---
+
+## The verify side
+
+A relying party (orchestrator, gateway, or another agent) verifies a server's attestation in two steps: fetch the descriptor, then verify the JWT.
+
+**Step 1: Fetch the descriptor**
+
+```bash
+curl https://your-mcp-server.example/.well-known/agentlair-trust | jq .
+```
+
+The descriptor lists `supported_signals`, `attestation_endpoint_template`, and `jwks_uri`. The `jwks_uri` points to `https://agentlair.dev/.well-known/jwks.json` — AgentLair's EdDSA public keys.
+
+**Step 2: Get an attestation JWT**
+
+```bash
+curl "https://agentlair.dev/v1/trust/server/url_sha256:<your-hex>"
+```
+
+Returns a signed JWT. Pass that token to `verifyAttestation`:
+
+```typescript
+import { verifyAttestation } from '@agentlair/mcp-trust-attestation';
+
+const token = '...'; // attestation JWT from the endpoint above
+const result = await verifyAttestation(token, { issuer: 'https://agentlair.dev' });
+
+if (result.ok) {
+  const claims = result.payload as { sub: string; signals: Record<string, unknown> };
+  console.log('Verified server:', claims.sub);
+} else {
+  console.error('Attestation failed:', result.reason, result.error);
+}
+```
+
+`verifyAttestation` fetches the JWKS once and caches it per issuer. The `reason` field on failure is one of: `expired` · `signature` · `issuer` · `audience` · `malformed` · `fetch` · `other`.
+
+---
+
+## Reference
+
+- **Runnable reference server**: [packages/mcp-demo-attested](https://github.com/piiiico/agentlair/tree/main/packages/mcp-demo-attested) — stdio + Hono attestation sidecar, ~80 lines, the same shape as Pattern A.
+- **BHC-S spec**: [agentlair.dev/docs/bhc-s](/docs/bhc-s)
+- **Privacy**: [agentlair.dev/privacy](/privacy)
+- **About**: [agentlair.dev/about](/about)
