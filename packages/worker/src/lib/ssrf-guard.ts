@@ -12,6 +12,7 @@
  * Downstream callers must trust the resolver for all other DNS names.
  *
  * Blocked CIDR ranges (v1):
+ *   0.0.0.0/8
  *   10.0.0.0/8
  *   127.0.0.0/8
  *   169.254.0.0/16   (link-local; CF metadata)
@@ -43,6 +44,8 @@ function ipv4InCIDR(addr: number, base: number, prefixLen: number): boolean {
 }
 
 function isBlockedIPv4(addr: number): boolean {
+  // 0.0.0.0/8
+  if (ipv4InCIDR(addr, 0x00000000, 8)) return true;
   // 10.0.0.0/8
   if (ipv4InCIDR(addr, parseIPv4('10.0.0.0')!, 8)) return true;
   // 127.0.0.0/8

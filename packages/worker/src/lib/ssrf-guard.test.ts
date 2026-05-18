@@ -3,6 +3,14 @@ import { isBlockedHost } from './ssrf-guard.js';
 
 describe('isBlockedHost', () => {
   // ── IPv4 private ranges ──────────────────────────────────────────────────
+  it('blocks 0.0.0.0 (0.0.0.0/8 unspecified)', () => {
+    expect(isBlockedHost('0.0.0.0')).toBe(true);
+  });
+
+  it('blocks 0.255.255.255 (0.0.0.0/8 boundary)', () => {
+    expect(isBlockedHost('0.255.255.255')).toBe(true);
+  });
+
   it('blocks 127.0.0.1 (loopback)', () => {
     expect(isBlockedHost('127.0.0.1')).toBe(true);
   });
