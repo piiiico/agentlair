@@ -1,37 +1,39 @@
-// ─── x402 Pay-per-call Callout ────────────────────────────────────────────────
+// ─── Identity-over-Payments Callout ───────────────────────────────────────────
 //
-// Live revenue path: GET /v1/trust/{agent_id} returns HTTP 402 with an x402 v2
-// manifest. Agents pay 0.01 USDC on Base per call, settled on-chain in seconds.
-// This component makes that fact visible on the homepage and pricing page.
+// Circle, Stripe, and Coinbase have commoditized x402 payments (50M+ txns).
+// What's not solved: knowing which agent made the call. This callout positions
+// AgentLair's AAT as the missing identity layer above commodity payment rails.
 
-import { Zap } from "lucide-react";
+import { Fingerprint } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 
-const CURL_EXAMPLE = `curl https://agentlair.dev/v1/trust/acc_abc123
-# → HTTP 402 Payment Required
-# x402 manifest: 0.01 USDC on Base (eip155:8453)
-# payTo: 0x90EE1EbcCFA2021711C595E1410e22401570B4AC`;
+const CURL_EXAMPLE = `# Circle / Stripe / Coinbase handle the payment.
+# AgentLair answers: which agent sent it?
+
+curl https://agentlair.dev/v1/trust/acc_abc123 \\
+  -H "Authorization: Bearer <AAT>"
+# → 200 OK: identity verified, trust score 94, owner: hakon@example.com
+# → 403: agent unknown — no registered identity, reject or charge more`;
 
 export function X402Callout() {
   return (
     <section className="container max-w-4xl py-16 lg:py-20">
       <div className="rounded-2xl border border-dashed border-primary/40 bg-primary/5 px-8 py-10 text-center">
         <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-semibold uppercase tracking-widest text-primary">
-          <Zap className="size-3" />
-          Live now
+          <Fingerprint className="size-3" />
+          The missing layer
         </div>
 
         <h2 className="text-2xl font-bold tracking-tight md:text-3xl">
-          Agents pay 0.01 USDC per trust query
+          Payments are solved. Identity isn't.
         </h2>
         <p className="text-muted-foreground mx-auto mt-3 max-w-xl text-sm leading-relaxed">
-          No subscription. No API key. Hit{" "}
-          <code className="rounded bg-muted px-1 py-0.5 text-xs font-mono">
-            /v1/trust/:agent_id
-          </code>{" "}
-          — get an HTTP 402 back with a complete x402 v2 payment manifest. Your agent pays 0.01 USDC on Base
-          and retries. Settles on-chain in seconds.
+          Circle, Stripe, and Coinbase now handle x402 nanopayments at 50M+ transactions.
+          None of them answer the follow-on question:{" "}
+          <em>which agent made the call, who owns it, and should I trust it?</em>{" "}
+          AgentLair's Agent Authentication Token (AAT) is the cryptographic answer — EdDSA-signed,
+          JWKS-verifiable, tethered to a named owner. Identity that travels with every payment.
         </p>
 
         <div className="mt-6 overflow-x-auto rounded-lg bg-muted p-4 text-left">
@@ -42,7 +44,7 @@ export function X402Callout() {
 
         <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
           <Button asChild variant="default" size="sm">
-            <a href="/docs/api-reference#trust">API reference</a>
+            <a href="/docs/agent-auth-token">AAT docs</a>
           </Button>
           <Button asChild variant="outline" size="sm">
             <a href="/quickstart">Quickstart</a>

@@ -142,16 +142,16 @@ export const Features = () => {
           <div className="relative flex items-center justify-center">
             <DashedLine className="text-muted-foreground" />
             <span className="bg-muted text-muted-foreground absolute px-3 font-mono text-sm font-medium tracking-wide max-md:hidden">
-              ACCOUNTABILITY LAYER
+              THE MISSING LAYER
             </span>
           </div>
 
           <div className="mt-10 mx-auto max-w-3xl lg:mt-16">
             <h2 className="text-2xl tracking-tight md:text-3xl lg:text-4xl">
-              Cloudflare + Stripe solved the transaction layer. AgentLair solves the accountability layer.
+              Circle, Stripe, and Coinbase solved payments. No one solved identity.
             </h2>
             <p className="mt-6 text-muted-foreground leading-relaxed">
-              Cloudflare and Stripe just demonstrated agents that create accounts, register domains, and deploy infrastructure autonomously — no human in the dashboard. Stripe caps what the agent can spend. HN asked the follow-on question Stripe can't answer: who is accountable when the agent registers a trademarked domain, exposes a user credential, or exceeds its mandate in ways that never touch the credit card? Transaction authorization handles financial risk. Accountability handles everything else — and in an agent-mediated world, everything else is most of it. AgentLair closes that gap. Every agent operating through AgentLair carries a cryptographic identity tethered to a named human owner. Every action is signed, chained, and attributable. Stripe hands the agent a spending limit. AgentLair hands the human a chain of custody.
+              Circle's Agent Stack launched in May 2026 — wallets, nanopayments down to 0.000001 USDC, an agent marketplace, all built on x402. Stripe and Coinbase followed. The payment layer is commoditized. What none of them answer: <em>which agent made the call, who is its owner, and do I trust it?</em> Today's answer is git commit metadata. That's the gap. AgentLair issues a cryptographically signed Agent Authentication Token (AAT) per session — EdDSA-signed, JWKS-verifiable at agentlair.dev, tethered to a named human owner. Every action is logged to a tamper-evident ledger. Circle processes the nanopayment. AgentLair tells you who sent it and whether to trust them.
             </p>
 
             {/* Distinction table */}
@@ -160,25 +160,25 @@ export const Features = () => {
                 <thead>
                   <tr className="border-b bg-muted/50">
                     <th className="px-5 py-3 text-left font-mono text-xs font-semibold tracking-widest text-muted-foreground">LAYER</th>
-                    <th className="px-5 py-3 text-left font-mono text-xs font-semibold tracking-widest text-muted-foreground">SOLVED BY</th>
-                    <th className="px-5 py-3 text-left font-mono text-xs font-semibold tracking-widest text-muted-foreground">WHAT IT HANDLES</th>
+                    <th className="px-5 py-3 text-left font-mono text-xs font-semibold tracking-widest text-muted-foreground">HANDLED BY</th>
+                    <th className="px-5 py-3 text-left font-mono text-xs font-semibold tracking-widest text-muted-foreground">WHAT IT ANSWERS</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr className="border-b">
-                    <td className="px-5 py-4 font-medium">Transaction</td>
-                    <td className="px-5 py-4 text-muted-foreground">Stripe</td>
-                    <td className="px-5 py-4 text-muted-foreground">Did the agent have financial authorization? Was the spend within limits?</td>
+                    <td className="px-5 py-4 font-medium">Payments</td>
+                    <td className="px-5 py-4 text-muted-foreground">Circle · Stripe · Coinbase</td>
+                    <td className="px-5 py-4 text-muted-foreground">Can the agent spend? How much? Gas-free USDC on-chain in seconds.</td>
                   </tr>
                   <tr className="border-b">
                     <td className="px-5 py-4 font-medium">Execution</td>
-                    <td className="px-5 py-4 text-muted-foreground">Cloudflare</td>
-                    <td className="px-5 py-4 text-muted-foreground">Did the agent successfully provision the infrastructure?</td>
+                    <td className="px-5 py-4 text-muted-foreground">Cloudflare · AWS</td>
+                    <td className="px-5 py-4 text-muted-foreground">Did the agent successfully run? Did it provision the infrastructure?</td>
                   </tr>
                   <tr className="bg-primary/5">
-                    <td className="px-5 py-4 font-bold text-foreground">Accountability</td>
+                    <td className="px-5 py-4 font-bold text-foreground">Identity</td>
                     <td className="px-5 py-4 font-bold text-foreground">AgentLair</td>
-                    <td className="px-5 py-4 font-bold text-foreground">Who is legally and cryptographically responsible for every action taken, financial or not?</td>
+                    <td className="px-5 py-4 font-bold text-foreground">Which agent acted? Who owns it? Is it trusted — and can I prove it?</td>
                   </tr>
                 </tbody>
               </table>
@@ -215,8 +215,8 @@ export const Features = () => {
               {
                 icon: ShoppingCart,
                 label: "AGENTIC COMMERCE",
-                title: "Trust-gated x402 transactions",
-                body: "Every x402-gated API call is a behavioral event. AgentLair checks trust before payment, prices access by reputation (trusted agents pay less, unknown agents pay more), and logs the payment outcome to the agent's behavioral record. The result: dynamic pricing that compounds into a portable trust signal — not just a transaction receipt.",
+                title: "Know which agent is buying",
+                body: "Circle, Stripe, and Coinbase handle the payment rail. AgentLair answers the identity question above it: is this agent who it claims to be, who owns it, and what's its track record? Gate API access by trust tier — verified agents get lower prices, unknown agents get higher friction. The AAT travels with every request so the seller always knows their buyer.",
               },
               {
                 icon: FileCheck,
