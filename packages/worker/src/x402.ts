@@ -314,8 +314,10 @@ export const SERVICE_PRICES: Record<string, ServicePaymentConfig> = {
   },
   trust_query: {
     amount: '10000', // 0.01 USDC
+    // resource: broader product resource (covers /v1/trust/{agentId}, /:agentId/check, /score).
+    // Intentional fungibility — one payment, three route shapes.
     resource: 'https://agentlair.dev/v1/trust',
-    description: 'AgentLair trust score query — 0.01 USDC per lookup.',
+    description: 'AgentLair trust score query — 0.01 USDC per lookup. Payment authorizes all three trust-query routes: /v1/trust/{agentId}, /v1/trust/{agentId}/check, and /v1/trust/score (broader product resource = /v1/trust).',
     mimeType: 'application/json',
     discovery: {
       input: { agent_id: 'acc_abc123' },
@@ -507,6 +509,7 @@ export function make402Response(service: ServicePaymentConfig, extra?: Record<st
     headers: {
       'Content-Type': 'application/json',
       'X-402-Version': String(X402_CONFIG.x402Version),
+      'Cache-Control': 'no-store',
     },
   });
 }

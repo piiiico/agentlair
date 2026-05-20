@@ -5185,7 +5185,7 @@ export const OPENAPI_SPEC = {
             }
           },
           "402": {
-            "description": "Payment required (anonymous access — pay 0.01 USDC via x402)"
+            "description": "Payment required (anonymous access — pay 0.01 USDC via x402). The same payment authorizes all three trust-query routes: /v1/trust/{agentId}, /v1/trust/{agentId}/check, /v1/trust/score — `resource` is the broader product URL (/v1/trust) by design."
           },
           "503": {
             "description": "Trust scoring database not available",
@@ -5252,6 +5252,9 @@ export const OPENAPI_SPEC = {
               }
             }
           },
+          "402": {
+            "description": "Payment required (anonymous access — pay 0.01 USDC via x402). The same payment authorizes all three trust-query routes: /v1/trust/{agentId}, /v1/trust/{agentId}/check, /v1/trust/score — `resource` is the broader product URL (/v1/trust) by design."
+          },
           "401": {
             "description": "Unauthorized",
             "content": {
@@ -5281,6 +5284,72 @@ export const OPENAPI_SPEC = {
                     "detail": { "type": "string" }
                   }
                 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/trust/{agentId}/check": {
+      "get": {
+        "tags": ["trust"],
+        "summary": "Fast-path trust gate for an agent",
+        "description": "Returns a lightweight trust check result (atfLevel + meetsMinimum bool). Designed for enforcement gates that need a fast pass/fail without the full score breakdown.",
+        "security": [{ "bearerAuth": [] }, {}],
+        "parameters": [
+          {
+            "name": "agentId",
+            "in": "path",
+            "required": true,
+            "description": "Agent account ID",
+            "schema": {
+              "type": "string",
+              "pattern": "^acc_[A-Za-z0-9_-]{1,64}$",
+              "example": "acc_k7x9m2p4abcd1234"
+            }
+          },
+          {
+            "name": "min_level",
+            "in": "query",
+            "required": false,
+            "description": "Minimum trust level required (0–1000)",
+            "schema": { "type": "integer", "minimum": 0, "maximum": 1000 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Trust gate result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "agentId": { "type": "string", "example": "acc_k7x9m2p4abcd1234" },
+                    "meetsMinimum": { "type": "boolean", "description": "Whether agent meets the requested minimum level" },
+                    "score": { "type": "integer", "description": "Current trust score (0-1000)" },
+                    "tier": { "type": "string", "enum": ["untrusted", "provisional", "trusted", "verified"] }
+                  },
+                  "required": ["agentId", "meetsMinimum", "score", "tier"]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid agent ID or parameters",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "402": {
+            "description": "Payment required (anonymous access — pay 0.01 USDC via x402). The same payment authorizes all three trust-query routes: /v1/trust/{agentId}, /v1/trust/{agentId}/check, /v1/trust/score — `resource` is the broader product URL (/v1/trust) by design."
+          },
+          "404": {
+            "description": "Agent not found",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
               }
             }
           }
