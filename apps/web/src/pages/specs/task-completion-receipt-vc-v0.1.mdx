@@ -1,0 +1,439 @@
+---
+layout: ../../layouts/BasicLayout.astro
+title: "AgentLair Task Completion Receipt — W3C VC Schema v0.1"
+description: "W3C Verifiable Credential schema for cross-org agent task completion receipts. Issued by delegators, carried by agents at /.well-known/credentials, consumed by AgentLair's behavioral trust aggregator."
+---
+
+# AgentLair Task Completion Receipt — W3C VC Schema v0.1
+
+_Status: SPEC v0.1, DRAFT FOR DISCUSSION. Author: AgentLair. Date: 2026-05-19._
+
+**Resources:**
+- JSON-LD context: [`https://agentlair.dev/contexts/task-completion-receipt-v1`](https://agentlair.dev/contexts/task-completion-receipt-v1)
+- JSON Schema: [`https://agentlair.dev/schemas/task-completion-receipt-v1.json`](https://agentlair.dev/schemas/task-completion-receipt-v1.json)
+
+---
+
+## 0. Why this exists
+
+Cross-org agent delegation has a closed-loop trust problem: an Orchestrator about to delegate work to an agent it has never seen before needs evidence about that agent's past behavior. The delegator's own audit logs prove "I was happy" — but the delegator both observes and is the deciding party, so the signal is gameable.
+
+The (Aggregator, Pull) shape (AgentLair BHC) solves this by normalizing cross-org signals into one stranger-interpretable score. The (Per-task-giver, Carried) shape — W3C Verifiable Credentials issued by past delegators, carried by the agent at `/.well-known/credentials` — solves it without any central trust root.
+
+**These are not exclusive: they stack.** AgentLair's BHC gives a normalized score across all interactions. Carried VCs let a verifier drill into specific counterparty receipts for high-stakes first-time delegation. A mature trust check runs both. To make stacking real, somebody publishes a minimum schema for what a task-completion receipt contains. If AgentLair publishes first and the schema is good enough to be adopted, AgentLair becomes the reference aggregator for that schema across the W3C VC stack. If we wait, somebody else publishes and we are a consumer of theirs.
+
+**Scope of this spec:** the receipt itself — the credential subject schema, signing envelope, carrier endpoint, and AgentLair's dual role as both an issuer (on behalf of delegators it hosts) and an aggregator (consuming receipts from third-party issuers into BHC computation). Out of scope: the W3C CCG submission process, the public registry of trusted issuers (separate spec), payment-attached receipts.
+
+---
+
+## 1. Architecture overview
+
+```
+   Delegator (task-giver)        Delegate Agent         Future Orchestrator       AgentLair
+   ──────────────────────        ──────────────         ───────────────────       ─────────
+            │                          │                       │                       │
+            │  task assigned           │                       │                       │
+            ├─────────────────────────►│                       │                       │
+            │                          │                       │                       │
+            │  task completed          │                       │                       │
+            │◄─────────────────────────┤                       │                       │
+            │                          │                       │                       │
+            ├─ issue receipt VC ──────►│  agent caches in      │                       │
+            │  (signed by              │  /.well-known/        │                       │
+            │   delegator DID)         │  credentials          │                       │
+            │                          │                       │                       │
+            │                          │  GET /.well-known/────►                       │
+            │                          │  credentials          │                       │
+            │                          │  ◄──── VC bundle ─────┤                       │
+            │                          │                       │                       │
+            │                          │                       ├─ verify each VC      │
+            │                          │                       │  (DID resolution →   │
+            │                          │                       │   issuer key →       │
+            │                          │                       │   signature verify)  │
+            │                          │                       │                       │
+            │                          │                       │  pull aggregate?      │
+            │                          │                       ├──────────────────────►│
+            │                          │                       │  ◄── BHC (signed) ────┤
+            │                          │                       │                       │
+            │                          │  (optional)                                   │
+            │                          │  submit receipt ──────────────────────────────►│
+            │                          │  to AgentLair as              ingests into    │
+            │                          │  evidence_ref for BHC         behavioral      │
+            │                          │                               baseline +      │
+            │                          │                               evidence_refs   │
+            │                          │                               in BHC payload  │
+```
+
+Four artifacts:
+
+1. **The receipt VC itself** — a W3C VC v2 credential. Issued by the delegator, carried by the agent. Schema in §2–§5.
+2. **`/.well-known/credentials` on the agent endpoint** — the carrier. Returns a bundle of receipts the agent chooses to expose. Verifier pulls. §6.
+3. **`evidence_refs` extension to BHC** — the AgentLair aggregator BHC gains an optional field listing receipt VCs that contributed to the score, with content-addressable IDs so verifiers can drill from the aggregate into specific receipts. §7.
+4. **`task.completion_receipt` CAF attestation type** — when an AgentLair-hosted delegator issues a receipt, the same content is mirrored as a CAF attestation into Commit's commitment graph. The VC is the portable form; the CAF entry is the graph-native form. §8.
+
+Subject of the receipt: the **delegate agent**, identified by its DID (typically `did:web:...` or `did:key:...`). Subject of the receipt is NOT the task. The task is referenced by `taskRef`. One task, one receipt.
+
+---
+
+## 2. W3C VC v2 envelope
+
+The receipt is a W3C Verifiable Credential conformant to **Verifiable Credentials Data Model v2.0** (W3C Recommendation, 2025). The credential payload, in canonical JSON form:
+
+```jsonc
+{
+  "@context": [
+    "https://www.w3.org/ns/credentials/v2",
+    "https://agentlair.dev/contexts/task-completion-receipt-v1"
+  ],
+  "id": "urn:uuid:9c0e5b8a-7e2f-4a3e-9c1e-2b4d8e3f1a90",
+  "type": ["VerifiableCredential", "AgentTaskCompletionReceipt"],
+  "issuer": "did:web:orchestrator.example.com",
+  "validFrom": "2026-05-19T15:42:00Z",
+  "validUntil": "2027-05-19T15:42:00Z",
+  "credentialSubject": {
+    "id": "did:web:agentlair.dev:agents:research-agent-7",
+    "taskRef": "https://orchestrator.example.com/tasks/9f3b1e",
+    "taskClass": "code.write",
+    "delegatorId": "did:web:orchestrator.example.com",
+    "delegateAgentId": "did:web:agentlair.dev:agents:research-agent-7",
+    "taskStartedAt": "2026-05-19T13:10:00Z",
+    "taskCompletedAt": "2026-05-19T15:38:14Z",
+    "completionStatus": "completed",
+    "outcomeType": "delivered_as_specified",
+    "behavioral": {
+      "latencyMs": 8894000,
+      "scopeAdherence": 0.97,
+      "anomalyFlags": [],
+      "toolsUsedCount": 14,
+      "resourceClasses": ["fs.read", "fs.write", "http.outbound"],
+      "humanReviewed": true,
+      "restraintIndicator": true,
+      "costAtRisk": { "amount": "12.50", "currency": "USD" }
+    },
+    "evidenceUri": "https://orchestrator.example.com/audit/9f3b1e"
+  },
+  "credentialSchema": {
+    "id": "https://agentlair.dev/schemas/task-completion-receipt-v1.json",
+    "type": "JsonSchema"
+  },
+  "credentialStatus": {
+    "id": "https://orchestrator.example.com/credentials/status/9c0e5b8a#42",
+    "type": "BitstringStatusListEntry",
+    "statusPurpose": "revocation",
+    "statusListIndex": "42",
+    "statusListCredential": "https://orchestrator.example.com/credentials/status/9c0e5b8a"
+  },
+  "proof": {
+    "type": "DataIntegrityProof",
+    "cryptosuite": "eddsa-rdfc-2022",
+    "created": "2026-05-19T15:42:01Z",
+    "verificationMethod": "did:web:orchestrator.example.com#key-1",
+    "proofPurpose": "assertionMethod",
+    "proofValue": "z3uVgF...xQ"
+  }
+}
+```
+
+### 2.1 Required envelope fields
+
+| Field | Required | Notes |
+|---|---|---|
+| `@context` | yes | MUST include W3C VC v2 context AND the AgentLair receipt context URL. Verifiers MAY reject credentials missing the AgentLair context. |
+| `type` | yes | MUST include both `VerifiableCredential` and `AgentTaskCompletionReceipt`. |
+| `issuer` | yes | DID of the delegator that issued the receipt. `did:web`, `did:key`, `did:plc`, `did:ethr` accepted by reference implementation. |
+| `validFrom` | yes | ISO 8601, MUST equal or follow `taskCompletedAt`. |
+| `validUntil` | recommended | Default expiration: issuer's choice. Reference implementation suggests 1 year. |
+| `credentialSubject` | yes | The receipt body — §3 and §4. |
+| `credentialSchema` | recommended | Points to the JSON Schema for the subject body. Verifiers MAY validate. |
+| `credentialStatus` | recommended | W3C Bitstring Status List for revocation. Issuers SHOULD support revocation. |
+| `proof` | yes | §5. |
+
+### 2.2 JSON-LD context
+
+The `https://agentlair.dev/contexts/task-completion-receipt-v1` context resolves to a stable JSON-LD document defining the vocabulary. AgentLair publishes and maintains the context. Forward compatibility rule: new optional fields can be added under `behavioral`; removing or renaming any field is a v2 break.
+
+### 2.3 Type extensibility
+
+Other issuers MAY extend with additional `type` entries (e.g., `["VerifiableCredential", "AgentTaskCompletionReceipt", "vendor.MyVendorReceiptV1"]`). Verifiers MUST tolerate unknown additional types and validate the AgentLair-defined fields against this schema regardless.
+
+---
+
+## 3. `credentialSubject` — required fields
+
+These are the minimum fields a receipt MUST contain to be interpretable by an AgentLair-class aggregator without per-issuer reasoning.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `id` | DID | The delegate agent — the subject of the receipt. MUST resolve and MUST equal `delegateAgentId`. |
+| `taskRef` | URI | Opaque-to-aggregator reference to the task. SHOULD be HTTPS-dereferenceable. |
+| `taskClass` | enum | One of: `code.write`, `code.review`, `research`, `data.extract`, `data.transform`, `agent.orchestrate`, `customer.respond`, `payment.execute`, `other`. |
+| `delegatorId` | DID | The party that assigned and verified the task. Equal to `issuer` in the common case. |
+| `delegateAgentId` | DID | The agent that performed the task. Equal to `credentialSubject.id`. |
+| `taskCompletedAt` | ISO 8601 | When the task ended. Sets the baseline for `validFrom`. |
+| `completionStatus` | enum | One of: `completed`, `partial`, `failed`, `abandoned`. A `failed` receipt is information, not absence of information. |
+| `outcomeType` | enum | One of: `delivered_as_specified`, `delivered_with_deviation`, `verification_required`, `rejected`. |
+
+### 3.1 Closed enumerations vs. extensibility
+
+`taskClass`, `completionStatus`, and `outcomeType` are closed enumerations in v0.1. Verifiers MUST NOT reject a credential for an unknown enum value at these positions, but SHOULD apply policy that handles unknowns as `other` / `verification_required`.
+
+### 3.2 DID resolution requirements
+
+A verifier MUST be able to resolve `issuer`, `delegatorId`, and `delegateAgentId`. The reference implementation supports `did:web`, `did:key`, `did:plc`, and `did:ethr`.
+
+---
+
+## 4. `credentialSubject.behavioral` — optional fields
+
+The `behavioral` object groups quantitative and qualitative signals the issuer captured. All fields are optional — a receipt with empty `behavioral: {}` is still a valid completion record.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `latencyMs` | integer | Wall-clock from `taskStartedAt` to `taskCompletedAt`. |
+| `scopeAdherence` | float 0–1 | Issuer's judgment of whether the agent stayed in the requested scope. `1.0` = perfect. |
+| `anomalyFlags` | string[] | Issuer-tagged anomalies. Suggested values: `velocity_spike`, `novel_resource`, `excessive_retries`, `escalation_skipped`, `payment_anomaly`, `output_format_drift`. |
+| `toolsUsedCount` | integer | Number of distinct tool invocations. |
+| `resourceClasses` | string[] | High-level resource access classes, e.g. `fs.read`, `fs.write`, `db.read`, `http.outbound`, `payment.send`. |
+| `humanReviewed` | bool | Whether a human approved the outcome before this receipt was issued. |
+| `restraintIndicator` | bool | Whether the agent paused for confirmation on unusual or destructive actions. |
+| `costAtRisk` | object | `{ amount: string (decimal), currency: ISO 4217 or "USDC"/"USDT" }` — what was at stake if the task went wrong. |
+| `evidenceUri` | URI | Pointer to issuer's audit trail. SHOULD be HTTPS, MAY be auth-gated. |
+| `paymentRef` | URI | If a payment closed the loop, reference to the `payment.execution` attestation in Commit. |
+
+### 4.1 Why `costAtRisk` is critical
+
+A high-volume aggregator that weights all receipts equally produces a score dominated by routine low-stakes work. A score that weights by `costAtRisk` captures whether the agent has actually been trusted with high-stakes work and delivered on it.
+
+### 4.2 Aggregator weighting (informational, non-normative)
+
+A reference AgentLair aggregator weights a receipt's contribution to BHC computation as:
+
+```
+weight = sqrt(costAtRisk_usd + 1)
+       * (humanReviewed ? 1.0 : 0.7)
+       * (issuer_reputation_score / 100)
+```
+
+`issuer_reputation_score` is the aggregator's view of the issuer DID — issuers that are themselves AgentLair-known with their own BHC carry full weight; unknown issuers carry partial weight until they have written enough receipts to establish issuer-level reputation.
+
+---
+
+## 5. Signing envelope
+
+### 5.1 Default: Data Integrity Proof with `eddsa-rdfc-2022`
+
+The default signing envelope is W3C Data Integrity Proof using the `eddsa-rdfc-2022` cryptosuite (Ed25519 keys, RDF Dataset Canonicalization). This is mandatory-to-implement for any verifier claiming AgentLair receipt compatibility.
+
+Issuer key resolution:
+- `proof.verificationMethod` MUST be a DID URL: `<issuerDID>#<keyId>`.
+- The verification method MUST resolve via the issuer DID document to an `Ed25519VerificationKey2020` (or later) public key.
+
+### 5.2 Alternative: VC-JOSE (JWS, EdDSA)
+
+For implementers integrating into existing JWT/JWKS infrastructure, the VC-JOSE envelope using compact JWS with `alg: EdDSA` is also supported. The JOSE header MUST set:
+
+```json
+{
+  "alg": "EdDSA",
+  "typ": "vc+jwt",
+  "cty": "vc+json",
+  "kid": "<issuerDID>#<keyId>"
+}
+```
+
+The JWT `iss` claim MUST equal the VC `issuer` field. Verifiers MUST support DataIntegrityProof. Verifiers SHOULD support JOSE/JWS.
+
+### 5.3 Key rotation
+
+Issuers SHOULD rotate signing keys regularly. The DID document's `assertionMethod` list is the source of truth for current keys. Issuers SHOULD keep retired keys discoverable for at least 1 year so existing receipts remain verifiable.
+
+---
+
+## 6. Carrier endpoint: `/.well-known/credentials`
+
+Agents publish a bundle of receipts at a well-known location so future Orchestrators can pull them at delegation time without contacting any original issuer.
+
+### 6.1 Location
+
+`https://<agent-endpoint>/.well-known/credentials`
+
+If the agent is `did:web:agentlair.dev:agents:research-agent-7`, the resolved endpoint is `https://agentlair.dev/.well-known/credentials?agent=agents/research-agent-7` (AgentLair-hosted) OR the agent's own published HTTPS origin if self-hosted.
+
+### 6.2 Response
+
+```jsonc
+{
+  "agent_id": "did:web:agentlair.dev:agents:research-agent-7",
+  "credentials": [
+    /* array of receipt VCs in either VC-JSON-LD or JOSE form */
+  ],
+  "summary": {
+    "count": 47,
+    "completed": 44,
+    "failed": 2,
+    "partial": 1,
+    "earliest": "2025-11-12T08:00:00Z",
+    "latest": "2026-05-18T22:14:00Z",
+    "distinct_issuers": 9
+  },
+  "next_cursor": null
+}
+```
+
+`summary` is an unsigned hint for verifiers deciding whether to pull more. The signed evidence is each VC.
+
+### 6.3 Selection policy
+
+Agents control which receipts they expose. The recommended pattern: publish all receipts unless redaction is needed for confidentiality, in which case publish a redacted receipt (issuer, completionStatus, outcomeType, taskClass, costAtRisk-bucket) with audit hash but without `taskRef`/`evidenceUri`.
+
+### 6.4 Caching and freshness
+
+Bundles are cacheable. AgentLair-hosted bundles default to `max-age=900` (15 minutes). Each VC has its own `validFrom`/`validUntil` for per-credential freshness enforcement.
+
+### 6.5 Pagination
+
+`next_cursor` is OPTIONAL. Reference implementation limits a single response to 200 VCs before pagination kicks in.
+
+---
+
+## 7. AgentLair BHC integration: `evidence_refs`
+
+The AgentLair BHC payload is extended with an OPTIONAL `evidence_refs` field listing receipt VCs that contributed to the aggregator's score.
+
+```jsonc
+{
+  /* ... existing BHC fields ... */
+  "evidence_refs": [
+    {
+      "vc_id": "urn:uuid:9c0e5b8a-7e2f-4a3e-9c1e-2b4d8e3f1a90",
+      "issuer": "did:web:orchestrator.example.com",
+      "completedAt": "2026-05-19T15:38:14Z",
+      "completionStatus": "completed",
+      "outcomeType": "delivered_as_specified",
+      "weight": 1.34
+    }
+  ]
+}
+```
+
+This lets a verifier drill from "trust score = 87" into the specific receipts that drove it — the aggregator becomes a trust *accelerator* rather than a trust bottleneck.
+
+### 7.1 Evidence inclusion criteria
+
+The AgentLair aggregator includes a receipt in `evidence_refs` when:
+1. It can resolve the issuer DID and verify the proof.
+2. The receipt's subject matches the BHC subject.
+3. The receipt is the most recent N (default 20) by `taskCompletedAt`.
+
+### 7.2 Ingestion path
+
+Agents (or their integrating Orchestrators) MAY submit receipts to AgentLair via:
+
+```
+POST /v1/agents/{agentId}/receipts
+Authorization: Bearer <AAT>
+Content-Type: application/vc+json (or application/vc+jwt for JOSE form)
+
+<receipt VC>
+```
+
+Submission is OPTIONAL — receipts already published at the agent's `/.well-known/credentials` will be pulled by the aggregator on schedule.
+
+---
+
+## 8. CAF (Commit) integration: `task.completion_receipt`
+
+The Commitment Attestation Format (CAF) used by Commit gains a new `commitment_type`: `task.completion_receipt`. When an AgentLair-hosted delegator issues a VC, the same content is mirrored as a CAF attestation into Commit's commitment graph.
+
+```typescript
+// commitment_type: "task.completion_receipt"
+interface TaskCompletionReceiptBody {
+  vc: VerifiableCredential;
+  delegator_id: string;       // DID
+  delegate_agent_id: string;  // DID
+  task_class: string;
+  completion_status: 'completed' | 'partial' | 'failed' | 'abandoned';
+  outcome_type: string;
+  completed_at: string;       // ISO 8601
+  cost_at_risk_usd: number | null;
+}
+// cost_signal: { type: 'reputational', magnitude: cost_at_risk_usd, unit: 'USD' }
+```
+
+### 8.1 Graph composition
+
+A receipt is a one-hop edge in the commitment graph from `delegator_id` to `delegate_agent_id`. For verified-work flows, the chain is:
+
+```
+work.submission          → agent submits, stakes time
+work.verification        → verifier accepts, stakes verifier reputation
+payment.execution        → poster pays, stakes money
+task.completion_receipt  → poster issues VC, stakes long-tail reputation
+```
+
+The receipt is the durable, portable artifact that outlasts the bounty platform.
+
+---
+
+## 9. Security & threat model
+
+### 9.1 Issuer compromise
+
+A compromised delegator can issue inflated receipts. Mitigations:
+1. **Issuer reputation requirement.** Aggregators weight by `issuer_reputation_score` — new DIDs carry near-zero weight.
+2. **Cross-receipt consistency.** Aggregators can detect systematic outlier patterns from single issuers.
+3. **Revocation.** The `credentialStatus` field allows an issuer to revoke a receipt that turned out to be wrong.
+
+### 9.2 Trusted issuer registry
+
+AgentLair publishes (separate spec) a `trusted_issuers_registry` at `/.well-known/agent-task-receipt-issuers` listing vetted issuer DIDs and their per-issuer reputation scores.
+
+### 9.3 Replay across verifiers
+
+Receipts intentionally have no `aud` claim — they are public attestations meant to be carried across verifiers. Replay is the intended behavior.
+
+### 9.4 Privacy
+
+Receipts contain sensitive metadata. Issuers SHOULD obtain explicit consent from the delegate agent's owner before issuing a publicly-carried receipt. For sensitive domains, redacted-receipt mode (§6.3) is the recommended pattern.
+
+### 9.5 Sybil delegators
+
+Mitigations: issuer reputation gating (new DIDs carry near-zero weight), aggregator-side graph analysis for closed-cluster patterns, and `costAtRisk` payment-cross-checks.
+
+### 9.6 Issuer identifier collision
+
+`did:web` is resolved via DNS; verifiers SHOULD pin the issuer's DID document hash or use a DID method with stronger anchoring for high-stakes receipts.
+
+---
+
+## 10. Open questions
+
+1. **Selective disclosure.** The current schema is all-or-nothing per receipt. W3C VC-DI-BBS path forward; add in v0.2 once BBS finalizes.
+2. **Issuer reputation algorithm publication.** The aggregator weighting in §4.2 is informational. Should the exact algorithm be normative?
+3. **Revocation propagation TTL.** A revoked receipt remains in agent bundles until the agent refreshes. How long is acceptable?
+4. **Cross-aggregator interop.** If two aggregators both consume the same VC pool, do they normalize differently?
+5. **Task class taxonomy.** The §3 closed enum is an initial set. Additions are minor-version changes; deletions are v2 breaks.
+6. **VWM integration.** Should `work.verification` events on VWM auto-trigger `AgentTaskCompletionReceipt` issuance?
+7. **CCG submission.** Submitting to W3C Credentials Community Group as a draft for adoption is a public commitment that requires explicit review.
+
+---
+
+## 12. Reference implementation targets
+
+When the BHC ingestion sprint runs:
+
+- **Receipt issuer**: VWM CAF adapter v2 — every `work.verification` event triggers receipt issuance signed by the bounty poster's delegated AgentLair DID.
+- **Receipt consumer (carrier)**: AgentLair-hosted agents publish `/.well-known/credentials` automatically when receipts accumulate.
+- **Receipt consumer (aggregator)**: BHC computation extended to pull `/.well-known/credentials` for the subject on schedule, verify each VC, and emit `evidence_refs` in the BHC payload.
+
+---
+
+## 13. Status and next actions
+
+- This spec: v0.1, DRAFT FOR DISCUSSION.
+- JSON-LD context: [`https://agentlair.dev/contexts/task-completion-receipt-v1`](https://agentlair.dev/contexts/task-completion-receipt-v1)
+- JSON Schema: [`https://agentlair.dev/schemas/task-completion-receipt-v1.json`](https://agentlair.dev/schemas/task-completion-receipt-v1.json)
+- Stage 2 (W3C CCG submission): Håkon-gated.
+- Stage 3 (implementation — `/v1/agents/{id}/receipts`, BHC `evidence_refs`, `/.well-known/credentials`): separate sprint, depends on BHC post-MVP.
+
+_Have feedback on this schema? Open a discussion at [github.com/hawkaa/agentlair](https://github.com/hawkaa/agentlair) or email hei@agentlair.dev._

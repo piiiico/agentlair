@@ -1,0 +1,147 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentlair.dev/schemas/task-completion-receipt-v1.json",
+  "title": "AgentLair Task Completion Receipt VC — credentialSubject schema v1",
+  "description": "JSON Schema for the credentialSubject of an AgentTaskCompletionReceipt W3C Verifiable Credential. See spec: https://agentlair.dev/specs/task-completion-receipt-vc-v0.1",
+  "type": "object",
+  "required": [
+    "id",
+    "taskRef",
+    "taskClass",
+    "delegatorId",
+    "delegateAgentId",
+    "taskCompletedAt",
+    "completionStatus",
+    "outcomeType"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "DID of the delegate agent — the subject of the receipt. MUST resolve and MUST equal delegateAgentId.",
+      "pattern": "^did:"
+    },
+    "taskRef": {
+      "type": "string",
+      "format": "uri",
+      "description": "Opaque-to-aggregator reference to the task. SHOULD be HTTPS-dereferenceable."
+    },
+    "taskClass": {
+      "type": "string",
+      "enum": [
+        "code.write",
+        "code.review",
+        "research",
+        "data.extract",
+        "data.transform",
+        "agent.orchestrate",
+        "customer.respond",
+        "payment.execute",
+        "other"
+      ],
+      "description": "High-level task category. Aggregators normalize by class for behavioral baselines."
+    },
+    "delegatorId": {
+      "type": "string",
+      "description": "DID of the party that assigned and verified the task. Equal to issuer in the common case.",
+      "pattern": "^did:"
+    },
+    "delegateAgentId": {
+      "type": "string",
+      "description": "DID of the agent that performed the task. Equal to credentialSubject.id.",
+      "pattern": "^did:"
+    },
+    "taskStartedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when the task began. Required if latencyMs is present."
+    },
+    "taskCompletedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when the task ended. Sets the baseline for validFrom."
+    },
+    "completionStatus": {
+      "type": "string",
+      "enum": ["completed", "partial", "failed", "abandoned"],
+      "description": "Terminal state of the task. A failed receipt is information, not absence of information."
+    },
+    "outcomeType": {
+      "type": "string",
+      "enum": [
+        "delivered_as_specified",
+        "delivered_with_deviation",
+        "verification_required",
+        "rejected"
+      ],
+      "description": "Qualitative outcome separate from completion status."
+    },
+    "behavioral": {
+      "type": "object",
+      "description": "Optional quantitative and qualitative signals captured by the issuer.",
+      "properties": {
+        "latencyMs": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Wall-clock milliseconds from taskStartedAt to taskCompletedAt. Required if taskStartedAt is present."
+        },
+        "scopeAdherence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Issuer's judgment of whether the agent stayed in the requested scope. 1.0 = perfect."
+        },
+        "anomalyFlags": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Issuer-tagged anomalies. Suggested values: velocity_spike, novel_resource, excessive_retries, escalation_skipped, payment_anomaly, output_format_drift."
+        },
+        "toolsUsedCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of distinct tool invocations. Cheap signal of task complexity."
+        },
+        "resourceClasses": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "High-level resource access classes, e.g. fs.read, fs.write, db.read, http.outbound, payment.send."
+        },
+        "humanReviewed": {
+          "type": "boolean",
+          "description": "Whether a human approved the outcome before this receipt was issued."
+        },
+        "restraintIndicator": {
+          "type": "boolean",
+          "description": "Whether the agent paused for confirmation on unusual or destructive actions."
+        },
+        "costAtRisk": {
+          "type": "object",
+          "required": ["amount", "currency"],
+          "properties": {
+            "amount": {
+              "type": "string",
+              "pattern": "^[0-9]+(\\.[0-9]+)?$",
+              "description": "Decimal string representing the amount at stake."
+            },
+            "currency": {
+              "type": "string",
+              "description": "ISO 4217 currency code (USD, EUR, NOK) or crypto ticker (USDC, USDT)."
+            }
+          },
+          "description": "What was at stake if the task went wrong. Higher costAtRisk receipts are weighted more in aggregation."
+        },
+        "evidenceUri": {
+          "type": "string",
+          "format": "uri",
+          "description": "Pointer to issuer's audit trail. SHOULD be HTTPS, MAY be auth-gated."
+        },
+        "paymentRef": {
+          "type": "string",
+          "format": "uri",
+          "description": "If a payment closed the loop, reference to the payment.execution attestation in Commit."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": true
+}

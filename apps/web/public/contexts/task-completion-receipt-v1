@@ -1,0 +1,90 @@
+{
+  "@context": {
+    "@version": 1.1,
+    "@protected": true,
+    "id": "@id",
+    "type": "@type",
+    "AgentTaskCompletionReceipt": {
+      "@id": "https://agentlair.dev/terms/AgentTaskCompletionReceipt",
+      "@type": "@id"
+    },
+    "taskRef": {
+      "@id": "https://agentlair.dev/terms/taskRef",
+      "@type": "@id"
+    },
+    "taskClass": {
+      "@id": "https://agentlair.dev/terms/taskClass",
+      "@type": "https://www.w3.org/2001/XMLSchema#string"
+    },
+    "delegatorId": {
+      "@id": "https://agentlair.dev/terms/delegatorId",
+      "@type": "@id"
+    },
+    "delegateAgentId": {
+      "@id": "https://agentlair.dev/terms/delegateAgentId",
+      "@type": "@id"
+    },
+    "taskStartedAt": {
+      "@id": "https://agentlair.dev/terms/taskStartedAt",
+      "@type": "https://www.w3.org/2001/XMLSchema#dateTime"
+    },
+    "taskCompletedAt": {
+      "@id": "https://agentlair.dev/terms/taskCompletedAt",
+      "@type": "https://www.w3.org/2001/XMLSchema#dateTime"
+    },
+    "completionStatus": {
+      "@id": "https://agentlair.dev/terms/completionStatus",
+      "@type": "https://www.w3.org/2001/XMLSchema#string"
+    },
+    "outcomeType": {
+      "@id": "https://agentlair.dev/terms/outcomeType",
+      "@type": "https://www.w3.org/2001/XMLSchema#string"
+    },
+    "behavioral": {
+      "@id": "https://agentlair.dev/terms/behavioral",
+      "@type": "@json",
+      "@context": {
+        "latencyMs": {
+          "@id": "https://agentlair.dev/terms/latencyMs",
+          "@type": "https://www.w3.org/2001/XMLSchema#integer"
+        },
+        "scopeAdherence": {
+          "@id": "https://agentlair.dev/terms/scopeAdherence",
+          "@type": "https://www.w3.org/2001/XMLSchema#decimal"
+        },
+        "anomalyFlags": {
+          "@id": "https://agentlair.dev/terms/anomalyFlags",
+          "@container": "@list"
+        },
+        "toolsUsedCount": {
+          "@id": "https://agentlair.dev/terms/toolsUsedCount",
+          "@type": "https://www.w3.org/2001/XMLSchema#integer"
+        },
+        "resourceClasses": {
+          "@id": "https://agentlair.dev/terms/resourceClasses",
+          "@container": "@list"
+        },
+        "humanReviewed": {
+          "@id": "https://agentlair.dev/terms/humanReviewed",
+          "@type": "https://www.w3.org/2001/XMLSchema#boolean"
+        },
+        "restraintIndicator": {
+          "@id": "https://agentlair.dev/terms/restraintIndicator",
+          "@type": "https://www.w3.org/2001/XMLSchema#boolean"
+        },
+        "costAtRisk": {
+          "@id": "https://agentlair.dev/terms/costAtRisk",
+          "@type": "@json"
+        },
+        "evidenceUri": {
+          "@id": "https://agentlair.dev/terms/evidenceUri",
+          "@type": "@id"
+        },
+        "paymentRef": {
+          "@id": "https://agentlair.dev/terms/paymentRef",
+          "@type": "@id"
+        }
+      }
+    }
+  }
+}
