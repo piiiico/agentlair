@@ -70,17 +70,17 @@ npx @agentlair/mcp-demo-attested &
 curl http://localhost:8787/.well-known/agentlair-trust | jq .
 ```
 
-Or skip the install. The same reference server is hosted at `mcp-demo.agentlair.dev`:
+Or skip the install. The same reference server is live at `mcp-demo.agentlair.dev` — the first attested MCP server on AgentLair:
 
 ```bash
 curl https://mcp-demo.agentlair.dev/.well-known/agentlair-trust | jq .
-curl -s -X POST https://agentlair.dev/v1/trust/mcp/verify \
-  -H "content-type: application/json" \
-  -d '{"url":"https://mcp-demo.agentlair.dev"}' | jq .verified
-# → true
+curl -sS -X POST https://agentlair.dev/v1/trust/mcp/verify \
+  -H 'Content-Type: application/json' \
+  -d '{"url":"https://mcp-demo.agentlair.dev"}'
+# {"verified":true,"server_id":"agentlair_alias:mcp-demo",...}
 ```
 
-That second call is the third party's perspective: AgentLair's verifier fetches the descriptor, checks the issuer, and returns `verified: true`. The first production-attested MCP server is the hosted reference server, and the third-party verify result is the byte that matters.
+That second call is the third party's perspective: AgentLair's verifier fetches the descriptor, checks the issuer, and returns `verified: true` with the resolved `server_id`. The first production-attested MCP server is the hosted reference server, and the third-party verify result is the byte that matters.
 
 ## What this is not
 
