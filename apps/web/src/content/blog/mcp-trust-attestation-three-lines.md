@@ -70,6 +70,18 @@ npx @agentlair/mcp-demo-attested &
 curl http://localhost:8787/.well-known/agentlair-trust | jq .
 ```
 
+Or skip the install. The same reference server is hosted at `mcp-demo.agentlair.dev`:
+
+```bash
+curl https://mcp-demo.agentlair.dev/.well-known/agentlair-trust | jq .
+curl -s -X POST https://agentlair.dev/v1/trust/mcp/verify \
+  -H "content-type: application/json" \
+  -d '{"url":"https://mcp-demo.agentlair.dev"}' | jq .verified
+# → true
+```
+
+That second call is the third party's perspective: AgentLair's verifier fetches the descriptor, checks the issuer, and returns `verified: true`. The first production-attested MCP server is the hosted reference server, and the third-party verify result is the byte that matters.
+
 ## What this is not
 
 The SDK does not run the trust engine. AgentLair's behavioral telemetry (consistency scoring, tool description drift detection, call frequency analysis) runs server-side. What the SDK does is surface the attestation interface: the descriptor agents inspect before they trust your server, and the per-subject endpoint they call to verify an agent's behavioral token.
@@ -94,6 +106,6 @@ The substrate is there. The MCP marketplace has a trust surface problem: tools r
 
 ---
 
-*Install: `npm install @agentlair/mcp-trust-attestation`. Reference server: `npx @agentlair/mcp-demo-attested`. Live descriptor: [agentlair.dev/.well-known/agentlair-trust](https://agentlair.dev/.well-known/agentlair-trust). BHC-S docs: [agentlair.dev/docs/bhc-s](https://agentlair.dev/docs/bhc-s).*
+*Install: `npm install @agentlair/mcp-trust-attestation`. Reference server local: `npx @agentlair/mcp-demo-attested`. Reference server hosted: [mcp-demo.agentlair.dev](https://mcp-demo.agentlair.dev/.well-known/agentlair-trust). Issuer descriptor: [agentlair.dev/.well-known/agentlair-trust](https://agentlair.dev/.well-known/agentlair-trust). BHC-S docs: [agentlair.dev/docs/bhc-s](https://agentlair.dev/docs/bhc-s).*
 
 [Full integration guide: Hono, Express, stdio, and verify patterns →](/docs/mcp-trust-attestation)
