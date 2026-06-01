@@ -164,49 +164,12 @@ function decodeJwtPayload(token: string): Record<string, unknown> | null {
 // ─── Self-host-aware fetch helpers ───────────────────────────────────────────
 
 /**
- * Fetch a URL via CF Service Binding (direct worker-to-worker RPC), bypassing
- * the CF zone HTTP stack. Used when the target hostname is another Worker in the
- * same CF zone (same-zone custom domain HTTP fetches return 403 from CF edge).
- *
- * Returns null if the binding is not available (graceful degradation to HTTP fetch).
- */
-async function fetchViaBinding(
-  url: string,
-  binding: Fetcher | undefined,
-): Promise<{ ok: boolean; body: string | null; status: number; error?: string } | null> {
-  if (!binding) return null;
-  let res: Response;
-  try {
-    res = await binding.fetch(url);
-  } catch (e) {
-    return {
-      ok: false,
-      body: null,
-      status: 0,
-      error: `service binding fetch error: ${e instanceof Error ? e.message : String(e)}`,
-    };
-  }
-  // Read body
-  let body: string;
-  try {
-    body = await res.text();
-  } catch {
-    return { ok: false, body: null, status: res.status, error: 'binding response body read failed' };
-  }
-  return { ok: res.ok, body, status: res.status };
-}
-
-/**
  * Fetch the BHC-S descriptor, short-circuiting self-hosts to avoid CF Worker
  * self-subrequest abort (documented failure mode: 2026-05-13 self-card audit,
  * 2026-05-18 mcp-trust-verify F1).
- *
- * For same-zone agentlair.dev subdomain workers, uses a CF Service Binding if
- * available to bypass the CF edge 403 on same-zone cross-worker HTTP fetches.
  */
 async function getDescriptorBody(
   wellKnownUrl: string,
-  env: Env,
 ): Promise<{ ok: boolean; body: string | null; status: number; error?: string }> {
   let u: URL;
   try {
@@ -218,12 +181,6 @@ async function getDescriptorBody(
     // CF Workers cannot fetch their own origin — use in-process descriptor.
     return { ok: true, body: JSON.stringify(TRUST_DESCRIPTOR), status: 200 };
   }
-  // Same-zone agentlair.dev subdomain workers: CF edge returns 403 for cross-worker
-  // HTTP fetches within the same zone. Use Service Binding if available.
-  if (u.hostname === 'mcp-demo.agentlair.dev' && env.MCP_DEMO) {
-    const result = await fetchViaBinding(wellKnownUrl, env.MCP_DEMO);
-    if (result) return result;
-  }
   return fetchCapped(wellKnownUrl);
 }
 
@@ -231,9 +188,6 @@ async function getDescriptorBody(
  * Fetch the JWKS, short-circuiting self-hosts. Third-party MCP servers may
  * embed `https://agentlair.dev/.well-known/jwks.json` in their descriptors,
  * so this guard is forward-looking, not just for agentlair.dev itself.
- *
- * For same-zone agentlair.dev subdomain workers, uses a CF Service Binding if
- * available to bypass the CF edge 403 on same-zone cross-worker HTTP fetches.
  */
 async function getJwksBody(
   jwksUri: string,
@@ -257,11 +211,6 @@ async function getJwksBody(
     const jwks = await buildJWKS(env.AUDIT_SIGNING_KEY);
     return { ok: true, body: JSON.stringify(jwks), status: 200 };
   }
-  // Same-zone agentlair.dev subdomain workers: use Service Binding if available.
-  if (u.hostname === 'mcp-demo.agentlair.dev' && env.MCP_DEMO) {
-    const result = await fetchViaBinding(jwksUri, env.MCP_DEMO);
-    if (result) return result;
-  }
   return fetchCapped(jwksUri);
 }
 
@@ -270,7 +219,7 @@ async function getJwksBody(
 async function verifyMcpServer(normalizedUrl: string, env: Env): Promise<VerifyResponse> {
   // Fetch .well-known/agentlair-trust
   const wellKnownUrl = `${normalizedUrl}${WELL_KNOWN_PATH}`;
-  const { ok: fetchOk, body: rawBody, status, error: fetchErr } = await getDescriptorBody(wellKnownUrl, env);
+  const { ok: fetchOk, body: rawBody, status, error: fetchErr } = await getDescriptorBody(wellKnownUrl);
 
   if (fetchErr) {
     // Size errors returned verbatim

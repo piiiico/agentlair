@@ -85,6 +85,14 @@ binding = "AUDIT"
 database_name = "agentlair-audit"
 database_id = "7e358e12-9c65-4803-9d1d-298fec510099"
 
+# Service bindings — direct worker-to-worker RPC (bypasses CF zone HTTP stack)
+# CF Workers HTTP subrequests to custom domains in the same zone return 403;
+# service bindings route directly without the zone's edge processing.
+# Used by /v1/trust/mcp/verify to reach same-zone agentlair.dev subdomain workers.
+[[services]]
+binding = "MCP_DEMO"
+service = "agentlair-mcp-demo"
+
 # Cron triggers
 # Daily PoPA emission at 00:00 UTC (one attestation per enabled subscriber per day).
 # IMPORTANT: wrangler.toml [triggers] may not register cron via the deploy script alone.

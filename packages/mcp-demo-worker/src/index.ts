@@ -26,6 +26,7 @@ export interface Env {
 const SERVER_ID = 'agentlair_alias:mcp-demo';
 const SERVER_URL = 'https://mcp-demo.agentlair.dev';
 const ISSUER = 'https://agentlair.dev';
+const SELF_JWKS_URI = `${SERVER_URL}/.well-known/jwks.json`;
 
 // ─── JWT / Ed25519 helpers ────────────────────────────────────────────────────
 
@@ -142,7 +143,7 @@ app.get('/.well-known/agentlair-trust', async (c) => {
 
   const descriptor = {
     issuer: ISSUER,
-    jwks_uri: `${ISSUER}/.well-known/jwks.json`,
+    jwks_uri: SELF_JWKS_URI,
     attestation_endpoint_template: `${ISSUER}/v1/trust/server/{server_id}`,
     supported_signals: [
       'consistency',
@@ -164,14 +165,25 @@ app.get('/.well-known/agentlair-trust', async (c) => {
   return c.json(descriptor);
 });
 
-// GET /.well-known/jwks.json — proxy to agentlair.dev
-app.get('/.well-known/jwks.json', async (_c) => {
-  const res = await fetch(`${ISSUER}/.well-known/jwks.json`, {
-    cf: { cacheTtl: 3600, cacheEverything: true },
-  } as RequestInit);
-  const body = await res.text();
-  return new Response(body, {
-    status: res.status,
+// GET /.well-known/jwks.json — serve this worker's own public key
+// (derived from AUDIT_SIGNING_KEY at request time so it stays in sync with the secret)
+app.get('/.well-known/jwks.json', async (c) => {
+  const privKeyBytes = Uint8Array.from(atob(c.env.AUDIT_SIGNING_KEY), (ch) =>
+    ch.charCodeAt(0),
+  );
+  const pubKeyBytes = ed25519.getPublicKey(privKeyBytes);
+  const kid = await computeKid(pubKeyBytes);
+
+  // Base64url-encode public key for JWK x field
+  const x = btoa(String.fromCharCode(...pubKeyBytes))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=/g, '');
+
+  const jwks = {
+    keys: [{ kty: 'OKP', crv: 'Ed25519', x, kid, use: 'sig', alg: 'EdDSA' }],
+  };
+  return new Response(JSON.stringify(jwks), {
     headers: {
       'Content-Type': 'application/json',
       'Cache-Control': 'public, max-age=3600',

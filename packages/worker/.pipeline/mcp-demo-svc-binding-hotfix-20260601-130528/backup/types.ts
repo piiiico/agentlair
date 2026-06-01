@@ -46,13 +46,6 @@ export interface Env {
   STRIPE_WEBHOOK_SECRET?: string;
   // MCP server trust attestation cache (optional — graceful degradation if absent)
   TRUST_VERIFY_CACHE?: KVNamespace;
-  // Service binding for mcp-demo.agentlair.dev — bypasses CF same-zone fetch 403.
-  // CF Workers cannot make HTTP subrequests to other Workers in the same zone
-  // (same-account zone custom domains return 403; workers.dev bypasses this but
-  // the canonical URL is mcp-demo.agentlair.dev). Service bindings route directly
-  // to the target worker without going through CF's edge HTTP stack.
-  // Bound in wrangler.toml [[services]] binding = "MCP_DEMO".
-  MCP_DEMO?: Fetcher;
 }
 
 export interface Account {

@@ -1,0 +1,13 @@
+{
+  "pipeline_id": "mcp-demo-svc-binding-hotfix-20260601-130528",
+  "created_at": "2026-06-01T13:05:28Z",
+  "package": "packages/worker",
+  "description": "Hot-fix: add MCP_DEMO service binding to bypass CF same-zone fetch 403 blocking mcp-demo-attested-deploy FF3",
+  "fitness_assertions": [
+    {
+      "id": "FF1",
+      "description": "POST /v1/trust/mcp/verify with mcp-demo.agentlair.dev returns verified=true",
+      "method": "curl -sS -X POST https://agentlair.dev/v1/trust/mcp/verify -H 'Content-Type: application/json' -d '{\"url\":\"https://mcp-demo.agentlair.dev\"}' | python3 -c \"import json,sys; d=json.load(sys.stdin); assert d['verified']==True, d; print('FF1 ok - verified=true')\""
+    }
+  ]
+}
