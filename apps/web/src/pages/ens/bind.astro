@@ -1,0 +1,11 @@
+---
+import { EnsBind } from '@/components/blocks/ens-bind';
+import DefaultLayout from '@/layouts/DefaultLayout.astro';
+---
+
+<DefaultLayout
+  title="Bind ENS → Agent · AgentLair"
+  description="Link your ENS name to an AgentLair agent on-chain via ENSIP-25. Any service can then verify the binding with a single CLI command."
+>
+  <EnsBind client:load />
+</DefaultLayout>
