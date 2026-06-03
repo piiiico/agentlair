@@ -53,14 +53,14 @@ const items = [
 
 const competitors = [
   {
+    name: "vs Circle Agent Stack",
+    claim: "Wallets, nanopayments, marketplace. No identity layer.",
+    ours: "Circle processes the payment. AgentLair tells you who sent it, who owns the agent, and whether to trust them.",
+  },
+  {
     name: "vs AgentMail",
     claim: "They give you a permanent address.",
     ours: "We give you a permanent identity.",
-  },
-  {
-    name: "vs Keycard",
-    claim: "Ephemeral credentials per session.",
-    ours: "Persistent vault that survives restarts.",
   },
   {
     name: "vs Enterprise IAM",
@@ -148,10 +148,10 @@ export const Features = () => {
 
           <div className="mt-10 mx-auto max-w-3xl lg:mt-16">
             <h2 className="text-2xl tracking-tight md:text-3xl lg:text-4xl">
-              Circle, Stripe, and Coinbase solved payments. No one solved identity.
+              Circle built the money pipes for agents. Nobody built the trust layer.
             </h2>
             <p className="mt-6 text-muted-foreground leading-relaxed">
-              Circle's Agent Stack launched in May 2026 — wallets, nanopayments down to 0.000001 USDC, an agent marketplace, all built on x402. Stripe and Coinbase followed. The payment layer is commoditized. What none of them answer: <em>which agent made the call, who is its owner, and do I trust it?</em> Today's answer is git commit metadata. That's the gap. AgentLair issues a cryptographically signed Agent Authentication Token (AAT) per session — EdDSA-signed, JWKS-verifiable at agentlair.dev, tethered to a named human owner. Every action is logged to a tamper-evident ledger. Circle processes the nanopayment. AgentLair tells you who sent it and whether to trust them.
+              Circle's Agent Stack (agents.circle.com) launched in May 2026 — wallets, nanopayments down to 0.000001 USDC, an agent marketplace, all built on x402. Stripe and Coinbase followed with their own rails. The payment layer is commoditized. Every major agent marketplace ships it now. What none of them answer: <em>which agent made the call, who is its owner, and do I trust it?</em> A review of all 8 major agent marketplaces found zero with trust verification built in. The answer today is git commit metadata. That's the gap. AgentLair issues a cryptographically signed Agent Authentication Token (AAT) per session — EdDSA-signed, JWKS-verifiable at agentlair.dev, tethered to a named human owner. Every action is logged to a tamper-evident ledger. Circle processes the nanopayment. AgentLair tells you who sent it and whether to trust them.
             </p>
 
             {/* Distinction table */}
