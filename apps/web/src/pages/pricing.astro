@@ -12,8 +12,8 @@ import DefaultLayout from '@/layouts/DefaultLayout.astro';
   description="Start free with 3 agents and 1,000 verifications/month. Scale to Starter ($29), Pro ($149), or Enterprise for cross-org behavioral trust scoring."
 >
   <Background>
-    <Pricing client:only='react' className="py-28 text-center lg:pt-44 lg:pb-32" />
+    <Pricing client:load className="py-28 text-center lg:pt-44 lg:pb-32" />
     <X402Callout />
-    <PricingTable client:only='react' />
+    <PricingTable client:load />
   </Background>
 </DefaultLayout>
