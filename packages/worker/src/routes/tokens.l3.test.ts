@@ -17,6 +17,7 @@ import { verifyJWT } from '../jwt';
 import { Hono } from 'hono';
 import type { HonoEnv } from '../types';
 import { tokenRoutes } from './tokens';
+import { publicAuditRoutes } from './audit';
 
 function generateTestKey(): { privateKeyB64: string; publicKeyBytes: Uint8Array } {
   const privateKeyBytes = crypto.getRandomValues(new Uint8Array(32));
@@ -47,6 +48,21 @@ function makeEnv() {
   };
 }
 
+/** KV mock that actually stores values for inspection in tests */
+function makeKVMock() {
+  const store = new Map<string, string>();
+  return {
+    store,
+    kv: {
+      get: (key: string) => Promise.resolve(store.get(key) ?? null),
+      put: (key: string, value: string, _opts?: any) => {
+        store.set(key, value);
+        return Promise.resolve();
+      },
+    },
+  };
+}
+
 async function issueL3(
   body: Record<string, unknown>,
   opts: { authenticated?: boolean } = {},
@@ -58,6 +74,28 @@ async function issueL3(
     body: JSON.stringify(body),
   });
   return app.fetch(req, makeEnv(), { waitUntil: () => {} } as any);
+}
+
+/** Issue L3 with a real KV mock; awaits all waitUntil promises before returning */
+async function issueL3WithKV(
+  body: Record<string, unknown>,
+  kvMock: ReturnType<typeof makeKVMock>,
+) {
+  const app = makeApp(true);
+  const pendingWaitUntil: Promise<any>[] = [];
+  const req = new Request('http://localhost/v1/tokens/issue-l3', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const res = await app.fetch(
+    req,
+    { AUDIT_SIGNING_KEY: privateKeyB64, KEYS: kvMock.kv },
+    { waitUntil: (p: Promise<any>) => pendingWaitUntil.push(p) } as any,
+  );
+  // Flush all background work so KV writes are visible before assertions
+  await Promise.all(pendingWaitUntil);
+  return res;
 }
 
 // ─── Tests ─────────────────────────────────────────────────────────────────
@@ -287,5 +325,76 @@ describe('POST /v1/tokens/issue-l3', () => {
     expect(res.status).toBe(201);
     const body = await res.json() as any;
     expect(body.transaction_id).toBe('tx-abc_123-XYZ');
+  });
+
+  // ── KV / tracking (touch points 3 & 4) ───────────────────────────────
+  test('aat-meta KV written on L3 issuance', async () => {
+    const kv = makeKVMock();
+    const res = await issueL3WithKV(
+      { transaction_id: 'tx_kvtest', checkout_hash: 'sha256:abc', l2_mandate: 'mandate' },
+      kv,
+    );
+    expect(res.status).toBe(201);
+    const body = await res.json() as any;
+    const jti: string = body.jti;
+    expect(jti).toMatch(/^aal3_/);
+
+    const raw = kv.store.get(`aat-meta:${jti}`);
+    expect(raw).not.toBeNull();
+    const meta = JSON.parse(raw!);
+    expect(meta.accountId).toBe('acc_test123');
+    expect(typeof meta.issuedAt).toBe('number');
+    expect(typeof meta.expiresAt).toBe('number');
+    expect(Array.isArray(meta.scopes)).toBe(true);
+  });
+
+  test('trackTokenIssuance called on L3 path (KV counter incremented)', async () => {
+    const kv = makeKVMock();
+    const res = await issueL3WithKV(
+      { transaction_id: 'tx_tracktest', checkout_hash: 'sha256:abc', l2_mandate: 'mandate' },
+      kv,
+    );
+    expect(res.status).toBe(201);
+    // trackTokenIssuance writes to token-issue-monthly:<accountId>:<month>
+    const month = new Date().toISOString().slice(0, 7);
+    const counterKey = `token-issue-monthly:acc_test123:${month}`;
+    const value = kv.store.get(counterKey);
+    expect(value).toBe('1');
+  });
+});
+
+// ── Audit endpoint regex (touch points 1 & 2) ──────────────────────────────
+describe('audit endpoint — aal3_ JTI format acceptance', () => {
+  function makeAuditApp() {
+    const app = new Hono<HonoEnv>();
+    app.route('/v1/audit', publicAuditRoutes);
+    return app;
+  }
+
+  test('aal3_ JTI passes format check (returns 402, not 400)', async () => {
+    const app = makeAuditApp();
+    const req = new Request('http://localhost/v1/audit/aal3_ABCDabcd12345678');
+    const res = await app.fetch(req, { KEYS: null } as any, { waitUntil: () => {} } as any);
+    // 402 means the JTI passed format validation and hit the payment gate
+    // 400 would mean invalid_jti (regression)
+    expect(res.status).not.toBe(400);
+    expect(res.status).toBe(402);
+  });
+
+  test('aat_ JTI still accepted (no regression)', async () => {
+    const app = makeAuditApp();
+    const req = new Request('http://localhost/v1/audit/aat_ABCDabcd12345678');
+    const res = await app.fetch(req, { KEYS: null } as any, { waitUntil: () => {} } as any);
+    expect(res.status).not.toBe(400);
+    expect(res.status).toBe(402);
+  });
+
+  test('invalid prefix still rejected with 400', async () => {
+    const app = makeAuditApp();
+    const req = new Request('http://localhost/v1/audit/bad_ABCDabcd12345678');
+    const res = await app.fetch(req, { KEYS: null } as any, { waitUntil: () => {} } as any);
+    expect(res.status).toBe(400);
+    const body = await res.json() as any;
+    expect(body.error).toBe('invalid_jti');
   });
 });

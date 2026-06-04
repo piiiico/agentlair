@@ -405,6 +405,23 @@ tokenRoutes.post('/issue-l3', async (c) => {
     }).catch(() => {}),
   );
 
+  // Store per-token metadata in KV for the public audit endpoint (non-blocking, fail-open)
+  // Mirrors the L2 path (tokens.ts:237-249)
+  if (c.env.KEYS) {
+    c.executionCtx.waitUntil(
+      c.env.KEYS.put(`aat-meta:${jti}`, JSON.stringify({
+        accountId: account.id,
+        issuedAt: now,
+        expiresAt: now + ttl,
+        scopes: [],
+      }), { expirationTtl: ttl + 300 }).catch(() => {}),
+    );
+  }
+
+  // Track issuance count for usage dashboard (non-blocking, fail-open)
+  // Mirrors the L2 path (tokens.ts:252)
+  c.executionCtx.waitUntil(trackTokenIssuance(c.env, account.id));
+
   return json(
     {
       token,

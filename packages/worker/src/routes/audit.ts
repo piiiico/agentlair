@@ -413,8 +413,8 @@ publicAuditRoutes.get('/:jti', async (c) => {
   const jti = c.req.param('jti');
 
   // Validate format before charging
-  if (!/^aat_[A-Za-z0-9]{16}$/.test(jti)) {
-    return c.json({ error: 'invalid_jti', message: 'Token ID must match format aat_[A-Za-z0-9]{16}' }, 400);
+  if (!/^(aat|aal3)_[A-Za-z0-9]{16}$/.test(jti)) {
+    return c.json({ error: 'invalid_jti', message: 'Token ID must match format aat_[A-Za-z0-9]{16} or aal3_[A-Za-z0-9]{16}' }, 400);
   }
 
   // x402 payment gate — 0.001 USDC per lookup (unauthenticated callers; payment IS authentication)

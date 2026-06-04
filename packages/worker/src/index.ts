@@ -1391,8 +1391,8 @@ app.use('/v1/*', async (c: Context<HonoEnv>, next: Next): Promise<void | Respons
   }
 
   // Public audit JTI endpoint — external verifiers check AAT metadata without needing an account.
-  // Only bypass for JTI format (aat_[A-Za-z0-9]{16}); literal paths like /log fall through to auditRoutes.
-  if (c.req.method === 'GET' && /^\/v1\/audit\/aat_[A-Za-z0-9]{16}$/.test(c.req.path)) {
+  // Only bypass for JTI format (aat_[A-Za-z0-9]{16} or aal3_[A-Za-z0-9]{16}); literal paths like /log fall through to auditRoutes.
+  if (c.req.method === 'GET' && /^\/v1\/audit\/(aat|aal3)_[A-Za-z0-9]{16}$/.test(c.req.path)) {
     await next();
     return;
   }
