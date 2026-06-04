@@ -14,7 +14,7 @@
 import { Hono } from 'hono';
 import { json, err, nanoid } from '../utils.js';
 import type { HonoEnv } from '../types.js';
-import { createJWT, getPublicKey, computeKeyId, verifyJWT, b64urlDecode, pubkeyToRadicleNid } from '../jwt.js';
+import { createJWT, getPublicKey, computeKeyId, verifyJWT, b64urlDecode, b64urlEncode, pubkeyToRadicleNid } from '../jwt.js';
 import type { AATClaims } from '../jwt.js';
 import { getSigningKeyForAccount } from './did.js';
 import { trackTokenIssuance, checkAndIncrementTokenVerify, TOKEN_VERIFY_LIMITS } from '../middleware/ratelimit.js';
@@ -274,6 +274,143 @@ tokenRoutes.post('/issue', async (c) => {
       expires_in: ttl,
       jti,
       audit_url: `${ISSUER}/v1/audit/${jti}`,
+    },
+    201,
+  );
+});
+
+// ─── L3 Token Constants ────────────────────────────────────────────────────────
+
+const MAX_L3_TTL = 300; // 5 minutes — hard cap per VI spec
+const DEFAULT_L3_TTL = 300;
+const TRANSACTION_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
+
+/**
+ * POST /v1/tokens/issue-l3
+ *
+ * Issue a short-lived, transaction-scoped L3 credential JWT.
+ * Compatible with FIDO Agentic Authentication (VI spec Gap 2).
+ *
+ * Request body:
+ * {
+ *   "transaction_id": "tx_...",        // required — VI transaction ID
+ *   "checkout_hash": "sha256:...",     // required — hash of checkout payload
+ *   "l2_mandate": "<SD-JWT>",          // required — L2 mandate credential (opaque, stored hashed)
+ *   "ttl": 300                          // optional, default 300, max 300 (5-min cap per VI spec)
+ * }
+ *
+ * Response (201):
+ * {
+ *   "token": "eyJ...",
+ *   "expires_at": "2026-06-04T04:05:00Z",
+ *   "jti": "aal3_...",
+ *   "transaction_id": "tx_..."
+ * }
+ */
+tokenRoutes.post('/issue-l3', async (c) => {
+  const account = c.get('account');
+  if (!account) return err('Authentication required', 401, 'unauthorized');
+
+  const signingKey = c.env.AUDIT_SIGNING_KEY;
+  if (!signingKey) {
+    return err('Token signing not configured', 503, 'signing_unavailable');
+  }
+
+  // Parse request body
+  let body: Record<string, unknown> = {};
+  try {
+    body = await c.req.json();
+  } catch {
+    return err('Invalid JSON body', 400, 'invalid_body');
+  }
+
+  // ── Validate transaction_id ────────────────────────────────────────────
+  const transactionId = body.transaction_id;
+  if (!transactionId || typeof transactionId !== 'string') {
+    return err('transaction_id is required', 400, 'missing_transaction_id');
+  }
+  if (!TRANSACTION_ID_PATTERN.test(transactionId)) {
+    return err(
+      'transaction_id must be 1–128 alphanumeric/underscore/hyphen characters',
+      400,
+      'invalid_transaction_id',
+    );
+  }
+
+  // ── Validate checkout_hash ────────────────────────────────────────────
+  const checkoutHash = body.checkout_hash;
+  if (!checkoutHash || typeof checkoutHash !== 'string' || checkoutHash.length === 0) {
+    return err('checkout_hash is required (non-empty string)', 400, 'missing_checkout_hash');
+  }
+
+  // ── Validate l2_mandate ───────────────────────────────────────────────
+  const l2Mandate = body.l2_mandate;
+  if (!l2Mandate || typeof l2Mandate !== 'string' || l2Mandate.length === 0) {
+    return err('l2_mandate is required (non-empty string)', 400, 'missing_l2_mandate');
+  }
+
+  // ── Validate TTL ───────────────────────────────────────────────────────
+  let ttl = DEFAULT_L3_TTL;
+  if (body.ttl !== undefined) {
+    if (typeof body.ttl !== 'number' || !Number.isInteger(body.ttl)) {
+      return err('ttl must be an integer (seconds)', 400, 'invalid_ttl');
+    }
+    if (body.ttl < 1 || body.ttl > MAX_L3_TTL) {
+      return err(`ttl must be between 1 and ${MAX_L3_TTL} seconds`, 400, 'invalid_ttl');
+    }
+    ttl = body.ttl;
+  }
+
+  // ── Compute al_mandate_hash ────────────────────────────────────────────
+  // SHA-256 of the raw l2_mandate string, base64url-encoded.
+  // Stored in the credential; l2_mandate itself is NOT stored.
+  const mandateBytes = new TextEncoder().encode(l2Mandate);
+  const mandateHashBuf = await crypto.subtle.digest('SHA-256', mandateBytes);
+  const mandateHash = b64urlEncode(new Uint8Array(mandateHashBuf));
+
+  // ── Build JWT claims ───────────────────────────────────────────────────
+  const now = Math.floor(Date.now() / 1000);
+  const jti = 'aal3_' + nanoid(16);
+
+  const claims: AATClaims = {
+    iss: ISSUER,
+    sub: account.id,
+    aud: transactionId, // aud = transaction_id per VI spec
+    exp: now + ttl,
+    iat: now,
+    jti,
+    al_scopes: [], // L3 credentials carry no scopes — access is transaction-bound
+    al_audit_url: `${ISSUER}/v1/audit/${jti}`,
+    al_l3: true,
+    al_transaction_id: transactionId,
+    al_checkout_hash: checkoutHash,
+    al_mandate_hash: mandateHash,
+  };
+
+  // ── Sign JWT ───────────────────────────────────────────────────────────
+  const publicKeyBytes = getPublicKey(signingKey);
+  const kid = await computeKeyId(publicKeyBytes);
+  const token = createJWT(claims, signingKey, kid);
+
+  const expiresAt = new Date((now + ttl) * 1000).toISOString();
+
+  // Log to audit trail (non-blocking, fail-open)
+  c.executionCtx.waitUntil(
+    writeMemoryAuditEvent(c.env, {
+      accountId: account.id,
+      memoryRead: false,
+      memoryWrite: false,
+      audience: transactionId,
+      jti,
+    }).catch(() => {}),
+  );
+
+  return json(
+    {
+      token,
+      expires_at: expiresAt,
+      jti,
+      transaction_id: transactionId,
     },
     201,
   );

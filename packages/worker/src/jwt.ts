@@ -109,6 +109,13 @@ export interface AATClaims {
     computed_at: string; // ISO 8601
     trend: 'improving' | 'stable' | 'declining';
   };
+
+  // L3 credential claims — VI-compatible transaction-scoped (FIDO Agentic Auth Gap 2)
+  // Present only in tokens issued via POST /v1/tokens/issue-l3
+  al_l3?: true; // Marker: this is a transaction-scoped L3 credential
+  al_transaction_id?: string; // VI transaction ID (mirrors aud for routing)
+  al_checkout_hash?: string; // Hash of checkout payload (opaque string, stored as-is)
+  al_mandate_hash?: string; // SHA-256 of l2_mandate, base64url-encoded
 }
 
 // ─── JWT creation ─────────────────────────────────────────────────────────────
