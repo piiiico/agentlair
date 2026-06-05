@@ -365,6 +365,19 @@ app.get('/api', (c) => {
   return new Response(JSON.stringify(OPENAPI_SPEC), { status: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=3600' } });
 });
 
+// Conventional OpenAPI discovery alias — x402scan and other auto-discovery tools
+// look for /openapi.json at the origin level. Pure JSON, no content-negotiation.
+app.get('/openapi.json', () =>
+  new Response(JSON.stringify(OPENAPI_SPEC), {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'public, max-age=3600',
+      'X-Powered-By': 'AgentLair',
+    },
+  })
+);
+
 app.get('/health', () => json({ status: 'ok', timestamp: new Date().toISOString(), version: '0.18.3' }));
 
 // Edge-propagation marker used by agentlair-deploy.ts after purge_cache to confirm
@@ -442,6 +455,11 @@ app.get('/.well-known/x402', () =>
   new Response(JSON.stringify({
     protocol: 'x402',
     version: 2,
+    resources: [
+      'https://agentlair.dev/v1/audit/aat_demo1234567890ab',
+      'https://agentlair.dev/v1/agents/acc_demoid12345/memory-trust',
+      'https://agentlair.dev/a2a-audit/run',
+    ],
     openapi: 'https://agentlair.dev/api',
     bazaar: 'https://agentlair.dev/.well-known/bazaar.json',
     agents: 'https://agentlair.dev/.well-known/agents.json',
