@@ -133,7 +133,7 @@ describe('A2A Audit Run Routes', () => {
     }));
     expect(res.status).toBe(402);
     const data = await res.json() as any;
-    expect(data.accepts[0].maxAmountRequired).toBe('1000');
+    expect(data.accepts[0].amount).toBe('1000');
     expect(data.accepts[0].asset).toBe('0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913');
   });
 

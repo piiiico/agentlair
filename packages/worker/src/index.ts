@@ -458,7 +458,6 @@ app.get('/.well-known/x402', () =>
     resources: [
       'https://agentlair.dev/v1/audit/aat_demo1234567890ab',
       'https://agentlair.dev/v1/agents/acc_demoid12345/memory-trust',
-      'https://agentlair.dev/a2a-audit/run',
     ],
     openapi: 'https://agentlair.dev/api',
     bazaar: 'https://agentlair.dev/.well-known/bazaar.json',

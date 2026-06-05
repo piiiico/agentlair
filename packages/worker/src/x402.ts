@@ -468,12 +468,9 @@ export function getPaymentRequirements(service: ServicePaymentConfig) {
   return {
     scheme: 'exact' as const,
     network: X402_CONFIG.network,
-    maxAmountRequired: service.amount,
+    amount: service.amount,
     asset: X402_CONFIG.asset,
     payTo: X402_CONFIG.payTo,
-    resource: service.resource,
-    description: service.description,
-    mimeType: service.mimeType,
     maxTimeoutSeconds: X402_CONFIG.maxTimeoutSeconds,
     extra: { name: 'USDC', version: '2' },
   };
@@ -491,6 +488,11 @@ export function make402ResponseBody(service: ServicePaymentConfig, extra?: Recor
   const body: Record<string, unknown> = {
     x402Version: X402_CONFIG.x402Version,
     error: `Payment required: ${formatUSDC(service.amount)} USDC on Base — ${service.description}`,
+    resource: {
+      url: service.resource,
+      description: service.description,
+      mimeType: service.mimeType,
+    },
     accepts: [requirements],
     ...extra,
   };
@@ -562,7 +564,7 @@ export async function verifyX402Payment(
       scheme: requirements.scheme,
       network: requirements.network,
       asset: requirements.asset,
-      amount: requirements.maxAmountRequired,
+      amount: requirements.amount,
       payTo: requirements.payTo,
       maxTimeoutSeconds: requirements.maxTimeoutSeconds,
     },
@@ -650,7 +652,7 @@ export async function settleX402Payment(
       scheme: requirements.scheme,
       network: requirements.network,
       asset: requirements.asset,
-      amount: requirements.maxAmountRequired,
+      amount: requirements.amount,
       payTo: requirements.payTo,
       maxTimeoutSeconds: requirements.maxTimeoutSeconds,
     },
