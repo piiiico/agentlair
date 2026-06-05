@@ -135,6 +135,10 @@ describe('A2A Audit Run Routes', () => {
     const data = await res.json() as any;
     expect(data.accepts[0].amount).toBe('1000');
     expect(data.accepts[0].asset).toBe('0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913');
+    expect(data.resource).toBeDefined();
+    expect(typeof data.resource.url).toBe('string');
+    expect(typeof data.resource.description).toBe('string');
+    expect(typeof data.resource.mimeType).toBe('string');
   });
 
   // 3. POST /run with valid payment returns 200 with audit

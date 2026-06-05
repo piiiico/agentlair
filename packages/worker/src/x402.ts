@@ -556,9 +556,9 @@ export async function verifyX402Payment(
     x402Version: X402_CONFIG.x402Version,
     payload: innerPayload,
     resource: {
-      url: requirements.resource,
-      description: requirements.description,
-      mimeType: requirements.mimeType,
+      url: service.resource,
+      description: service.description,
+      mimeType: service.mimeType,
     },
     accepted: {
       scheme: requirements.scheme,
@@ -603,7 +603,7 @@ export async function verifyX402Payment(
       // Opportunistically extract AgentLair identity from extensions (non-blocking).
       // Identity extraction failure never fails payment verification.
       const identity = await verifyAATFromX402Extensions(paymentPayload, {
-        resourceUrl: requirements.resource,
+        resourceUrl: service.resource,
       }).catch(() => null);
 
       return { valid: true, payer: result.payer, rawPayload: paymentPayload, facilitatorUrl, identity };
@@ -644,9 +644,9 @@ export async function settleX402Payment(
     x402Version: X402_CONFIG.x402Version,
     payload: innerPayload,
     resource: {
-      url: requirements.resource,
-      description: requirements.description,
-      mimeType: requirements.mimeType,
+      url: service.resource,
+      description: service.description,
+      mimeType: service.mimeType,
     },
     accepted: {
       scheme: requirements.scheme,
