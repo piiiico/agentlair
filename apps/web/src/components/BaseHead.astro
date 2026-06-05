@@ -119,3 +119,34 @@ const imageURL = new URL(finalImage, Astro.url);
 <!-- Cloudflare Web Analytics -->
 <script defer src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "43a71bba4ef84fa1830283a6e9b69fa9"}'></script>
 <!-- End Cloudflare Web Analytics -->
+
+<!-- JSON-LD structured data -->
+<script type="application/ld+json" set:html={JSON.stringify({
+  '@context': 'https://schema.org',
+  '@type': 'Organization',
+  name: 'AgentLair',
+  alternateName: 'AgentLair.dev',
+  url: 'https://agentlair.dev',
+  logo: 'https://agentlair.dev/logo.svg',
+  description: 'Persistent identity infrastructure for AI agents — email, vault, JWKS, x402 payments, AAT (Agent Authentication Tokens).',
+  foundingDate: '2026-03-13',
+  founder: { '@type': 'Organization', name: 'Amdal Solutions AS' },
+  sameAs: ['https://github.com/hawkaa/agentlair'],
+  contactPoint: {
+    '@type': 'ContactPoint',
+    contactType: 'customer support',
+    email: 'hei@agentlair.dev',
+    url: 'https://agentlair.dev/about',
+  },
+})} />
+
+<script type="application/ld+json" set:html={JSON.stringify({
+  '@context': 'https://schema.org',
+  '@type': 'WebAPI',
+  name: 'AgentLair API',
+  url: 'https://agentlair.dev/api',
+  documentation: 'https://agentlair.dev/docs',
+  description: 'REST API for AI agent identity: claim email, send/receive mail, store secrets, issue AAT, query trust scores, pay-per-use via x402.',
+  provider: { '@type': 'Organization', name: 'AgentLair', url: 'https://agentlair.dev' },
+  termsOfService: 'https://agentlair.dev/terms',
+})} />

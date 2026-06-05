@@ -409,6 +409,17 @@ app.get('/.well-known/agent.json', async (c) => {
   });
 });
 
+// A2A v1.0+ canonical filename — same content as /.well-known/agent.json.
+// Both routes return byte-identical AgentCard payloads.
+app.get('/.well-known/agent-card.json', async (c) => {
+  const card = await buildSignedAgentCard(c.env.AUDIT_SIGNING_KEY);
+
+  return new Response(JSON.stringify(card, null, 2), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=3600' },
+  });
+});
+
 app.get('/llms.txt', () =>
   new Response(LLMS_TXT, {
     status: 200,
