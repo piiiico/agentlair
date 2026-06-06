@@ -116,7 +116,13 @@ export class AuditLogger {
     approvalDecision?: 'approved' | 'denied' | 'conditional';
     decidedBy?: string;
     sessionId?: string;
+    /** Authority deadline (ISO 8601 UTC string or Date). See AARPreAction.expiresAt. */
+    expiresAt?: string | Date;
   }): Promise<AARPreAction> {
+    const expiresAtIso = opts.expiresAt === undefined
+      ? undefined
+      : (opts.expiresAt instanceof Date ? opts.expiresAt.toISOString() : opts.expiresAt);
+
     const preActionBase: Omit<AARPreAction, 'signature'> = {
       id: generateId(),
       version: 'aar-v1',
@@ -130,6 +136,7 @@ export class AuditLogger {
       ...(opts.policyRef !== undefined && { policyRef: opts.policyRef }),
       ...(opts.approvalDecision !== undefined && { approvalDecision: opts.approvalDecision }),
       ...(opts.decidedBy !== undefined && { decidedBy: opts.decidedBy }),
+      ...(expiresAtIso !== undefined && { expiresAt: expiresAtIso }),
       ...(this.lastReceiptHash !== undefined && { previousReceiptHash: this.lastReceiptHash }),
     };
 
@@ -184,6 +191,18 @@ export class AuditLogger {
 
     const now = new Date();
     const terminalAt = endedAt?.toISOString() ?? now.toISOString();
+
+    // Sign-time invariant: executed phase is not allowed after the pre-action's expiresAt.
+    // executionEndedAt is the source of truth here — when endedAt is omitted, fall back to now.
+    if (phase === 'executed' && preAction.expiresAt !== undefined) {
+      const executionEndedAt = endedAt?.toISOString() ?? now.toISOString();
+      if (executionEndedAt > preAction.expiresAt) {
+        throw new Error(
+          `Cannot record 'executed' terminal after pre-action expiresAt ` +
+          `(preActionId: ${preAction.id}, expiresAt: ${preAction.expiresAt}, executionEndedAt: ${executionEndedAt})`
+        );
+      }
+    }
 
     // Hash the preAction without signature to create the chain link
     const { signature: _sig, ...preActionWithoutSig } = preAction;
@@ -357,11 +376,72 @@ export async function verifyChain(
     }
   }
 
-  const hasHashBreaks = breaks.some(b => b.expected !== 'terminal-receipt');
+  // Authority check: verify expiresAt invariants for terminals that depend on it.
+  // - phase === 'expired' MUST have a pre-action with expiresAt set, and terminalAt >= expiresAt.
+  // - phase === 'executed' with executionEndedAt > pre-action.expiresAt is a chain break
+  //   (catches historical chains written pre-v0.4 that violate the sign-time invariant).
+  const preActionsById = new Map<string, AARPreAction>();
+  for (const receipt of receipts) {
+    if (receipt.phase === 'pre-action') {
+      preActionsById.set(receipt.id, receipt as AARPreAction);
+    }
+  }
+  for (const receipt of receipts) {
+    if (receipt.phase === 'pre-action') continue;
+    const term = receipt as AARTerminalReceipt;
+    const pre = preActionsById.get(term.preActionId);
+    if (!pre) continue; // missing pre-action is already accounted for above
+
+    if (term.phase === 'expired') {
+      if (pre.expiresAt === undefined) {
+        breaks.push({
+          id: term.id,
+          expected: 'pre-action.expiresAt set for expired terminal',
+          actual: 'undefined',
+        });
+      } else if (term.terminalAt < pre.expiresAt) {
+        breaks.push({
+          id: term.id,
+          expected: `terminalAt >= expiresAt (${pre.expiresAt})`,
+          actual: term.terminalAt,
+        });
+      }
+    } else if (term.phase === 'executed' && pre.expiresAt !== undefined) {
+      // executionEndedAt is the source of truth for "did we finish in time?".
+      // Fall back to terminalAt when execution timestamps were not recorded.
+      const executionEndedAt = term.executionEndedAt ?? term.terminalAt;
+      if (executionEndedAt > pre.expiresAt) {
+        breaks.push({
+          id: term.id,
+          expected: `executionEndedAt <= expiresAt (${pre.expiresAt})`,
+          actual: executionEndedAt,
+        });
+      }
+    }
+  }
+
+  const authorityBreakExpected = new Set([
+    'pre-action.expiresAt set for expired terminal',
+  ]);
+  const hasHashBreaks = breaks.some(b =>
+    b.expected !== 'terminal-receipt' &&
+    !(typeof b.expected === 'string' && (
+      b.expected.startsWith('terminalAt >=') ||
+      b.expected.startsWith('executionEndedAt <=') ||
+      authorityBreakExpected.has(b.expected)
+    ))
+  );
+  const hasAuthorityBreaks = breaks.some(b =>
+    typeof b.expected === 'string' && (
+      b.expected.startsWith('terminalAt >=') ||
+      b.expected.startsWith('executionEndedAt <=') ||
+      authorityBreakExpected.has(b.expected)
+    )
+  );
   const hasMissingTerminals = breaks.some(b => b.expected === 'terminal-receipt');
 
   let chainIntegrity: 'complete' | 'incomplete' | 'broken';
-  if (hasHashBreaks) {
+  if (hasHashBreaks || hasAuthorityBreaks) {
     chainIntegrity = 'broken';
   } else if (hasMissingTerminals) {
     chainIntegrity = 'incomplete';

@@ -239,3 +239,160 @@ describe('AAR v0.3 terminal-receipt regressions', () => {
     expect(omittedResult.breaks.some(b => b.id === pre3.id)).toBe(true);
   });
 });
+
+describe('AAR v0.4 expiresAt authority data', () => {
+  it('Test 1: expired terminal with terminalAt > expiresAt verifies', async () => {
+    const logger = new AuditLogger({ silent: true });
+    const expiresAt = '2026-06-06T20:00:00.000Z';
+    const noticedAt = new Date('2026-06-06T20:00:01.500Z'); // 1.5s after deadline
+
+    const preAction = await logger.beginAction({
+      toolName: 'send_email',
+      toolCallId: 'c-e1',
+      input: { to: 'a@b.com' },
+      expiresAt,
+    });
+    expect(preAction.expiresAt).toBe(expiresAt);
+
+    const terminal = await logger.endAction({
+      preAction,
+      phase: 'expired',
+      endedAt: noticedAt,
+      terminalReason: 'authority window elapsed before execution started',
+    });
+
+    const result = await verifyChain([preAction, terminal]);
+    expect(result.intact).toBe(true);
+    expect(result.chainIntegrity).toBe('complete');
+  });
+
+  it('Test 2: executed with executionEndedAt > expiresAt throws at sign time', async () => {
+    const logger = new AuditLogger({ silent: true });
+    const expiresAt = '2026-06-06T20:00:00.000Z';
+    const lateEnd = new Date('2026-06-06T20:00:05.000Z'); // 5s past authority
+
+    const preAction = await logger.beginAction({
+      toolName: 'send_email',
+      toolCallId: 'c-e2',
+      input: { to: 'a@b.com' },
+      expiresAt,
+    });
+
+    await expect(
+      logger.endAction({
+        preAction,
+        phase: 'executed',
+        startedAt: new Date('2026-06-06T19:59:59.000Z'),
+        endedAt: lateEnd,
+        output: { sent: true },
+      })
+    ).rejects.toThrow(/expiresAt/);
+  });
+
+  it('Test 3: tampered expiresAt on signed pre-action breaks the chain (proves expiresAt is hashed in)', async () => {
+    const logger = new AuditLogger({ silent: true });
+    const preAction = await logger.beginAction({
+      toolName: 'send_email',
+      toolCallId: 'c-e3',
+      input: { to: 'a@b.com' },
+      expiresAt: '2026-06-06T20:00:00.000Z',
+    });
+    const terminal = await logger.endAction({
+      preAction,
+      phase: 'executed',
+      startedAt: new Date('2026-06-06T19:59:00.000Z'),
+      endedAt: new Date('2026-06-06T19:59:30.000Z'),
+      output: { sent: true },
+    });
+
+    // Tamper with expiresAt AFTER signing — verifier must catch it via the hash chain.
+    const tamperedPre: typeof preAction = {
+      ...preAction,
+      expiresAt: '2099-01-01T00:00:00.000Z',
+    };
+
+    const result = await verifyChain([tamperedPre, terminal]);
+    expect(result.intact).toBe(false);
+    expect(result.chainIntegrity).toBe('broken');
+    // The terminal's previousReceiptHash points to the ORIGINAL pre-action.
+    expect(result.breaks.some(b => b.id === terminal.id)).toBe(true);
+  });
+
+  it('Test 4: expired terminal whose pre-action lacks expiresAt = chain broken', async () => {
+    const logger = new AuditLogger({ silent: true });
+    const preAction = await logger.beginAction({
+      toolName: 'send_email',
+      toolCallId: 'c-e4',
+      input: { to: 'a@b.com' },
+      // no expiresAt
+    });
+
+    const terminal = await logger.endAction({
+      preAction,
+      phase: 'expired',
+      terminalReason: 'somehow expired despite no deadline',
+    });
+
+    const result = await verifyChain([preAction, terminal]);
+    expect(result.intact).toBe(false);
+    expect(result.chainIntegrity).toBe('broken');
+    expect(result.breaks.some(b =>
+      b.id === terminal.id &&
+      typeof b.expected === 'string' &&
+      b.expected.includes('expiresAt set for expired terminal')
+    )).toBe(true);
+  });
+
+  it('Test 5: historical executed terminal whose executionEndedAt > expiresAt is flagged by verifyChain', async () => {
+    // Cannot construct via endAction (sign-time invariant blocks it). Hand-construct a chain
+    // representing a pre-v0.4 logger that did not enforce the invariant, then verify it.
+    const logger = new AuditLogger({ silent: true });
+    const preAction = await logger.beginAction({
+      toolName: 'send_email',
+      toolCallId: 'c-e5',
+      input: { to: 'a@b.com' },
+      expiresAt: '2026-06-06T20:00:00.000Z',
+    });
+
+    // Manually build a "v0.3-style" executed terminal that overruns expiresAt.
+    // We compute previousReceiptHash the same way endAction does, so the hash chain
+    // is intact — the only break is the authority invariant.
+    const canonicalJsonOf = (v: any): string => {
+      if (v === null || v === undefined) return 'null';
+      if (typeof v !== 'object') return JSON.stringify(v);
+      if (Array.isArray(v)) return '[' + v.map(canonicalJsonOf).join(',') + ']';
+      const keys = Object.keys(v).sort();
+      return '{' + keys.map(k => JSON.stringify(k) + ':' + canonicalJsonOf(v[k])).join(',') + '}';
+    };
+    const sha256Hex = async (s: string): Promise<string> => {
+      const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
+      return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+    };
+    const { signature: _sig, ...preWithoutSig } = preAction;
+    const preHash = 'sha256:' + await sha256Hex(canonicalJsonOf(preWithoutSig));
+
+    const overrunTerminal: any = {
+      id: 'TestHistorical00000A',
+      version: 'aar-v1',
+      phase: 'executed',
+      preActionId: preAction.id,
+      toolCallId: preAction.toolCallId,
+      terminalAt: '2026-06-06T20:00:10.000Z',
+      executionStartedAt: '2026-06-06T19:59:30.000Z',
+      executionEndedAt: '2026-06-06T20:00:10.000Z', // 10s past expiresAt
+      resultDigest: 'sha256:' + await sha256Hex('"r5"'),
+      previousReceiptHash: preHash,
+    };
+
+    const result = await verifyChain([preAction, overrunTerminal]);
+    expect(result.intact).toBe(false);
+    expect(result.chainIntegrity).toBe('broken');
+    expect(result.breaks.some(b =>
+      b.id === overrunTerminal.id &&
+      typeof b.expected === 'string' &&
+      b.expected.includes('executionEndedAt <=')
+    )).toBe(true);
+    // Suppress unused-binding lint
+    void logger;
+  });
+});

@@ -74,6 +74,17 @@ export interface AARPreAction {
   approvalDecision?: 'approved' | 'denied' | 'conditional';
   decidedBy?: string;
   issuedAt: string;                  // ISO 8601 UTC
+  /**
+   * Authority deadline (ISO 8601 UTC). When present, this pre-action's authority to
+   * execute the tool expires at this instant. Sign-time invariant: endAction() refuses
+   * to record `phase === 'executed'` if execution ended after expiresAt. Verify-time
+   * invariant: chains with `phase === 'expired'` terminals must have a corresponding
+   * pre-action whose expiresAt is set and whose terminalAt >= expiresAt.
+   *
+   * Covered automatically by previousReceiptHash because canonical JSON over the whole
+   * pre-action is hashed — tampering with expiresAt post-signing breaks the chain.
+   */
+  expiresAt?: string;                // ISO 8601 UTC
   previousReceiptHash?: string;      // undefined for first in chain
   signature?: AARSignature;
 }
