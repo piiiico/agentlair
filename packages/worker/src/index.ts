@@ -651,6 +651,13 @@ app.get('/.well-known/bazaar.json', (_c) => {
       discovery: SERVICE_PRICES.trust_query.discovery,
     },
     {
+      name: 'Agent Trust Batch',
+      endpoint: '/v1/trust/batch',
+      method: 'POST',
+      requirements: getPaymentRequirements(SERVICE_PRICES.trust_query),
+      discovery: SERVICE_PRICES.trust_query.discovery,
+    },
+    {
       name: 'Agent Discovery Lookup',
       endpoint: '/v1/agents/lookup',
       method: 'GET',

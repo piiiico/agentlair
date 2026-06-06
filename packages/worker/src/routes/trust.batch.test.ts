@@ -221,13 +221,15 @@ describe('POST /batch — input validation', () => {
     expect(exactly50.length <= 50).toBe(true);
   });
 
-  test('trust_batch service price is 0.01 USDC and points to /v1/trust/batch', async () => {
+  test('trust_batch dead code removed — batch covered by trust_query price entry', async () => {
     const { SERVICE_PRICES } = await import('../x402.js');
-    expect(SERVICE_PRICES).toHaveProperty('trust_batch');
-    const p = SERVICE_PRICES.trust_batch;
-    expect(p.amount).toBe('10000');
-    expect(p.resource).toContain('/v1/trust/batch');
-    expect(p.description).toContain('batch');
+    // trust_batch was dead code (handleX402TrustPayment always routed through trust_query)
+    // Removed: catalog accuracy fix (batch is now documented in trust_query.description)
+    expect(SERVICE_PRICES).not.toHaveProperty('trust_batch');
+    const tq = SERVICE_PRICES.trust_query;
+    expect(tq.amount).toBe('10000');
+    expect(tq.resource).toBe('https://agentlair.dev/v1/trust');
+    expect(tq.description).toContain('/v1/trust/batch');
   });
 
   test('POST /batch route exists (not 405 Method Not Allowed)', async () => {
