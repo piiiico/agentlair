@@ -451,8 +451,9 @@ app.get('/robots.txt', () =>
 // Machine-discovery endpoint per x402 protocol: points to canonical OpenAPI
 // spec and other discovery documents. Cache-Control: public (pointer is stable).
 
-app.get('/.well-known/x402', () =>
-  new Response(JSON.stringify({
+app.get('/.well-known/x402', (c) => {
+  const hasCdp = !!(c.env.CDP_API_KEY_ID && c.env.CDP_API_KEY_SECRET);
+  return new Response(JSON.stringify({
     protocol: 'x402',
     version: 2,
     resources: [
@@ -462,7 +463,8 @@ app.get('/.well-known/x402', () =>
     openapi: 'https://agentlair.dev/api',
     bazaar: 'https://agentlair.dev/.well-known/bazaar.json',
     agents: 'https://agentlair.dev/.well-known/agents.json',
-    facilitator: 'https://facilitator.ultravioletadao.xyz',
+    facilitator: hasCdp ? 'https://api.cdp.coinbase.com/platform/v2/x402' : 'https://facilitator.ultravioletadao.xyz',
+    ...(hasCdp ? { facilitator_fallback: 'https://facilitator.ultravioletadao.xyz' } : {}),
     network: 'eip155:8453',
     asset: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
     asset_symbol: 'USDC',
@@ -475,8 +477,8 @@ app.get('/.well-known/x402', () =>
       'Cache-Control': 'public, max-age=3600',
       'X-Powered-By': 'AgentLair',
     },
-  })
-);
+  });
+});
 
 app.get('/.well-known/mcp/server.json', () =>
   new Response(JSON.stringify({

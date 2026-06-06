@@ -158,13 +158,16 @@ async function handleX402TrustPayment(c: Context<HonoEnv>) {
   if (!xPayment) {
     return make402Response(SERVICE_PRICES.trust_query);
   }
-  const verification = await verifyX402Payment(xPayment, SERVICE_PRICES.trust_query);
+  const cdpCreds = (c.env.CDP_API_KEY_ID && c.env.CDP_API_KEY_SECRET)
+    ? { keyId: c.env.CDP_API_KEY_ID, keySecret: c.env.CDP_API_KEY_SECRET }
+    : undefined;
+  const verification = await verifyX402Payment(xPayment, SERVICE_PRICES.trust_query, cdpCreds);
   if (!verification.valid) {
     return make402Response(SERVICE_PRICES.trust_query, {
       payment_error: verification.error,
     });
   }
-  const settlement = await settleX402Payment(xPayment, SERVICE_PRICES.trust_query);
+  const settlement = await settleX402Payment(xPayment, SERVICE_PRICES.trust_query, verification.facilitatorUrl, cdpCreds);
   if (!settlement.settled) {
     return make402Response(SERVICE_PRICES.trust_query, {
       payment_error: settlement.error,
