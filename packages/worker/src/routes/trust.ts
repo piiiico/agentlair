@@ -324,6 +324,110 @@ publicTrustRoutes.get('/distribution', async (c) => {
   }
 });
 
+// ─── POST /v1/trust/batch ──────────────────────────────────────────────────────
+//
+// Batch trust query for multiple agents in a single call. Designed for x402
+// facilitators and payment services that need to verify multiple agents before
+// processing multi-agent payment flows.
+//
+// Per IETF draft-sharif-agent-payment-trust-00 batch trust query pattern.
+//
+// Request body:  { agentIds: string[] }   (up to 50)
+// Response:      { profiles, requested, computed, errors }
+//
+// Auth: same pattern as /score — API key = free, anonymous = x402 0.01 USDC.
+// Errors are collected per-agent; a single failure doesn't abort the batch.
+//
+// Must be registered BEFORE /:agentId (POST on /batch, no path conflict with
+// GET /:agentId, but Hono routing is safest with static routes first).
+
+const BATCH_LIMIT = 50;
+
+publicTrustRoutes.post('/batch', async (c) => {
+  const account = await authenticateAny(c.req.raw, c.env);
+
+  if (!account) {
+    const paymentErr = await handleX402TrustPayment(c);
+    if (paymentErr) return paymentErr;
+  }
+
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return err('Request body must be valid JSON.', 400, 'invalid_json');
+  }
+
+  if (typeof body !== 'object' || body === null || !('agentIds' in body)) {
+    return err('Request body must include agentIds array.', 400, 'missing_agent_ids');
+  }
+
+  const raw = (body as Record<string, unknown>).agentIds;
+  if (!Array.isArray(raw)) {
+    return err('agentIds must be an array.', 400, 'invalid_agent_ids');
+  }
+
+  if (raw.length === 0) {
+    return err('agentIds must contain at least one agent ID.', 400, 'empty_agent_ids');
+  }
+
+  if (raw.length > BATCH_LIMIT) {
+    return err(
+      `Batch limit exceeded. Maximum ${BATCH_LIMIT} agent IDs per request, got ${raw.length}.`,
+      400,
+      'batch_limit_exceeded',
+    );
+  }
+
+  const db = c.env.AUDIT;
+  if (!db) {
+    return err(
+      'Trust scoring requires the audit trail database (AUDIT D1 binding). Not configured.',
+      503,
+      'audit_unavailable',
+    );
+  }
+
+  const tier = account ? resolveAccountTier(account) : 'free';
+
+  const results = await Promise.allSettled(
+    raw.map(async (rawId: unknown) => {
+      const agentId = validateAgentId(typeof rawId === 'string' ? rawId : undefined);
+      if (!agentId) {
+        throw Object.assign(new Error(`Invalid agent ID format: ${String(rawId)}`), {
+          code: 'invalid_agent_id',
+          rawId,
+        });
+      }
+      return computeTrustScore(db, agentId, tier);
+    }),
+  );
+
+  const profiles: unknown[] = [];
+  const errors: Array<{ agentId: unknown; error: string; code: string }> = [];
+
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i];
+    if (result.status === 'fulfilled') {
+      profiles.push(result.value);
+    } else {
+      const reason = result.reason as { message?: string; code?: string; rawId?: unknown };
+      errors.push({
+        agentId: reason.rawId ?? raw[i],
+        error: reason.message ?? 'Unknown error',
+        code: reason.code ?? 'trust_computation_error',
+      });
+    }
+  }
+
+  return json({
+    profiles,
+    requested: raw.length,
+    computed: profiles.length,
+    errors,
+  });
+});
+
 // ─── GET /v1/trust/:agentId/teal-sources ─────────────────────────────────────
 //
 // Free public read — no auth, no x402. Lists which operators have submitted

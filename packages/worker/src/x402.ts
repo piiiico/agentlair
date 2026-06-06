@@ -340,6 +340,37 @@ export const SERVICE_PRICES: Record<string, ServicePaymentConfig> = {
       },
     },
   },
+  trust_batch: {
+    amount: '10000', // 0.01 USDC per batch call (up to 50 agents)
+    resource: 'https://agentlair.dev/v1/trust/batch',
+    description: 'AgentLair batch trust query — 0.01 USDC per batch call. Accepts up to 50 agent IDs and returns trust profiles for all in one call. Designed for x402 facilitators and payment services verifying multi-agent flows.',
+    mimeType: 'application/json',
+    discovery: {
+      input: { agentIds: ['acc_abc123', 'acc_def456'] },
+      inputSchema: {
+        properties: {
+          agentIds: {
+            type: 'array',
+            items: { type: 'string' },
+            maxItems: 50,
+            description: 'Array of agent IDs to query (up to 50)',
+          },
+        },
+        required: ['agentIds'],
+      },
+      output: {
+        example: {
+          profiles: [
+            { agent_id: 'acc_abc123', score: 78.4, atf_level: 'junior', confidence: 0.82 },
+            { agent_id: 'acc_def456', score: 55.2, atf_level: 'intern', confidence: 0.61 },
+          ],
+          requested: 2,
+          computed: 2,
+          errors: [],
+        },
+      },
+    },
+  },
   memory_trust: {
     amount: '10000', // 0.01 USDC
     resource: 'https://agentlair.dev/v1/agents/{id}/memory-trust',
