@@ -22,10 +22,17 @@
  * @see https://agentlair.dev/docs/audit-logger
  */
 
-export { AuditLogger, auditLog, configureLogger } from './logger.js';
+export { AuditLogger, auditLog, configureLogger, verifyChain, computeDigest } from './logger.js';
 export type {
   AuditLogEntry,
   ResolvedAuditEntry,
   AuditSink,
   AuditLoggerOptions,
+  AARSignature,
+  AARPreAction,
+  AARTerminalPhase,
+  AARTerminalReceipt,
+  /** @deprecated Use AARTerminalReceipt */
+  AARPostAction,
+  ChainVerificationResult,
 } from './types.js';

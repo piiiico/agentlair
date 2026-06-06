@@ -168,6 +168,36 @@ const { observations } = await lair.observations.read({
 
 ---
 
+## Denied call flow
+
+When a tool call is blocked by policy before execution, record the denial using `phase: 'denied'`. The terminal receipt participates in the hash chain just like any executed receipt.
+
+```typescript
+// beginAction records the pre-action with the policy decision
+const preAction = await logger.beginAction({
+  toolName: 'delete_file',
+  toolCallId: 'call-004',
+  input: { path: '/important.txt' },
+  approvalDecision: 'denied',
+  decidedBy: 'policy-engine',
+});
+
+// endAction records the denial in the terminal receipt
+const terminal = await logger.endAction({
+  preAction,
+  phase: 'denied',
+  terminalReason: 'Policy: production files protected',
+});
+
+// terminal.phase === 'denied'
+// terminal.terminalAt === ISO timestamp
+// No executionStartedAt, executionEndedAt, resultDigest, errorClass
+```
+
+Attempting to call `endAction` with `phase: 'executed'` on a denied pre-action will throw at sign time.
+
+---
+
 ## License
 
 MIT © [AgentLair](https://agentlair.dev)
