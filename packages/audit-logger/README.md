@@ -302,6 +302,31 @@ const { observations } = await lair.observations.read({
 
 ---
 
+## Local-only vs hosted AgentLair
+
+The library is fully usable without an API key — `auditLog`, `beginAction`, and `endAction` write to console and any custom sinks you wire up. That's the right setup for development, single-process agents, and anyone who already has their own log pipeline.
+
+You'd want the hosted side once any of these become real:
+
+| Need                                                  | What the hosted side gives you                                                                                |
+|-------------------------------------------------------|---------------------------------------------------------------------------------------------------------------|
+| Retention beyond your own log lifetime                | Persistent storage. Starter: 1 year of audit log retention. Enterprise: up to 7 years.                        |
+| Querying across many runs / machines                  | Single endpoint to read filtered receipts (`topic: 'audit-log'`), not log-grep across boxes.                  |
+| EU AI Act Article 12 (automatic recording, queryable) | Tamper-evident Ed25519-signed hash chain stored independent of the agent's control boundary.                  |
+| Showing receipts to a third party                     | Public verification of chain + signature without exposing your infra.                                         |
+
+Pricing — Free (1k verifications/month, 7-day history) · Starter $29/mo (50k verifications, 1-year audit log retention) · Pro $149/mo (500k verifications, 90-day history). Full table at [agentlair.dev/pricing](https://agentlair.dev/pricing).
+
+Get an API key at [agentlair.dev/register](https://agentlair.dev/register) — no credit card. Then:
+
+```bash
+export AGENTLAIR_API_KEY=al_live_...
+```
+
+The same `beginAction` / `endAction` calls now also ship to the hosted side. Nothing else changes.
+
+---
+
 ## License
 
 MIT © [AgentLair](https://agentlair.dev)

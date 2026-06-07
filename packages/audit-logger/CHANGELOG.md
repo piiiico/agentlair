@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.2] - 2026-06-07
+
+### Documentation
+- README-only update — no API changes
+- Added "Local-only vs hosted AgentLair" section explaining when to add `AGENTLAIR_API_KEY`
+- Per-tier retention, verification, and EU AI Act Article 12 framing
+- Direct links to `/pricing` and `/register` for the hosted side
+
 ## [0.4.1] - 2026-06-07
 
 ### Documentation
