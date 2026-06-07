@@ -1369,6 +1369,30 @@ app.get('/v1/admin/revenue', async (c) => {
   });
 });
 
+app.get('/v1/admin/waitlist', async (c) => {
+  const authHeader = c.req.header('Authorization') || '';
+  const adminKey = authHeader.replace(/^Bearer\s+/i, '').trim();
+  if (!c.env.ADMIN_KEY || !adminKey || adminKey !== c.env.ADMIN_KEY) {
+    return err('Unauthorized. Admin key required.', 403, 'admin_unauthorized');
+  }
+  if (!c.env.AUDIT) {
+    return err('Database not configured.', 503, 'db_unavailable');
+  }
+  const result = await c.env.AUDIT.prepare(
+    'SELECT id, email, company, tier, created_at FROM waitlist ORDER BY created_at DESC LIMIT 100'
+  ).all<{ id: string; email: string; company: string | null; tier: string; created_at: string }>();
+  const entries = result.results || [];
+  const by_tier: Record<string, number> = { starter: 0, pro: 0, enterprise: 0 };
+  for (const entry of entries) {
+    if (entry.tier in by_tier) by_tier[entry.tier]++;
+  }
+  return json({
+    count: entries.length,
+    by_tier,
+    entries: entries.map(e => ({ email: e.email, company: e.company || null, tier: e.tier, created_at: e.created_at })),
+  });
+});
+
 app.get('/v1/admin/billing-anomalies', async (c) => {
   const authHeader = c.req.header('Authorization') || '';
   const adminKey = authHeader.replace(/^Bearer\s+/i, '').trim();
