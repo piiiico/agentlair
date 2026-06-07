@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.4.1] - 2026-06-07
+
+### Documentation
+- README-only refresh — no API changes
+- Aligned npm README with deployed docs page (agentlair.dev/docs/audit-logger)
+- `beginAction` / `endAction` AAR split is now the top-level primary API, not a footnote
+- Added full `endAction` parameter table with `phase`, `terminalAt`, `terminalReason`
+- Documented sign-time invariants: executed-over-denied throws; executed past expiresAt throws
+- Added terminal phase enum table and chain mechanics diagram
+- Kept `auditLog()` section as a 'Lightweight logging' alternative
+
 ## [0.4.0] - 2026-06-06
 
 ### New Features
