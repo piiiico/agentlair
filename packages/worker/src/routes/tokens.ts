@@ -17,6 +17,11 @@ import type { HonoEnv } from '../types.js';
 import { createJWT, getPublicKey, computeKeyId, verifyJWT, b64urlDecode, b64urlEncode, pubkeyToRadicleNid } from '../jwt.js';
 import type { AATClaims } from '../jwt.js';
 import { getSigningKeyForAccount } from './did.js';
+import {
+  ACT_BINDING_CLAIM,
+  ACT_BINDING_TYP_V1,
+  computeActBindingHash,
+} from '../lib/act-binding.js';
 import { trackTokenIssuance, checkAndIncrementTokenVerify, TOKEN_VERIFY_LIMITS } from '../middleware/ratelimit.js';
 import { SERVICE_PRICES, make402Response } from '../x402.js';
 import { getTrustAttestationForEmbed } from '../idp/trust-embed.js';
@@ -61,6 +66,48 @@ export function validateScopeCeiling(requestedScopes: string[], allowedScopes: u
   if (!Array.isArray(allowedScopes) || allowedScopes.length === 0) return null;
   const disallowed = requestedScopes.filter((s) => !(allowedScopes as string[]).includes(s));
   return disallowed.length > 0 ? disallowed : null;
+}
+
+/**
+ * Phase 2c act-binding boundary parse.
+ *
+ * The SDK boundary is literal { action, target, goal } strings, locked by
+ * issue ucsandman/DashClaw#121 review. We do NOT accept a bind(intent)
+ * wrapper at the wire — divergence on canonical-input shape is the bug class
+ * vendored act-binding.ts exists to prevent.
+ *
+ * Returns:
+ *   { ok: true, tuple }           — caller-provided binding, ready for hashing
+ *   { ok: true, tuple: null }     — caller did not request binding (absent field)
+ *   { ok: false, error, field }   — validation failure; caller must 400 immediately
+ *
+ * On `ok: true, tuple !== null`, the caller hashes via computeActBindingHash
+ * (from the vendored module) and embeds the resulting claim. The hash itself
+ * never fails for well-formed tuples — every error path is caught here.
+ */
+export function parseActBindingRequest(raw: unknown):
+  | { ok: true; tuple: { action: string; target: string; goal: string } | null }
+  | { ok: false; error: string; field: string } {
+  if (raw === undefined || raw === null) {
+    return { ok: true, tuple: null };
+  }
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    return { ok: false, error: 'act_binding must be an object with { action, target, goal } string fields', field: 'act_binding' };
+  }
+  const obj = raw as Record<string, unknown>;
+  const action = obj.action;
+  const target = obj.target;
+  const goal = obj.goal;
+  if (typeof action !== 'string' || action.length === 0) {
+    return { ok: false, error: 'act_binding.action must be a non-empty string', field: 'act_binding.action' };
+  }
+  if (typeof target !== 'string' || target.length === 0) {
+    return { ok: false, error: 'act_binding.target must be a non-empty string', field: 'act_binding.target' };
+  }
+  if (typeof goal !== 'string' || goal.length === 0) {
+    return { ok: false, error: 'act_binding.goal must be a non-empty string', field: 'act_binding.goal' };
+  }
+  return { ok: true, tuple: { action, target, goal } };
 }
 
 // ─── Token Routes ─────────────────────────────────────────────────────────────
@@ -199,6 +246,21 @@ tokenRoutes.post('/issue', async (c) => {
 
   if (agentName) claims.al_name = agentName;
   if (agentEmail) claims.al_email = agentEmail;
+
+  // ── Phase 2c act-binding (issue ucsandman/DashClaw#121) ───────────────
+  // Optional. Caller supplies { action, target, goal } strings; we canonicalize
+  // and digest via the vendored module so the issuer hash matches the verifier's
+  // recomputed hash byte-for-byte. Absent → no claim → backward-compatible.
+  const actBindingResult = parseActBindingRequest(body.act_binding);
+  if (!actBindingResult.ok) {
+    return err(actBindingResult.error, 400, 'invalid_act_binding');
+  }
+  if (actBindingResult.tuple !== null) {
+    claims[ACT_BINDING_CLAIM] = {
+      typ: ACT_BINDING_TYP_V1,
+      hash: computeActBindingHash(actBindingResult.tuple),
+    };
+  }
 
   // ── Trust attestation embedding (RFC-001 Phase 1) ─────────────────────
   // Embed a trust snapshot (al_trust) in the AAT claims if sufficient
@@ -387,6 +449,21 @@ tokenRoutes.post('/issue-l3', async (c) => {
     al_mandate_hash: mandateHash,
   };
 
+  // ── Phase 2c act-binding on L3 ────────────────────────────────────────
+  // L3 already binds the credential to a VI transaction; act-binding is
+  // orthogonal and stacks on top (defense in depth). Optional, same shape
+  // as /issue. The verifier reads the same claim key regardless of L2 vs L3.
+  const l3ActBindingResult = parseActBindingRequest(body.act_binding);
+  if (!l3ActBindingResult.ok) {
+    return err(l3ActBindingResult.error, 400, 'invalid_act_binding');
+  }
+  if (l3ActBindingResult.tuple !== null) {
+    claims[ACT_BINDING_CLAIM] = {
+      typ: ACT_BINDING_TYP_V1,
+      hash: computeActBindingHash(l3ActBindingResult.tuple),
+    };
+  }
+
   // ── Sign JWT ───────────────────────────────────────────────────────────
   const publicKeyBytes = getPublicKey(signingKey);
   const kid = await computeKeyId(publicKeyBytes);
@@ -451,6 +528,17 @@ tokenRoutes.get('/info', async (c) => {
     default_ttl: DEFAULT_TTL,
     max_ttl: MAX_TTL,
     min_ttl: MIN_TTL,
+    // Phase 2c act-binding capability advertisement. Clients can discover the
+    // mint-time binding boundary here; verifiers don't need this (they read
+    // the claim from the JWT) but token-issuing SDKs do.
+    act_binding: {
+      supported: true,
+      claim: ACT_BINDING_CLAIM,
+      typ: ACT_BINDING_TYP_V1,
+      request_field: 'act_binding',
+      shape: { action: 'string (non-empty)', target: 'string (non-empty)', goal: 'string (non-empty)' },
+      reference: 'https://github.com/ucsandman/DashClaw/issues/121',
+    },
   });
 });
 
@@ -630,6 +718,15 @@ publicTokenRoutes.post('/introspect', async (c) => {
   if (claims.did) response.did = claims.did;
   if (claims.al_name) response.al_name = claims.al_name;
   if (claims.al_email) response.al_email = claims.al_email;
+
+  // Phase 2c act-binding — surface verbatim under its URN claim key so any
+  // verifier reading via introspect (rather than decoding the JWT directly)
+  // sees the same binding the JWT carries. RFC 7662 has no canonical mapping
+  // for namespaced claims, so we pass it through as-is.
+  const actBinding = claims[ACT_BINDING_CLAIM];
+  if (actBinding) {
+    response[ACT_BINDING_CLAIM] = actBinding;
+  }
 
   return json(response);
 });
