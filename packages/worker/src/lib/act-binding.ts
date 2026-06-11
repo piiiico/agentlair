@@ -145,10 +145,18 @@ export function canonicalizeActionTuple(
 
 /**
  * "sha256:" + base64url(sha256(utf8(canonical))).
+ *
+ * CF Workers compat note (2026-06-11): Bun's browser-target polyfill for
+ * node:crypto does not implement digest('base64url') — the string literal
+ * passes through unrecognised, causing a 500 in production. The standard
+ * base64url alphabet is base64 with + → -, / → _, padding stripped. The
+ * hash bytes are identical; only the encoding path differs. This patch is
+ * intentionally minimal and does NOT change the wire format.
  */
 export function computeActBindingHash(tuple: { action?: string; target?: string; goal?: string }): string {
   const canonical = canonicalizeActionTuple(tuple);
-  return 'sha256:' + createHash('sha256').update(canonical, 'utf8').digest('base64url');
+  return 'sha256:' + createHash('sha256').update(canonical, 'utf8').digest('base64')
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
 }
 
 /**
