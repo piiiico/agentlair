@@ -4,6 +4,7 @@ import {
   Calendar,
   Lock,
   Rocket,
+  Shield,
 } from "lucide-react";
 
 import { Background } from "@/components/background";
@@ -400,6 +401,13 @@ const nextSteps = [
     title: "Agent Calendar",
     description:
       "Create events via REST. Share an iCal feed. Humans subscribe in any calendar app.",
+  },
+  {
+    href: "/docs/mcp-trust-attestation",
+    icon: Shield,
+    title: "MCP Trust Attestation",
+    description:
+      "Add BHC-S behavioral trust attestation to any MCP server in three lines of code.",
   },
 ];
 

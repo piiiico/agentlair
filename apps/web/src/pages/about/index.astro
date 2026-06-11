@@ -1,0 +1,198 @@
+---
+import BaseHead from "@/components/BaseHead.astro";
+import { Footer } from "@/components/blocks/footer";
+import { Navbar } from "@/components/blocks/navbar";
+---
+
+<html lang="en">
+  <head>
+    <BaseHead
+      title="About AgentLair"
+      description="AgentLair is built and operated by Håkon Åmdal in Stavanger, Norway. Identity infrastructure for AI agents — open source, publicly documented, with a published privacy policy and security model."
+    />
+  </head>
+  <body class="h-screen antialiased">
+    <Navbar client:only="react" />
+    <main>
+
+      <!-- Hero -->
+      <section class="mx-auto max-w-2xl px-4 pt-28 lg:pt-44">
+        <p class="text-sm font-medium tracking-widest uppercase text-primary mb-4">About</p>
+        <h1 class="text-4xl md:text-5xl font-bold tracking-tight leading-tight mb-6">
+          AgentLair
+        </h1>
+        <p class="text-xl text-muted-foreground leading-relaxed">
+          Identity infrastructure for AI agents. Built and operated by
+          <a href="https://github.com/hawkaa" class="text-primary hover:underline" target="_blank" rel="noopener noreferrer">Håkon Åmdal</a>
+          in Stavanger, Norway.
+        </p>
+      </section>
+
+      <!-- Who runs this -->
+      <section class="mx-auto max-w-2xl px-4 py-16 border-t mt-12">
+        <h2 class="text-2xl font-bold tracking-tight mb-4">Who runs this</h2>
+        <p class="text-muted-foreground leading-relaxed mb-4">
+          AgentLair is a single-operator indie project. One person, in Norway, writing the code and
+          paying the Cloudflare bills. The legal entity is sole-proprietor; the operating
+          jurisdiction is the EU/EEA. Data is processed at Cloudflare edge POPs.
+        </p>
+        <p class="text-muted-foreground leading-relaxed mb-4">
+          The project started in March 2026. The code lives at
+          <a href="https://github.com/piiiico/agentlair" class="text-primary hover:underline font-mono text-sm" target="_blank" rel="noopener noreferrer">github.com/piiiico/agentlair</a>.
+          Eleven packages are published on npm under the <code class="text-sm bg-muted px-1 py-0.5 rounded">@agentlair/</code> scope.
+          A live manifest of everything that is shipped is at
+          <a href="https://api.agentlair.dev/v1/integrations" class="text-primary hover:underline font-mono text-sm" target="_blank" rel="noopener noreferrer">api.agentlair.dev/v1/integrations</a>.
+        </p>
+        <p class="text-muted-foreground leading-relaxed">
+          You will not get a sales call. There is no enterprise tier. If you need to reach a human,
+          email <a href="mailto:hei@agentlair.dev" class="text-primary hover:underline font-mono text-sm">hei@agentlair.dev</a>
+          or open an issue on GitHub. Replies come from me, usually within a day or two.
+        </p>
+      </section>
+
+      <!-- What we run -->
+      <section class="mx-auto max-w-2xl px-4 py-16 border-t">
+        <h2 class="text-2xl font-bold tracking-tight mb-4">What AgentLair does</h2>
+        <p class="text-muted-foreground leading-relaxed mb-6">
+          Agents need primitives that survive session restarts: an inbox, a vault, a verifiable
+          identity. AgentLair provides those four primitives over REST, with a free self-service
+          tier. The full list:
+        </p>
+        <div class="space-y-4">
+          <div class="rounded-lg border bg-card p-5">
+            <h3 class="font-semibold mb-1">Identity (AAT)</h3>
+            <p class="text-sm text-muted-foreground">
+              EdDSA-signed JWTs issued per session, verifiable via JWKS at
+              <a href="https://agentlair.dev/.well-known/jwks.json" class="text-primary hover:underline font-mono text-xs" target="_blank">/.well-known/jwks.json</a>.
+              Any downstream service can verify an agent without calling us.
+            </p>
+          </div>
+          <div class="rounded-lg border bg-card p-5">
+            <h3 class="font-semibold mb-1">Email</h3>
+            <p class="text-sm text-muted-foreground">
+              Claim an <code class="text-xs bg-muted px-1 py-0.5 rounded">@agentlair.dev</code> address.
+              Send and receive mail. Optional X25519 end-to-end encryption: the server stores
+              ciphertext only when E2E is enabled.
+            </p>
+          </div>
+          <div class="rounded-lg border bg-card p-5">
+            <h3 class="font-semibold mb-1">Vault</h3>
+            <p class="text-sm text-muted-foreground">
+              Client-side AES-256-GCM encryption before the request leaves your agent. We store
+              opaque bytes. Without your seed or passphrase, we cannot decrypt a vault entry.
+            </p>
+          </div>
+          <div class="rounded-lg border bg-card p-5">
+            <h3 class="font-semibold mb-1">Audit log</h3>
+            <p class="text-sm text-muted-foreground">
+              Append-only signed receipts for agent actions. The
+              <a href="https://www.npmjs.com/package/@piiiico/agent-logger" class="text-primary hover:underline" target="_blank">@piiiico/agent-logger</a>
+              library writes them; the verify endpoint reads them back.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Trust artifacts -->
+      <section class="mx-auto max-w-2xl px-4 py-16 border-t">
+        <h2 class="text-2xl font-bold tracking-tight mb-4">If you are evaluating AgentLair as a dependency</h2>
+        <p class="text-muted-foreground leading-relaxed mb-6">
+          This page exists because maintainers told us, fairly, that an undocumented third-party
+          SaaS is not a dependency they can accept. So here is the full set of accountability
+          artifacts, in one place. Everything is linkable.
+        </p>
+        <div class="space-y-3">
+          <div class="rounded-md border p-4 flex items-start gap-3">
+            <div class="text-primary font-mono text-sm pt-1 shrink-0">/privacy</div>
+            <div>
+              <a href="/privacy" class="font-medium hover:underline">Privacy Policy</a>
+              <p class="text-sm text-muted-foreground mt-0.5">
+                What we collect, retain, share, and how to contact <code class="text-xs bg-muted px-1 py-0.5 rounded">privacy@agentlair.dev</code>.
+                Country of operation: Norway.
+              </p>
+            </div>
+          </div>
+          <div class="rounded-md border p-4 flex items-start gap-3">
+            <div class="text-primary font-mono text-sm pt-1 shrink-0">/security</div>
+            <div>
+              <a href="/security" class="font-medium hover:underline">Security Model</a>
+              <p class="text-sm text-muted-foreground mt-0.5">
+                Threat model, E2E crypto stack, key lifecycle, and the parts we explicitly cannot
+                protect against. Written for skill reviewers, not lawyers.
+              </p>
+            </div>
+          </div>
+          <div class="rounded-md border p-4 flex items-start gap-3">
+            <div class="text-primary font-mono text-sm pt-1 shrink-0">/docs</div>
+            <div>
+              <a href="/docs" class="font-medium hover:underline">API Reference</a>
+              <p class="text-sm text-muted-foreground mt-0.5">
+                Full Scalar-rendered OpenAPI reference. Every endpoint, every body, every response.
+                The raw JSON is at <a href="/api" class="text-primary hover:underline font-mono text-xs">/api</a>.
+              </p>
+            </div>
+          </div>
+          <div class="rounded-md border p-4 flex items-start gap-3">
+            <div class="text-primary font-mono text-sm pt-1 shrink-0">GitHub</div>
+            <div>
+              <a href="https://github.com/piiiico/agentlair" class="font-medium hover:underline" target="_blank" rel="noopener noreferrer">piiiico/agentlair</a>
+              <p class="text-sm text-muted-foreground mt-0.5">
+                The full monorepo: worker source, SDKs, docs site, deploy scripts. Open issues here
+                if you find a bug or want to discuss a design choice.
+              </p>
+            </div>
+          </div>
+          <div class="rounded-md border p-4 flex items-start gap-3">
+            <div class="text-primary font-mono text-sm pt-1 shrink-0">/v1/integrations</div>
+            <div>
+              <a href="https://api.agentlair.dev/v1/integrations" class="font-medium hover:underline" target="_blank" rel="noopener noreferrer">Live integrations manifest</a>
+              <p class="text-sm text-muted-foreground mt-0.5">
+                Machine-readable JSON listing every package, endpoint, and integration AgentLair
+                ships. Use it to verify that something you read about actually exists.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Honest limitations -->
+      <section class="mx-auto max-w-2xl px-4 py-16 border-t">
+        <h2 class="text-2xl font-bold tracking-tight mb-4">What we are not</h2>
+        <p class="text-muted-foreground leading-relaxed mb-4">
+          AgentLair is two months old at the time of writing. It does not have a SOC 2 report. It
+          does not have 24/7 paid support. It does not have a sales team that will sign a custom
+          MSA with your procurement department. If those are hard requirements, AgentLair is not
+          the right fit yet.
+        </p>
+        <p class="text-muted-foreground leading-relaxed">
+          What it does have: published architecture, open-source code, a documented threat model,
+          a real human who answers email, and a self-service free tier so you can verify the
+          claims on this page yourself in about five minutes.
+        </p>
+      </section>
+
+      <!-- Bottom CTA -->
+      <section class="mx-auto max-w-2xl px-4 py-16 border-t text-center">
+        <p class="text-muted-foreground mb-6">
+          Still here? The fastest way to evaluate AgentLair is to use it.
+        </p>
+        <div class="flex flex-col sm:flex-row gap-4 justify-center">
+          <a
+            href="/getting-started"
+            class="inline-flex items-center justify-center rounded-md bg-primary px-6 py-3 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90 transition-colors"
+          >
+            Get started for free
+          </a>
+          <a
+            href="/security"
+            class="inline-flex items-center justify-center rounded-md border border-input px-6 py-3 text-sm font-medium hover:bg-accent hover:text-accent-foreground transition-colors"
+          >
+            Read the security model
+          </a>
+        </div>
+      </section>
+
+    </main>
+    <Footer />
+  </body>
+</html>

@@ -1,0 +1,52 @@
+{
+  "name": "@agentlair/mcp-demo-attested",
+  "version": "0.1.0",
+  "description": "Minimal reference MCP server demonstrating @agentlair/mcp-trust-attestation: a single 'echo' tool plus the BHC-S descriptor and per-subject attestation routes wired in 3 LOC.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "mcp-demo-attested": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "bun run src/index.ts",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "bun run build"
+  },
+  "keywords": [
+    "agentlair",
+    "mcp",
+    "model-context-protocol",
+    "trust",
+    "attestation",
+    "bhc-s",
+    "demo",
+    "reference-server"
+  ],
+  "author": "AgentLair <hello@agentlair.dev>",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/piiiico/agentlair",
+    "directory": "packages/mcp-demo-attested"
+  },
+  "homepage": "https://agentlair.dev/docs/bhc-s",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@agentlair/mcp-trust-attestation": "workspace:*",
+    "@hono/node-server": "^1.19.0",
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "hono": "^4.12.8"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}

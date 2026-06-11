@@ -36,6 +36,9 @@ import { handleCalendarRoutes } from './routes/calendar.js';
 import { tokenRoutes, publicTokenRoutes } from './routes/tokens.js';
 import { signingKeyRoutes, getSigningKey, getSigningKeyByThumbprint } from './routes/signing-keys.js';
 import { auditRoutes, publicAuditRoutes } from './routes/audit.js';
+import { findingsRoutes, findingsPublicRoutes } from './routes/findings.js';
+import { findingOutcomesRoutes } from './routes/finding-outcomes.js';
+import { agentTrackRecordRoutes } from './routes/agent-track-record.js';
 import { sessionRoutes } from './routes/sessions.js';
 import { budgetRoutes } from './routes/budget.js';
 import { gatewayRoutes } from './routes/gateway.js';
@@ -47,8 +50,15 @@ import { trustRoutes, publicTrustRoutes } from './routes/trust.js';
 import { operatorProfileRoutes } from './routes/operator-profile.js';
 import { discoveryRoutes } from './routes/discovery.js';
 import { agentsByNidRoutes } from './routes/agents-by-nid.js';
+import { sovereignBridgesRoutes } from './routes/sovereign-bridges.js';
+import { integrationsRoutes } from './routes/integrations.js';
+import { proofOfLifeRoutes } from './routes/proof-of-life.js';
+import { rfc9421VerifyRoutes } from './routes/rfc9421-verify.js';
+import { rfc9421DemoRoutes } from './routes/rfc9421-demo.js';
 import { memoryTrustRoutes } from './routes/memory-trust.js';
 import { badgeRoutes } from './routes/badge.js';
+import { wellKnownAgentlairTrustRoutes } from './routes/well-known-agentlair-trust.js';
+import { mcpTrustVerifyRoutes } from './routes/mcp-trust-verify.js';
 import { a2aCardRoutes } from './routes/a2a-cards.js';
 import { ogA2aRoutes } from './routes/og-a2a.js';
 import { ogA2aStatsRoutes } from './routes/og-a2a-stats.js';
@@ -355,6 +365,19 @@ app.get('/api', (c) => {
   return new Response(JSON.stringify(OPENAPI_SPEC), { status: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=3600' } });
 });
 
+// Conventional OpenAPI discovery alias — x402scan and other auto-discovery tools
+// look for /openapi.json at the origin level. Pure JSON, no content-negotiation.
+app.get('/openapi.json', () =>
+  new Response(JSON.stringify(OPENAPI_SPEC), {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'public, max-age=3600',
+      'X-Powered-By': 'AgentLair',
+    },
+  })
+);
+
 app.get('/health', () => json({ status: 'ok', timestamp: new Date().toISOString(), version: '0.18.3' }));
 
 // Edge-propagation marker used by agentlair-deploy.ts after purge_cache to confirm
@@ -399,6 +422,17 @@ app.get('/.well-known/agent.json', async (c) => {
   });
 });
 
+// A2A v1.0+ canonical filename — same content as /.well-known/agent.json.
+// Both routes return byte-identical AgentCard payloads.
+app.get('/.well-known/agent-card.json', async (c) => {
+  const card = await buildSignedAgentCard(c.env.AUDIT_SIGNING_KEY);
+
+  return new Response(JSON.stringify(card, null, 2), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=3600' },
+  });
+});
+
 app.get('/llms.txt', () =>
   new Response(LLMS_TXT, {
     status: 200,
@@ -412,6 +446,39 @@ app.get('/robots.txt', () =>
     headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=3600' },
   })
 );
+
+// ── x402 Well-Known Pointer ───────────────────────────────────────────────────
+// Machine-discovery endpoint per x402 protocol: points to canonical OpenAPI
+// spec and other discovery documents. Cache-Control: public (pointer is stable).
+
+app.get('/.well-known/x402', (c) => {
+  const hasCdp = !!(c.env.CDP_API_KEY_ID && c.env.CDP_API_KEY_SECRET);
+  return new Response(JSON.stringify({
+    protocol: 'x402',
+    version: 2,
+    resources: [
+      'https://agentlair.dev/v1/audit/aat_demo1234567890ab',
+      'https://agentlair.dev/v1/agents/acc_demoid12345/memory-trust',
+    ],
+    openapi: 'https://agentlair.dev/api',
+    bazaar: 'https://agentlair.dev/.well-known/bazaar.json',
+    agents: 'https://agentlair.dev/.well-known/agents.json',
+    facilitator: hasCdp ? 'https://api.cdp.coinbase.com/platform/v2/x402' : 'https://facilitator.ultravioletadao.xyz',
+    ...(hasCdp ? { facilitator_fallback: 'https://facilitator.ultravioletadao.xyz' } : {}),
+    network: 'eip155:8453',
+    asset: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+    asset_symbol: 'USDC',
+    pay_to: '0x90EE1EbcCFA2021711C595E1410e22401570B4AC',
+    docs: 'https://agentlair.dev/docs',
+    discovery_note: 'AgentLair publishes paid endpoints in /.well-known/bazaar.json. The full OpenAPI 3.1 spec at /api documents the x402 flow.',
+  }, null, 2), {
+    headers: {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'public, max-age=3600',
+      'X-Powered-By': 'AgentLair',
+    },
+  });
+});
 
 app.get('/.well-known/mcp/server.json', () =>
   new Response(JSON.stringify({
@@ -444,6 +511,13 @@ app.get('/.well-known/rsl.xml', () =>
     headers: { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=86400' },
   })
 );
+
+// ── BHC-S Trust Discovery — Behavioral Health Certificate Server ─────────────
+// Static descriptor advertising AgentLair as a behavioral trust issuer for
+// MCP and HTTP API servers (RFC 8414-style metadata). Public, unauth.
+// Sub-router lives at packages/worker/src/routes/well-known-agentlair-trust.ts.
+
+app.route('/.well-known/agentlair-trust', wellKnownAgentlairTrustRoutes);
 
 // ── agents.json — Agent Discovery ────────────────────────────────────────────
 // First-mover convention: AAT issuer DID, citation policy, x402 receiver,
@@ -573,6 +647,13 @@ app.get('/.well-known/bazaar.json', (_c) => {
       name: 'Agent Trust Score',
       endpoint: '/v1/trust/{agentId}',
       method: 'GET',
+      requirements: getPaymentRequirements(SERVICE_PRICES.trust_query),
+      discovery: SERVICE_PRICES.trust_query.discovery,
+    },
+    {
+      name: 'Agent Trust Batch',
+      endpoint: '/v1/trust/batch',
+      method: 'POST',
       requirements: getPaymentRequirements(SERVICE_PRICES.trust_query),
       discovery: SERVICE_PRICES.trust_query.discovery,
     },
@@ -1056,6 +1137,10 @@ app.use('/v1/calendar/feed.ics', publicHandler(handleCalendarRoutes));
 // Handlers call authenticateAny internally: authenticated callers pay nothing.
 app.route('/v1/trust', publicTrustRoutes);
 
+// MCP server trust attestation verifier — free public utility, no auth, no x402
+// POST /v1/trust/mcp/verify — discovers + verifies BHC-S attestation at any MCP server URL
+app.route('/v1/trust', mcpTrustVerifyRoutes);
+
 // Agent discovery: always public, always requires x402 (0.005 USDC)
 // GET /v1/agents/lookup?handle=<name>&email=<email>&id=<acc_...>
 app.route('/v1/agents', discoveryRoutes);
@@ -1063,6 +1148,28 @@ app.route('/v1/agents', discoveryRoutes);
 // Inverse AAT-NID bridge: free public read, no auth, no x402
 // GET /v1/agents/by-nid/:al_nid — resolve Radicle NID → AgentLair account
 app.route('/v1/agents', agentsByNidRoutes);
+
+// Sovereign bridge registry: machine-readable companion to /docs/sovereign-bridges
+// GET /v1/sovereign-bridges — substrate + anchor map (live + roadmap), no auth
+app.route('/v1/sovereign-bridges', sovereignBridgesRoutes);
+
+// Integrations manifest: machine-readable list of all verified AgentLair integrations
+// GET /v1/integrations — npm packages, GitHub repos, GitHub Actions, public endpoints, no auth
+app.route('/v1/integrations', integrationsRoutes);
+
+// Behavioural heartbeat: live commit + deploy age + substrate identity, no auth
+// GET /v1/proof-of-life — companion to /v1/integrations (verb to its nouns)
+app.route('/v1/proof-of-life', proofOfLifeRoutes);
+
+// RFC 9421 HTTP Message Signature verifier — public, no auth, rate-limited by IP
+// POST /v1/rfc9421/verify — Ed25519 only in v1; accepts did:key or JWKS-URL keyid
+// Mounted BEFORE /v1/* auth middleware. Same protocol as Visa Trusted Agent Protocol.
+app.route('/v1/rfc9421/verify', rfc9421VerifyRoutes);
+
+// GET /v1/rfc9421/demo — self-verifying example envelope (companion to /verify)
+// Returns deterministic demo keypair + fresh signed request + curl one-liner.
+// Mounted BEFORE /v1/* auth middleware so it's public.
+app.route('/v1/rfc9421/demo', rfc9421DemoRoutes);
 
 // Memory trust: always public, always requires x402 (0.01 USDC)
 // GET /v1/agents/:id/memory-trust — verified memory behavioral patterns
@@ -1106,6 +1213,24 @@ app.route('/v1/stats', publicStatsRoutes);
 // No auth required: anyone can verify a Skill Provenance Attestation JWT.
 // Mounted BEFORE auth middleware so anonymous callers can verify skills.
 app.route('/v1', skillProvenanceRoutes);
+
+// Public security-finding lookup: GET /v1/findings/:jti — programs verify
+// signed finding envelopes without onboarding each agent. Submit endpoint
+// (POST /v1/agents/:agentId/findings) is auth-gated and mounted below.
+// Mounted BEFORE auth middleware so anonymous verifiers can fetch by jti.
+app.route('/v1', findingsPublicRoutes);
+
+// Program outcome attestation: POST /v1/findings/:jti/outcome — programs
+// attest accept/reject on a finding using a prog_ API key (NOT agent AAT).
+// Mounted BEFORE the /v1/* auth middleware so the AAT-style auth (al_ bearer)
+// does not preempt the handler's own program-key resolver. The matching
+// bypass clause sits in the /v1/* middleware below.
+app.route('/v1', findingOutcomesRoutes);
+
+// Public agent track_record snapshot: GET /v1/agents/:agentId/track_record
+// Anonymous read — programs verify an agent's aggregate reputation without
+// onboarding. Mounted BEFORE auth middleware (matching bypass clause below).
+app.route('/v1', agentTrackRecordRoutes);
 
 // ── Waitlist: lead capture for paid tiers (no auth required) ────────────────
 // Captures email + company before Stripe checkout is live.
@@ -1244,6 +1369,30 @@ app.get('/v1/admin/revenue', async (c) => {
   });
 });
 
+app.get('/v1/admin/waitlist', async (c) => {
+  const authHeader = c.req.header('Authorization') || '';
+  const adminKey = authHeader.replace(/^Bearer\s+/i, '').trim();
+  if (!c.env.ADMIN_KEY || !adminKey || adminKey !== c.env.ADMIN_KEY) {
+    return err('Unauthorized. Admin key required.', 403, 'admin_unauthorized');
+  }
+  if (!c.env.AUDIT) {
+    return err('Database not configured.', 503, 'db_unavailable');
+  }
+  const result = await c.env.AUDIT.prepare(
+    'SELECT id, email, company, tier, created_at FROM waitlist ORDER BY created_at DESC LIMIT 100'
+  ).all<{ id: string; email: string; company: string | null; tier: string; created_at: string }>();
+  const entries = result.results || [];
+  const by_tier: Record<string, number> = { starter: 0, pro: 0, enterprise: 0 };
+  for (const entry of entries) {
+    if (entry.tier in by_tier) by_tier[entry.tier]++;
+  }
+  return json({
+    count: entries.length,
+    by_tier,
+    entries: entries.map(e => ({ email: e.email, company: e.company || null, tier: e.tier, created_at: e.created_at })),
+  });
+});
+
 app.get('/v1/admin/billing-anomalies', async (c) => {
   const authHeader = c.req.header('Authorization') || '';
   const adminKey = authHeader.replace(/^Bearer\s+/i, '').trim();
@@ -1303,8 +1452,32 @@ app.use('/v1/*', async (c: Context<HonoEnv>, next: Next): Promise<void | Respons
   }
 
   // Public audit JTI endpoint — external verifiers check AAT metadata without needing an account.
-  // Only bypass for JTI format (aat_[A-Za-z0-9]{16}); literal paths like /log fall through to auditRoutes.
-  if (c.req.method === 'GET' && /^\/v1\/audit\/aat_[A-Za-z0-9]{16}$/.test(c.req.path)) {
+  // Only bypass for JTI format (aat_[A-Za-z0-9]{16} or aal3_[A-Za-z0-9]{16}); literal paths like /log fall through to auditRoutes.
+  if (c.req.method === 'GET' && /^\/v1\/audit\/(aat|aal3)_[A-Za-z0-9]{16}$/.test(c.req.path)) {
+    await next();
+    return;
+  }
+
+  // Public security-finding lookup — anonymous verifiers fetch signed envelopes by jti.
+  // Only bypass for the lookup path (/v1/findings/...); submission lives under
+  // /v1/agents/:agentId/findings and stays auth-gated.
+  if (c.req.method === 'GET' && c.req.path.startsWith('/v1/findings/')) {
+    await next();
+    return;
+  }
+
+  // Outcome attestation runs its own program-key (prog_) auth — bypass /v1/* AAT auth
+  // for POST /v1/findings/:jti/outcome. Path-shape match keeps the bypass tight
+  // (other POSTs under /v1/findings/... continue to flow through AAT auth).
+  if (c.req.method === 'POST' && /^\/v1\/findings\/finding_[A-Za-z0-9_-]{21}\/outcome$/.test(c.req.path)) {
+    await next();
+    return;
+  }
+
+  // Public agent track_record read — anonymous programs fetch reputation snapshots.
+  // Matches GET /v1/agents/<id>/track_record specifically; other GETs under
+  // /v1/agents/ stay auth-gated.
+  if (c.req.method === 'GET' && /^\/v1\/agents\/[^/]+\/track_record$/.test(c.req.path)) {
     await next();
     return;
   }
@@ -1571,6 +1744,10 @@ app.route('/v1', auditRoutes);
 // Auth middleware bypasses this route for the JTI format (aat_[A-Za-z0-9]{16}) — see section 5.
 app.route('/v1/audit', publicAuditRoutes);
 
+// Findings routes: POST /v1/agents/:agentId/findings — auth-gated submission with IDOR guard.
+// (The public GET /v1/findings/:jti lookup is mounted BEFORE auth middleware above.)
+app.route('/v1', findingsRoutes);
+
 // SCITT Transparency Service routes: POST /v1/scitt/entries, GET /v1/scitt/entries/:id, GET /v1/scitt/entries/:id/receipt
 app.route('/v1/scitt', scittRoutes);
 
@@ -1652,6 +1829,12 @@ app.get('/popa/leaderboard', (c) => proxyToPages(c, '/popa/leaderboard'));
 // The Astro page at /popa/ is a React island that reads window.location.pathname
 // to extract the DID and fetches attestation data client-side.
 app.get('/popa/*', (c) => proxyToPages(c, '/popa/'));
+
+// Finding permalink — serve SPA shell for any /f/:jti path.
+// The Astro page at /f/ is a React island that reads window.location.pathname
+// to extract the JTI and fetches finding data client-side.
+// CF Pages _redirects alone is insufficient when requests pass through the worker.
+app.get('/f/*', (c) => proxyToPages(c, '/f/'));
 
 // All other routes proxy to CF Pages (Astro) — handles /security, /blog/*, /pricing, /privacy,
 // /calendar, /integrations, /dashboard, and any future Astro pages automatically.

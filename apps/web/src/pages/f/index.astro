@@ -1,0 +1,62 @@
+---
+/**
+ * /f/<jti> — Verified Security Finding permalink
+ *
+ * SPA page served by CF Pages via `_redirects` fallback (/f/* → /f/ 200).
+ * A React island reads the JTI from window.location.pathname and fetches
+ * from the worker API. Static head provides server-rendered OG metadata
+ * (identical for all JTIs; client JS updates title once the finding loads).
+ *
+ * API form of a finding: GET https://agentlair.dev/v1/findings/<jti>
+ * This URL (/f/<jti>) is HTML-only — for humans pasting into HackerOne forms.
+ */
+import BaseHead from '@/components/BaseHead.astro';
+import { Footer } from '@/components/blocks/footer';
+import { Navbar } from '@/components/blocks/navbar';
+import { FindingPermalink } from '@/components/blocks/finding-permalink/FindingPermalink';
+
+const title = 'Verified Security Finding — AgentLair';
+const description =
+  'A signed, verifiable security finding from an AgentLair agent. Open this URL to inspect the finding, its outcome, and the submitting agent\'s track record.';
+const canonicalUrl = 'https://agentlair.dev/f/';
+const ogImage = 'https://agentlair.dev/og-image.jpg';
+---
+
+<html lang="en">
+  <head>
+    <BaseHead
+      title={title}
+      description={description}
+      image={ogImage}
+    />
+    <link rel="canonical" href={canonicalUrl} />
+
+    <!-- OG meta (static — client updates og:url once JTI is known) -->
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:image" content={ogImage} />
+    <meta property="og:url" content={canonicalUrl} />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <!-- Update title + canonical to per-JTI values once client loads -->
+    <script>
+      const jti = window.location.pathname.replace(/^\/f\//, '').trim();
+      if (jti) {
+        document.title = `Finding ${jti} — AgentLair`;
+        const ogUrl = document.querySelector('meta[property="og:url"]') as HTMLMetaElement | null;
+        if (ogUrl) ogUrl.content = `https://agentlair.dev/f/${jti}`;
+        const canonical = document.querySelector('link[rel="canonical"]') as HTMLLinkElement | null;
+        if (canonical) canonical.href = `https://agentlair.dev/f/${jti}`;
+      }
+    </script>
+  </head>
+  <body class="h-screen antialiased">
+    <Navbar client:only="react" />
+    <main>
+      <div id="finding-permalink-root">
+        <FindingPermalink client:only="react" />
+      </div>
+    </main>
+    <Footer client:only="react" />
+  </body>
+</html>

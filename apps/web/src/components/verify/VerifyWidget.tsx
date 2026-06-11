@@ -700,6 +700,32 @@ export function VerifyWidget() {
         </p>
       </header>
 
+      {/* Examples */}
+      <div className="space-y-2">
+        <p className="text-xs uppercase tracking-wide text-muted-foreground">Examples</p>
+        <div className="flex flex-wrap gap-2">
+          {[
+            { label: 'did:web:agentlair.dev', value: 'did:web:agentlair.dev', title: 'AgentLair production DID — resolves, PoPA enrolled' },
+            { label: 'did:web:api.agentlair.dev', value: 'did:web:api.agentlair.dev', title: 'AgentLair API subdomain DID' },
+            { label: 'did:key (Ed25519)', value: 'did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK', title: 'Portable Ed25519 key — no network needed' },
+          ].map(({ label, value, title }) => (
+            <button
+              key={value}
+              type="button"
+              title={title}
+              data-example={value}
+              onClick={() => {
+                setRaw(value);
+                run(value, false);
+              }}
+              className="inline-flex items-center rounded-full border border-border bg-muted/40 px-3 py-1 font-mono text-xs text-muted-foreground hover:border-primary/40 hover:bg-primary/5 hover:text-foreground transition-colors"
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       <form onSubmit={onSubmit} className="space-y-3">
         <label htmlFor="verify-input" className="block text-xs uppercase tracking-wide text-muted-foreground">
           DID or AAT
@@ -721,16 +747,6 @@ export function VerifyWidget() {
             className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {running ? 'Verifying…' : 'Verify'}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setRaw('did:web:agentlair.dev');
-              run('did:web:agentlair.dev', false);
-            }}
-            className="text-sm text-muted-foreground underline underline-offset-2 hover:text-foreground"
-          >
-            Try did:web:agentlair.dev
           </button>
         </div>
       </form>

@@ -401,7 +401,7 @@ function randomNonce(): string {
 interface X402PaymentRequirement {
   scheme: string;
   network: string;
-  maxAmountRequired: string;
+  amount: string;
   resource: string;
   description?: string;
   mimeType?: string;
@@ -894,7 +894,7 @@ gatewayRoutes.post('/proxy', async (c) => {
       return err('No compatible payment option (eip155:8453 / exact) found in 402 response.', 502, 'payment_scheme_unsupported');
     }
 
-    const amountUsdc = parseInt(baseOption.maxAmountRequired, 10);
+    const amountUsdc = parseInt(baseOption.amount, 10);
     if (isNaN(amountUsdc) || amountUsdc <= 0) {
       return err('Invalid payment amount in 402 response.', 502, 'upstream_error');
     }

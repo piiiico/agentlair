@@ -94,7 +94,8 @@ export const REPO_ROOT_DEFAULT = '/workspace/agentlair';
 export const DEFAULT_CONFIG: CheckConfig = {
   selfHosts: [
     'agentlair.dev',
-    '*.agentlair.dev',
+    // Do NOT add '*.agentlair.dev' — subdomains like mcp-demo.agentlair.dev are
+    // served by other workers and must be fetchable by the trust verifier.
   ],
   wranglerPaths: [
     'packages/worker/wrangler.toml',

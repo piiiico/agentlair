@@ -8,6 +8,7 @@ export function Footer() {
     { name: "Features", href: "/#features" },
     { name: "Pricing", href: "/#pricing" },
     { name: "Docs", href: "/docs" },
+    { name: "About", href: "/about" },
     { name: "FAQ", href: "/#faq" },
     { name: "Verify Receipt", href: "/verify-receipt" },
   ];
@@ -16,7 +17,10 @@ export function Footer() {
     { name: "GitHub", href: "https://github.com/piiiico/agentlair" },
   ];
 
-  const legal = [{ name: "Privacy Policy", href: "/privacy" }];
+  const legal = [
+    { name: "Privacy Policy", href: "/privacy" },
+    { name: "Security", href: "/security" },
+  ];
 
   return (
     <footer className="flex flex-col items-center gap-14 pt-28 lg:pt-32">

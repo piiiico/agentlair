@@ -1,0 +1,5 @@
+/contexts/task-completion-receipt-v1
+  Content-Type: application/ld+json; charset=utf-8
+
+/schemas/task-completion-receipt-v1.json
+  Content-Type: application/schema+json; charset=utf-8

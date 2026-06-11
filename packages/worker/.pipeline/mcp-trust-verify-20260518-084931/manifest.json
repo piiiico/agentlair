@@ -1,0 +1,43 @@
+{
+  "pipeline_id": "mcp-trust-verify-20260518-084931",
+  "created_at": "2026-05-18T08:49:31Z",
+  "branch": "feat/mcp-trust-verify",
+  "route": "POST /v1/trust/mcp/verify",
+  "description": "Client-side MCP server attestation verifier — public HTTP endpoint to check if an MCP server is BHC-S attested",
+  "commit": "4fbddb99986ba77bcdc7a4d21a4f91fe178d0b84",
+  "coding_task_id": "7d37ed47b818578b",
+  "review_task_id": "TBD",
+  "deploy_task_id": "58b69be09d59379f",
+  "fitness_assertions": [
+    {
+      "id": "F1",
+      "description": "POST /v1/trust/mcp/verify {url:'https://agentlair.dev'} returns 200, raw_descriptor is non-null with issuer=https://agentlair.dev, errors mentions 'attestation token' (issuer discovery — self-attestation deferred)",
+      "method": "curl -s -X POST https://agentlair.dev/v1/trust/mcp/verify -H 'Content-Type: application/json' -d '{\"url\":\"https://agentlair.dev\"}' | python3 -c \"import json,sys; r=json.load(sys.stdin); assert r['verified']==False, r; assert r['raw_descriptor'] is not None, r; assert r['raw_descriptor'].get('issuer')=='https://agentlair.dev', r; assert any('attestation token' in e for e in r['errors']), r; print('ok')\""
+    },
+    {
+      "id": "F2",
+      "description": "POST malformed JSON body returns 400 (not 500)",
+      "method": "curl -s -o /dev/null -w '%{http_code}' -X POST https://agentlair.dev/v1/trust/mcp/verify -H 'Content-Type: application/json' -d 'not-json'"
+    },
+    {
+      "id": "F3",
+      "description": "POST {url:'https://www.example.com'} returns 200, verified=false, errors contains 'agentlair-trust'",
+      "method": "curl -s -X POST https://agentlair.dev/v1/trust/mcp/verify -H 'Content-Type: application/json' -d '{\"url\":\"https://www.example.com\"}' | jq '{verified,errors}'"
+    },
+    {
+      "id": "F4",
+      "description": "POST {url:'http://10.0.0.1'} returns 400 with error 'private IP rejected'",
+      "method": "curl -s -X POST https://agentlair.dev/v1/trust/mcp/verify -H 'Content-Type: application/json' -d '{\"url\":\"http://10.0.0.1\"}' | jq '{errors}'"
+    },
+    {
+      "id": "F5",
+      "description": "Same URL twice within 5min: second response has X-Cache: HIT header",
+      "method": "URL=https://agentlair.dev; curl -si -X POST https://agentlair.dev/v1/trust/mcp/verify -H 'Content-Type: application/json' -d \"{\\\"url\\\":\\\"$URL\\\"}\" | grep X-Cache; curl -si -X POST https://agentlair.dev/v1/trust/mcp/verify -H 'Content-Type: application/json' -d \"{\\\"url\\\":\\\"$URL\\\"}\" | grep X-Cache"
+    },
+    {
+      "id": "F6",
+      "description": "All 200 responses have all 8 required fields: verified, server_id, issued_at, expires_at, jwks_url, bhc_token_type, raw_descriptor, errors",
+      "method": "curl -s -X POST https://agentlair.dev/v1/trust/mcp/verify -H 'Content-Type: application/json' -d '{\"url\":\"https://agentlair.dev\"}' | jq 'has(\"verified\") and has(\"server_id\") and has(\"issued_at\") and has(\"expires_at\") and has(\"jwks_url\") and has(\"bhc_token_type\") and has(\"raw_descriptor\") and has(\"errors\")'"
+    }
+  ]
+}

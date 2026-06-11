@@ -88,6 +88,30 @@ describe('public routes', () => {
     expect(skillIds).toContain('trust-query');
   });
 
+  test('GET /.well-known/agent-card.json — returns A2A agent card', async () => {
+    const r = await req('/.well-known/agent-card.json');
+    expect(r.status).toBe(200);
+    expect(typeof r.body).toBe('object');
+  });
+
+  test('GET /.well-known/agent-card.json — surfaces trust infrastructure fields', async () => {
+    const r = await req('/.well-known/agent-card.json');
+    expect(r.status).toBe(200);
+    const card = r.body;
+    // Trust infrastructure (raised a2a-trust-audit from F to B)
+    expect(card.did).toBe('did:web:agentlair.dev');
+    expect(card.jwks_uri).toBe('https://agentlair.dev/.well-known/jwks.json');
+    expect(card.provider?.organization).toBeDefined();
+    expect(card.audit_trail_url_template).toMatch(/\{jti\}$/);
+    expect(card.trust_attestation?.self_reported).toBe(true);
+    expect(card.trust_attestation?.trust_endpoint_template).toMatch(/\{agentId\}$/);
+    expect(card.behavioral_monitoring?.provider).toBe('agentlair.dev');
+    // Skills
+    const skillIds = card.skills?.map((s: any) => s.id) ?? [];
+    expect(skillIds).toContain('token-issue');
+    expect(skillIds).toContain('trust-query');
+  });
+
   test('GET /.well-known/jwks.json — returns JWKS with Ed25519 key', async () => {
     const r = await req('/.well-known/jwks.json');
     expect(r.status).toBe(200);

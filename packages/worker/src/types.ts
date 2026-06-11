@@ -44,6 +44,22 @@ export interface Env {
   // Stripe webhook signing secret — verify events from Stripe
   // Set via: wrangler secret put STRIPE_WEBHOOK_SECRET
   STRIPE_WEBHOOK_SECRET?: string;
+  // MCP server trust attestation cache (optional — graceful degradation if absent)
+  TRUST_VERIFY_CACHE?: KVNamespace;
+  // CDP (Coinbase Developer Platform) x402 facilitator credentials.
+  // Required for Agentic.Market / Bazaar auto-indexing: payments that settle
+  // through CDP are automatically cataloged. Free tier: 1,000 tx/month.
+  // Setup: https://cdp.coinbase.com → API Keys → Ed25519 key pair
+  // Deploy: wrangler secret put CDP_API_KEY_ID && wrangler secret put CDP_API_KEY_SECRET
+  CDP_API_KEY_ID?: string;
+  CDP_API_KEY_SECRET?: string;
+  // Service binding for mcp-demo.agentlair.dev — bypasses CF same-zone fetch 403.
+  // CF Workers cannot make HTTP subrequests to other Workers in the same zone
+  // (same-account zone custom domains return 403; workers.dev bypasses this but
+  // the canonical URL is mcp-demo.agentlair.dev). Service bindings route directly
+  // to the target worker without going through CF's edge HTTP stack.
+  // Bound in wrangler.toml [[services]] binding = "MCP_DEMO".
+  MCP_DEMO?: Fetcher;
 }
 
 export interface Account {

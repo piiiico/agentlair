@@ -26,6 +26,11 @@ id = "5eb916dd7125415da51c15cd85c3b761"
 binding = "A2A_LEADERBOARD"
 id = "0d8118945ba44294a5a6e76b1ef6122a"
 
+[[kv_namespaces]]
+binding = "TRUST_VERIFY_CACHE"
+id = "27d362b566ad4ea9986277a309388d5a"
+preview_id = "c6c161e1797e419f9a774c11b7ab9590"
+
 # Secrets (set via wrangler secret put — NOT stored here):
 #   PLATFORM_ENCRYPTION_KEY  — base64-encoded 32-byte AES-256 key for email body encryption at rest
 #                              Generate: openssl rand -base64 32
@@ -79,6 +84,14 @@ new_sqlite_classes = ["TransparencyService"]
 binding = "AUDIT"
 database_name = "agentlair-audit"
 database_id = "7e358e12-9c65-4803-9d1d-298fec510099"
+
+# Service bindings — direct worker-to-worker RPC (bypasses CF zone HTTP stack)
+# CF Workers HTTP subrequests to custom domains in the same zone return 403;
+# service bindings route directly without the zone's edge processing.
+# Used by /v1/trust/mcp/verify to reach same-zone agentlair.dev subdomain workers.
+[[services]]
+binding = "MCP_DEMO"
+service = "agentlair-mcp-demo"
 
 # Cron triggers
 # Daily PoPA emission at 00:00 UTC (one attestation per enabled subscriber per day).

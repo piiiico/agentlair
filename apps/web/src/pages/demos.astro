@@ -4,7 +4,7 @@ import DefaultLayout from '@/layouts/DefaultLayout.astro';
 
 <DefaultLayout
   title="Clone-and-run demos · AgentLair"
-  description="Six runnable demo repos for AgentLair primitives: Behavioral Commitment Credentials, x402-on-Base pay-per-call MCP, audit-chain dispute resolution, and behavioral attestations for LangChain.js, the OpenAI Agents SDK, and the Vercel AI SDK. Each repo issues live artifacts you can re-verify on agentlair.dev."
+  description="Seven runnable demos for AgentLair primitives: Behavioral Commitment Credentials, x402-on-Base pay-per-call MCP, audit-chain dispute resolution, behavioral attestations for LangChain.js, the OpenAI Agents SDK, and the Vercel AI SDK, and a live attested MCP server. Each demo issues live artifacts you can re-verify on agentlair.dev."
 >
   <main>
     <!-- Hero -->
@@ -14,7 +14,7 @@ import DefaultLayout from '@/layouts/DefaultLayout.astro';
         Clone-and-run, not slideware.
       </h1>
       <p class="text-lg text-muted-foreground leading-relaxed mb-4">
-        Six runnable repos. Each one isolates a different layer of the substrate AgentLair runs on: behavioral commitment credentials that verify across organizations, pay-per-call MCP tools settled on Base, an audit chain that decides disputes from observed behavior, and drop-in attestation wrappers for the three TypeScript agent frameworks people actually ship: LangChain.js, the OpenAI Agents SDK, and the Vercel AI SDK. Clone any of them and run the README. The credentials you read about in the cards below resolve to public verify endpoints right now.
+        Seven runnable demos. Each one isolates a different layer of the substrate AgentLair runs on: behavioral commitment credentials that verify across organizations, pay-per-call MCP tools settled on Base, an audit chain that decides disputes from observed behavior, drop-in attestation wrappers for the three TypeScript agent frameworks people actually ship (LangChain.js, the OpenAI Agents SDK, Vercel AI SDK), and a live attested MCP server you can curl without installing anything. Clone any of them and run the README, or hit the public endpoints directly. The credentials and descriptors you read about in the cards below resolve to public verify endpoints right now.
       </p>
       <div class="flex items-center gap-3 text-sm text-muted-foreground border-t pt-6 mt-6">
         <span>May 2026</span>
@@ -188,6 +188,36 @@ import DefaultLayout from '@/layouts/DefaultLayout.astro';
               <span class="font-mono text-xs text-muted-foreground uppercase tracking-wider">Live</span>
               <a href="https://agentlair.dev/v1/bcc/bcc_4jGn7YfkZdhyDJfVo2Rf/verify" class="font-mono text-foreground hover:text-primary break-all">bcc_4jGn7YfkZdhyDJfVo2Rf</a>
               <span class="text-xs text-muted-foreground">(verify endpoint, returns valid:true; 6 audit events anchored)</span>
+            </div>
+          </div>
+        </article>
+
+        <!-- Card 7: Live attested MCP server -->
+        <article class="rounded-xl border bg-card p-6 md:p-8 shadow-sm">
+          <div class="flex flex-wrap items-baseline gap-3 mb-2">
+            <span class="text-xs font-mono tracking-wider uppercase text-primary">07</span>
+            <h2 class="text-2xl font-semibold tracking-tight">Live attested MCP server</h2>
+          </div>
+          <p class="text-base font-medium text-foreground/90 mb-3">
+            What this proves: an MCP server can publish a verifiable BHC-S trust descriptor on a public domain, and a third-party verifier resolves it to <code class="font-mono text-sm">verified: true</code> without any prior trust relationship between server and verifier.
+          </p>
+          <p class="text-muted-foreground leading-relaxed mb-4">
+            The reference server from <code class="font-mono text-sm">@agentlair/mcp-demo-attested</code> is hosted at <code class="font-mono text-sm">mcp-demo.agentlair.dev</code>. The well-known descriptor names the issuer (agentlair.dev), the JWKS, the supported signals (consistency, restraint, transparency, honesty), and the BHC-S token type. A second curl asks AgentLair's verifier — independent of the server — whether the descriptor resolves. The first production-attested MCP server, zero install, one curl.
+          </p>
+          <div class="flex flex-col gap-2 text-sm">
+            <div class="flex flex-wrap items-baseline gap-2">
+              <span class="font-mono text-xs text-muted-foreground uppercase tracking-wider">Repo</span>
+              <a href="https://github.com/piiiico/agentlair/tree/main/packages/mcp-demo-attested" class="font-mono text-primary hover:underline break-all">github.com/piiiico/agentlair/tree/main/packages/mcp-demo-attested</a>
+            </div>
+            <div class="flex flex-wrap items-baseline gap-2">
+              <span class="font-mono text-xs text-muted-foreground uppercase tracking-wider">Live A</span>
+              <a href="https://mcp-demo.agentlair.dev/.well-known/agentlair-trust" class="font-mono text-foreground hover:text-primary break-all">mcp-demo.agentlair.dev/.well-known/agentlair-trust</a>
+              <span class="text-xs text-muted-foreground">(descriptor, signed attestation_token inline)</span>
+            </div>
+            <div class="flex flex-wrap items-baseline gap-2">
+              <span class="font-mono text-xs text-muted-foreground uppercase tracking-wider">Live B</span>
+              <a href="https://agentlair.dev/v1/trust/mcp/verify" class="font-mono text-foreground hover:text-primary break-all">POST agentlair.dev/v1/trust/mcp/verify</a>
+              <span class="text-xs text-muted-foreground">(body: <code class="font-mono">&#123;"url":"https://mcp-demo.agentlair.dev"&#125;</code> → <code class="font-mono">verified:true</code>)</span>
             </div>
           </div>
         </article>

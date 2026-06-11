@@ -65,12 +65,15 @@ describe('isSelfHost (default SELF_HOSTS)', () => {
     expect(isSelfHost('agentlair.dev')).toBe(true);
   });
 
-  test('www subdomain (covered by *.agentlair.dev wildcard)', () => {
-    expect(isSelfHost('www.agentlair.dev')).toBe(true);
+  test('www.agentlair.dev is NOT a self-host (subdomain served by other worker)', () => {
+    // *.agentlair.dev was removed from SELF_HOSTS to allow the verifier to
+    // reach subdomains like mcp-demo.agentlair.dev. Subdomains are not served
+    // by this worker, so fetching them is safe.
+    expect(isSelfHost('www.agentlair.dev')).toBe(false);
   });
 
-  test('api.agentlair.dev (covered by *.agentlair.dev)', () => {
-    expect(isSelfHost('api.agentlair.dev')).toBe(true);
+  test('api.agentlair.dev is NOT a self-host (subdomain served by other worker)', () => {
+    expect(isSelfHost('api.agentlair.dev')).toBe(false);
   });
 
   test('bare workers.dev for THIS worker', () => {
@@ -137,8 +140,10 @@ describe('SELF_HOSTS list', () => {
     expect(SELF_HOSTS).toContain('agentlair.dev');
   });
 
-  test('contains wildcard subdomain entry', () => {
-    expect(SELF_HOSTS).toContain('*.agentlair.dev');
+  test('does NOT contain wildcard subdomain — subdomains are other workers, not self', () => {
+    // *.agentlair.dev was intentionally removed: adding it back would break
+    // /v1/trust/mcp/verify for mcp-demo.agentlair.dev (and any future subdomain).
+    expect(SELF_HOSTS).not.toContain('*.agentlair.dev');
   });
 
   test('contains workers.dev exact + wildcard entries for THIS worker only', () => {
@@ -161,14 +166,17 @@ describe('safeFetch — blocks self-host', () => {
     expect((thrown as SelfFetchError).host).toBe('agentlair.dev');
   });
 
-  test('throws on wildcard subdomain', async () => {
-    let thrown: unknown;
-    try {
-      await safeFetch('https://api.agentlair.dev/v1/foo');
-    } catch (e) {
-      thrown = e;
-    }
-    expect(thrown).toBeInstanceOf(SelfFetchError);
+  test('does NOT throw on agentlair.dev subdomains (other workers)', async () => {
+    // Subdomains like api.agentlair.dev, mcp-demo.agentlair.dev are served by
+    // other CF workers — safeFetch must allow fetching them.
+    let called = false;
+    const stub = (async () => {
+      called = true;
+      return new Response('ok', { status: 200 });
+    }) as unknown as typeof fetch;
+
+    await safeFetch('https://api.agentlair.dev/v1/foo', undefined, stub);
+    expect(called).toBe(true);
   });
 
   test('throws on bare workers.dev', async () => {

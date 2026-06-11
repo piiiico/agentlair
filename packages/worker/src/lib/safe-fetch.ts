@@ -30,14 +30,21 @@
 //   });
 //
 // SELF_HOSTS is the union of:
-//   - the production custom domain and its wildcard subdomain
+//   - the production custom domain (exact — no wildcard subdomain)
 //   - the worker's workers.dev hostname (account-subdomain agnostic)
 // Mirror in tools/check-cf-self-fetch.ts when adding hosts.
 
-/** Hostnames the worker must NOT fetch. Patterns: exact or `*.` prefix. */
+/**
+ * Hostnames the worker must NOT fetch. Patterns: exact or `*.` prefix.
+ *
+ * Deliberately narrow: only the exact routes this worker actually serves.
+ * Do NOT add '*.agentlair.dev' — subdomains like mcp-demo.agentlair.dev are
+ * served by OTHER workers and must be fetchable by the verifier. A wildcard
+ * here short-circuits /v1/trust/mcp/verify for any agentlair.dev subdomain,
+ * returning the parent worker's inline descriptor instead of the target's own.
+ */
 export const SELF_HOSTS: readonly string[] = [
   'agentlair.dev',
-  '*.agentlair.dev',
   'agentlair-api.workers.dev',
   'agentlair-api.*.workers.dev',
 ];

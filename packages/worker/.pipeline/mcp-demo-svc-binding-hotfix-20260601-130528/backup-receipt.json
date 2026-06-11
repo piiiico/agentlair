@@ -1,0 +1,22 @@
+{
+  "pipeline_id": "mcp-demo-svc-binding-hotfix-20260601-130528",
+  "created_at": "2026-06-01T13:06:02.761Z",
+  "updated_at": "2026-06-01T13:06:02.762Z",
+  "session_id": null,
+  "files": [
+    {
+      "path": "types.ts",
+      "src_md5": "8fec53e06845b4300280cee8c88d837f",
+      "backup_md5": "8fec53e06845b4300280cee8c88d837f",
+      "source": "working_tree",
+      "ts": "2026-06-01T13:06:02.762Z"
+    },
+    {
+      "path": "routes/mcp-trust-verify.ts",
+      "src_md5": "b9db3a8dd82d359f32a93d79a749665d",
+      "backup_md5": "b9db3a8dd82d359f32a93d79a749665d",
+      "source": "working_tree",
+      "ts": "2026-06-01T13:06:02.762Z"
+    }
+  ]
+}

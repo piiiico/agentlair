@@ -2,10 +2,12 @@
 //
 // Deloitte governance gap stats + Forrester AEGIS framework as third-party
 // validation that cross-org behavioral monitoring is the missing enterprise layer.
+// IETF AIMS framework alignment (draft-klrc-aiagent-auth-02).
 //
 // Sources:
 //   Deloitte "State of AI in the Enterprise", Jan 2026, n=3,235, 24 countries
 //   Forrester AEGIS Framework, Aug 2025 — "least agency" principle
+//   IETF draft-klrc-aiagent-auth-02, Jun 2026 — OpenAI, Okta, AWS, Zscaler, Ping Identity
 
 import { DashedLine } from "@/components/dashed-line";
 
@@ -31,6 +33,13 @@ const AEGIS = {
   title: "Forrester AEGIS Framework (Aug 2025)",
   body: `Forrester's enterprise security framework for agentic AI names "least agency" as a core principle — constraining what agents can do based on observed behavior, not claimed intent. Six domains. Thirty-nine controls. The governance layer most enterprises are still missing.`,
   url: "https://www.forrester.com/report/introducing-forresters-aegis-framework-agentic-ai-enterprise-guardrails-for-information-security/RES185394",
+};
+
+const AIMS = {
+  title: "IETF draft-klrc-aiagent-auth-02 — AIMS Framework",
+  authors: "OpenAI · Okta · AWS · Zscaler · Ping Identity",
+  body: `The Agent Identity Management System (AIMS) defines eight requirements for secure AI agent deployment: identifiers, credentials, provisioning, authentication, authorization, observability and remediation, policy, and compliance. AgentLair's architecture maps to the full stack — short-lived EdDSA JWTs for credentials, JWKS verification for authentication, audience-scoped tokens for authorization, and an EdDSA-signed hash-chained behavioral telemetry ledger for observability. AIMS Component 6 (Observability and Remediation) is where AgentLair leads: tamper-evident cross-org audit trails that the standard requires but no other vendor ships at scale.`,
+  url: "https://datatracker.ietf.org/doc/html/draft-klrc-aiagent-auth-02",
 };
 
 export const Analysts = () => {
@@ -108,6 +117,36 @@ export const Analysts = () => {
                 className="text-primary text-xs font-mono hover:underline underline-offset-4 self-start"
               >
                 Read the framework ↗
+              </a>
+            </div>
+          </div>
+        </div>
+
+        {/* IETF AIMS callout */}
+        <div className="mx-auto mt-4 max-w-4xl rounded-2xl border bg-card p-8 md:p-10">
+          <div className="flex flex-col gap-4 md:flex-row md:gap-8 md:items-start">
+            <div className="shrink-0">
+              <span className="bg-primary/10 text-primary font-mono text-xs font-semibold px-3 py-1.5 rounded-full">
+                IETF
+              </span>
+            </div>
+            <div className="flex flex-col gap-3">
+              <p className="font-semibold text-foreground text-base md:text-lg leading-snug">
+                {AIMS.title}
+              </p>
+              <p className="text-muted-foreground text-xs font-mono">
+                {AIMS.authors}
+              </p>
+              <p className="text-muted-foreground text-sm leading-relaxed">
+                {AIMS.body}
+              </p>
+              <a
+                href={AIMS.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary text-xs font-mono hover:underline underline-offset-4 self-start"
+              >
+                Read the draft ↗
               </a>
             </div>
           </div>

@@ -1,0 +1,29 @@
+{
+  "pipeline_id": "mcp-trust-verify-20260518-084931",
+  "created_at": "2026-05-18T09:01:20.331Z",
+  "updated_at": "2026-05-18T09:01:20.391Z",
+  "session_id": null,
+  "files": [
+    {
+      "path": "routes/mcp-trust-verify.ts",
+      "src_md5": null,
+      "backup_md5": null,
+      "source": "new_file",
+      "ts": "2026-05-18T09:01:20.383Z"
+    },
+    {
+      "path": "index.ts",
+      "src_md5": "adef8a02d1487fc9523570fd7d7e07bd",
+      "backup_md5": "adef8a02d1487fc9523570fd7d7e07bd",
+      "source": "working_tree",
+      "ts": "2026-05-18T09:01:20.389Z"
+    },
+    {
+      "path": "types.ts",
+      "src_md5": "6f2a49875f4897c26cfe5b676cd07a7a",
+      "backup_md5": "6f2a49875f4897c26cfe5b676cd07a7a",
+      "source": "working_tree",
+      "ts": "2026-05-18T09:01:20.391Z"
+    }
+  ]
+}

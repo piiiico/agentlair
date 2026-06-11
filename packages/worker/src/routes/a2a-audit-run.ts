@@ -550,7 +550,10 @@ a2aAuditRunRoutes.post('/run', async (c) => {
   }
 
   // 8. x402 verify (mirror routes/audit.ts:381–401)
-  const verification = await verifyX402Payment(xPayment, SERVICE_PRICES.a2a_audit_run);
+  const cdpCreds = (c.env.CDP_API_KEY_ID && c.env.CDP_API_KEY_SECRET)
+    ? { keyId: c.env.CDP_API_KEY_ID, keySecret: c.env.CDP_API_KEY_SECRET }
+    : undefined;
+  const verification = await verifyX402Payment(xPayment, SERVICE_PRICES.a2a_audit_run, cdpCreds);
   if (!verification.valid) {
     return make402Response(SERVICE_PRICES.a2a_audit_run, { payment_error: verification.error });
   }
@@ -587,7 +590,7 @@ a2aAuditRunRoutes.post('/run', async (c) => {
   }
 
   // 8c. x402 settle — only runs on reachable targets
-  const settlement = await settleX402Payment(xPayment, SERVICE_PRICES.a2a_audit_run);
+  const settlement = await settleX402Payment(xPayment, SERVICE_PRICES.a2a_audit_run, verification.facilitatorUrl, cdpCreds);
   if (!settlement.settled) {
     return make402Response(SERVICE_PRICES.a2a_audit_run, { payment_error: settlement.error });
   }

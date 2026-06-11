@@ -384,6 +384,25 @@ async function main() {
     );
   }
 
+  // Post-deploy: ping IndexNow so Bing/Yandex/etc. re-index immediately.
+  // Non-fatal — a failure here doesn't roll back the deploy.
+  if (!process.argv.includes("--skip-indexnow")) {
+    console.log("\n[post-deploy] Pinging IndexNow...");
+    try {
+      const { spawnSync } = await import("child_process");
+      const result = spawnSync(
+        "bun",
+        [join(import.meta.dir, "scripts/indexnow-ping.ts")],
+        { stdio: "inherit" }
+      );
+      if (result.status !== 0) {
+        console.error("  (warning: IndexNow ping exited with status", result.status, "— deploy still succeeded)");
+      }
+    } catch (err: any) {
+      console.error("  (warning: IndexNow ping threw:", err?.message ?? err, "— deploy still succeeded)");
+    }
+  }
+
   console.log("\nDone!");
 }
 

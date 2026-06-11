@@ -9,11 +9,13 @@ import { verifyAATFromX402Extensions, type X402PaymentPayload } from './x402-ide
 export const X402_CONFIG = {
   network: 'eip155:8453',
   asset: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', // USDC on Base
-  /** Primary facilitator — ultravioletadao.xyz (supports Base mainnet).
-   *  CDP facilitator (x402.org) only supports Base Sepolia as of 2026-04-21.
-   *  When CDP adds Base mainnet, swap primary/fallback. */
+  /** Primary facilitator — ultravioletadao.xyz (supports Base mainnet). */
   facilitator: 'https://facilitator.ultravioletadao.xyz',
   facilitatorFallback: 'https://x402.org/facilitator',
+  /** CDP facilitator — supports Base mainnet (confirmed 2026-06-06).
+   *  Payments through CDP are auto-indexed by Agentic.Market / Bazaar.
+   *  Requires CDP_API_KEY_ID + CDP_API_KEY_SECRET env vars (Ed25519 JWT auth). */
+  facilitatorCdp: 'https://api.cdp.coinbase.com/platform/v2/x402',
   payTo: '0x90EE1EbcCFA2021711C595E1410e22401570B4AC',
   maxTimeoutSeconds: 60,
   x402Version: 2,
@@ -314,8 +316,10 @@ export const SERVICE_PRICES: Record<string, ServicePaymentConfig> = {
   },
   trust_query: {
     amount: '10000', // 0.01 USDC
+    // resource: broader product resource (covers /v1/trust/{agentId}, /:agentId/check, /score).
+    // Intentional fungibility — one payment, three route shapes.
     resource: 'https://agentlair.dev/v1/trust',
-    description: 'AgentLair trust score query — 0.01 USDC per lookup.',
+    description: 'AgentLair trust score query — 0.01 USDC per lookup. Payment authorizes trust-query routes: /v1/trust/{agentId}, /v1/trust/{agentId}/check, /v1/trust/score, and /v1/trust/batch (broader product resource = /v1/trust).',
     mimeType: 'application/json',
     discovery: {
       input: { agent_id: 'acc_abc123' },
@@ -466,12 +470,9 @@ export function getPaymentRequirements(service: ServicePaymentConfig) {
   return {
     scheme: 'exact' as const,
     network: X402_CONFIG.network,
-    maxAmountRequired: service.amount,
+    amount: service.amount,
     asset: X402_CONFIG.asset,
     payTo: X402_CONFIG.payTo,
-    resource: service.resource,
-    description: service.description,
-    mimeType: service.mimeType,
     maxTimeoutSeconds: X402_CONFIG.maxTimeoutSeconds,
     extra: { name: 'USDC', version: '2' },
   };
@@ -489,6 +490,11 @@ export function make402ResponseBody(service: ServicePaymentConfig, extra?: Recor
   const body: Record<string, unknown> = {
     x402Version: X402_CONFIG.x402Version,
     error: `Payment required: ${formatUSDC(service.amount)} USDC on Base — ${service.description}`,
+    resource: {
+      url: service.resource,
+      description: service.description,
+      mimeType: service.mimeType,
+    },
     accepts: [requirements],
     ...extra,
   };
@@ -507,6 +513,7 @@ export function make402Response(service: ServicePaymentConfig, extra?: Record<st
     headers: {
       'Content-Type': 'application/json',
       'X-402-Version': String(X402_CONFIG.x402Version),
+      'Cache-Control': 'no-store',
     },
   });
 }
@@ -525,16 +532,114 @@ interface FacilitatorVerifyResponse {
   payer?: string;
 }
 
+// ─── CDP JWT Auth ─────────────────────────────────────────────────────────────
+// CDP facilitator requires a short-lived Ed25519 JWT per-request.
+// Key format: 64-byte base64 (32-byte seed + 32-byte public key) — from CDP dashboard.
+
+const CDP_API_HOST = 'api.cdp.coinbase.com';
+
+function base64url(bytes: Uint8Array): string {
+  const binary = Array.from(bytes, (b) => String.fromCharCode(b)).join('');
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+
+function base64urlFromBase64(b64: string): string {
+  return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+
+/**
+ * Generate a short-lived CDP Bearer JWT for a single request.
+ * @param keyId   CDP API key ID (UUID)
+ * @param keySecret  CDP API key secret — 64-byte base64 Ed25519 (seed+pubkey)
+ * @param method  HTTP method (e.g. "POST")
+ * @param path    Full request path (e.g. "/platform/v2/x402/verify")
+ */
+export async function generateCdpBearerToken(
+  keyId: string,
+  keySecret: string,
+  method: string,
+  path: string,
+): Promise<string> {
+  // Detect Ed25519 (64-byte base64) vs EC PEM
+  const isPem = keySecret.includes('-----');
+  if (isPem) {
+    throw new Error('CDP EC PEM keys not yet supported — use Ed25519 64-byte base64 key from CDP dashboard');
+  }
+
+  // Decode 64-byte Ed25519 key: first 32 bytes = seed, last 32 bytes = public key
+  let keyBytes: Uint8Array;
+  try {
+    const binary = atob(keySecret);
+    keyBytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) keyBytes[i] = binary.charCodeAt(i);
+  } catch {
+    throw new Error('CDP key secret is not valid base64');
+  }
+  if (keyBytes.length !== 64) {
+    throw new Error(`CDP Ed25519 key must be 64 bytes (got ${keyBytes.length})`);
+  }
+
+  const seed = keyBytes.slice(0, 32);
+  const pubkey = keyBytes.slice(32, 64);
+
+  // Import as JWK Ed25519 private key
+  const jwk = {
+    kty: 'OKP',
+    crv: 'Ed25519',
+    d: base64url(seed),
+    x: base64url(pubkey),
+  };
+  const privateKey = await crypto.subtle.importKey(
+    'jwk',
+    jwk,
+    { name: 'Ed25519' },
+    false,
+    ['sign'],
+  );
+
+  // Build JWT header + payload
+  const now = Math.floor(Date.now() / 1000);
+  const nonce = Array.from(crypto.getRandomValues(new Uint8Array(16)))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+
+  const header = { alg: 'EdDSA', kid: keyId, typ: 'JWT', nonce };
+  const payload = {
+    sub: keyId,
+    iss: 'cdp',
+    uris: [`${method} ${CDP_API_HOST}${path}`],
+    iat: now,
+    nbf: now,
+    exp: now + 120,
+  };
+
+  const encodedHeader = base64urlFromBase64(btoa(JSON.stringify(header)));
+  const encodedPayload = base64urlFromBase64(btoa(JSON.stringify(payload)));
+  const signingInput = `${encodedHeader}.${encodedPayload}`;
+
+  const encoder = new TextEncoder();
+  const sigBytes = await crypto.subtle.sign(
+    'Ed25519',
+    privateKey,
+    encoder.encode(signingInput),
+  );
+
+  const sig = base64url(new Uint8Array(sigBytes));
+  return `${signingInput}.${sig}`;
+}
+
 // ─── x402 Payment Verification & Settlement ──────────────────────────────────
 
 /**
  * Verify an x402 payment against the facilitator.
  * @param paymentHeader Base64-encoded X-PAYMENT header value
  * @param service Service config to verify against (defaults to email for backward compat)
+ * @param cdpCreds Optional CDP API key credentials — when provided, tries CDP facilitator first
  */
 export async function verifyX402Payment(
   paymentHeader: string,
   service: ServicePaymentConfig = SERVICE_PRICES.email_send,
+  cdpCreds?: { keyId: string; keySecret: string },
 ): Promise<X402VerifyResult> {
   let paymentPayload: PaymentPayload;
   try {
@@ -551,19 +656,57 @@ export async function verifyX402Payment(
     x402Version: X402_CONFIG.x402Version,
     payload: innerPayload,
     resource: {
-      url: requirements.resource,
-      description: requirements.description,
-      mimeType: requirements.mimeType,
+      url: service.resource,
+      description: service.description,
+      mimeType: service.mimeType,
     },
     accepted: {
       scheme: requirements.scheme,
       network: requirements.network,
       asset: requirements.asset,
-      amount: requirements.maxAmountRequired,
+      amount: requirements.amount,
       payTo: requirements.payTo,
       maxTimeoutSeconds: requirements.maxTimeoutSeconds,
     },
   };
+
+  // When CDP creds provided: try CDP first.
+  // HTTP error from CDP = legitimate rejection → return immediately (no fallback).
+  // Network error from CDP = infrastructure failure → fall back to UltraViolet DAO.
+  if (cdpCreds) {
+    try {
+      const cdpPath = '/platform/v2/x402/verify';
+      const token = await generateCdpBearerToken(cdpCreds.keyId, cdpCreds.keySecret, 'POST', cdpPath);
+      const res = await fetch(`${X402_CONFIG.facilitatorCdp}/verify`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify(verifyBody),
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => res.statusText);
+        return { valid: false, error: `CDP facilitator verify failed (${res.status}): ${text}` };
+      }
+
+      const result = (await res.json()) as FacilitatorVerifyResponse;
+      if (!result.isValid) {
+        return { valid: false, error: result.invalidReason || 'CDP payment verification failed' };
+      }
+
+      const identity = await verifyAATFromX402Extensions(paymentPayload, {
+        resourceUrl: service.resource,
+      }).catch(() => null);
+
+      return { valid: true, payer: result.payer, rawPayload: paymentPayload, facilitatorUrl: X402_CONFIG.facilitatorCdp, identity };
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      console.warn(`x402: CDP facilitator unreachable (${message}), falling back to UltraViolet DAO...`);
+      // Network/fetch error → fall through to UltraViolet DAO
+    }
+  }
 
   // Try primary facilitator, then fallback on network errors.
   // HTTP 4xx/5xx = legitimate rejection → do NOT retry (security: don't shop for a permissive facilitator).
@@ -598,7 +741,7 @@ export async function verifyX402Payment(
       // Opportunistically extract AgentLair identity from extensions (non-blocking).
       // Identity extraction failure never fails payment verification.
       const identity = await verifyAATFromX402Extensions(paymentPayload, {
-        resourceUrl: requirements.resource,
+        resourceUrl: service.resource,
       }).catch(() => null);
 
       return { valid: true, payer: result.payer, rawPayload: paymentPayload, facilitatorUrl, identity };
@@ -619,11 +762,14 @@ export async function verifyX402Payment(
  * Settle an x402 payment via the facilitator.
  * @param paymentHeader Base64-encoded X-PAYMENT header value
  * @param service Service config to settle against (defaults to email for backward compat)
+ * @param facilitatorUrl Which facilitator URL to use (defaults to primary)
+ * @param cdpCreds Optional CDP API key credentials — when provided, tries CDP facilitator first
  */
 export async function settleX402Payment(
   paymentHeader: string,
   service: ServicePaymentConfig = SERVICE_PRICES.email_send,
   facilitatorUrl: string = X402_CONFIG.facilitator,
+  cdpCreds?: { keyId: string; keySecret: string },
 ): Promise<X402SettleResult> {
   let paymentPayload: PaymentPayload;
   try {
@@ -639,19 +785,49 @@ export async function settleX402Payment(
     x402Version: X402_CONFIG.x402Version,
     payload: innerPayload,
     resource: {
-      url: requirements.resource,
-      description: requirements.description,
-      mimeType: requirements.mimeType,
+      url: service.resource,
+      description: service.description,
+      mimeType: service.mimeType,
     },
     accepted: {
       scheme: requirements.scheme,
       network: requirements.network,
       asset: requirements.asset,
-      amount: requirements.maxAmountRequired,
+      amount: requirements.amount,
       payTo: requirements.payTo,
       maxTimeoutSeconds: requirements.maxTimeoutSeconds,
     },
   };
+
+  // When CDP creds provided: try CDP first with JWT auth.
+  // HTTP error from CDP = legitimate rejection → return immediately (no fallback).
+  // Network error from CDP = infrastructure failure → fall back to provided facilitatorUrl.
+  if (cdpCreds) {
+    try {
+      const cdpPath = '/platform/v2/x402/settle';
+      const token = await generateCdpBearerToken(cdpCreds.keyId, cdpCreds.keySecret, 'POST', cdpPath);
+      const res = await fetch(`${X402_CONFIG.facilitatorCdp}/settle`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify(settleBody),
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => res.statusText);
+        return { settled: false, error: `CDP facilitator settle failed (${res.status}): ${text}` };
+      }
+
+      const result = (await res.json()) as Record<string, unknown>;
+      return { settled: true, receipt: btoa(JSON.stringify(result)) };
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      console.warn(`x402: CDP facilitator settle unreachable (${message}), falling back to ${facilitatorUrl}...`);
+      // Network error → fall through to fallback facilitator
+    }
+  }
 
   try {
     const res = await fetch(`${facilitatorUrl}/settle`, {

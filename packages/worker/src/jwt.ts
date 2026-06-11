@@ -109,6 +109,28 @@ export interface AATClaims {
     computed_at: string; // ISO 8601
     trend: 'improving' | 'stable' | 'declining';
   };
+
+  // L3 credential claims — VI-compatible transaction-scoped (FIDO Agentic Auth Gap 2)
+  // Present only in tokens issued via POST /v1/tokens/issue-l3
+  al_l3?: true; // Marker: this is a transaction-scoped L3 credential
+  al_transaction_id?: string; // VI transaction ID (mirrors aud for routing)
+  al_checkout_hash?: string; // Hash of checkout payload (opaque string, stored as-is)
+  al_mandate_hash?: string; // SHA-256 of l2_mandate, base64url-encoded
+
+  // Phase 2c act-binding (issue ucsandman/DashClaw#121) — namespaced to dodge
+  // the RFC 8693 `act` collision. Present only when the issuance request
+  // included an `act_binding: { action, target, goal }` block. Verifier reads
+  // this claim, recomputes the digest from the live (action_type, target,
+  // declared_goal) it observes on the wire, and blocks on mismatch (when its
+  // own DASHCLAW_ACT_BINDING mode is `required`).
+  //
+  // The claim KEY is the literal string 'urn:dashclaw:act-binding' — see
+  // ./lib/act-binding.ts ACT_BINDING_CLAIM. The verifier looks it up by this
+  // exact string; do not rename.
+  'urn:dashclaw:act-binding'?: {
+    typ: string; // 'action-binding/v1' (see ACT_BINDING_TYP_V1)
+    hash: string; // 'sha256:<base64url-digest>'
+  };
 }
 
 // ─── JWT creation ─────────────────────────────────────────────────────────────

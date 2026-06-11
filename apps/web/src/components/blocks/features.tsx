@@ -1,4 +1,4 @@
-import { Mail, Shield, Box, ScrollText, Sparkles } from "lucide-react";
+import { Mail, Shield, Box, ScrollText, Sparkles, Bug, ShoppingCart, FileCheck } from "lucide-react";
 
 import { DashedLine } from "../dashed-line";
 import { Card, CardContent } from "@/components/ui/card";
@@ -53,14 +53,14 @@ const items = [
 
 const competitors = [
   {
+    name: "vs Circle Agent Stack",
+    claim: "Wallets, nanopayments, marketplace. No identity layer.",
+    ours: "Circle processes the payment. AgentLair tells you who sent it, who owns the agent, and whether to trust them.",
+  },
+  {
     name: "vs AgentMail",
     claim: "They give you a permanent address.",
     ours: "We give you a permanent identity.",
-  },
-  {
-    name: "vs Keycard",
-    claim: "Ephemeral credentials per session.",
-    ours: "Persistent vault that survives restarts.",
   },
   {
     name: "vs Enterprise IAM",
@@ -142,16 +142,16 @@ export const Features = () => {
           <div className="relative flex items-center justify-center">
             <DashedLine className="text-muted-foreground" />
             <span className="bg-muted text-muted-foreground absolute px-3 font-mono text-sm font-medium tracking-wide max-md:hidden">
-              ACCOUNTABILITY LAYER
+              THE MISSING LAYER
             </span>
           </div>
 
           <div className="mt-10 mx-auto max-w-3xl lg:mt-16">
             <h2 className="text-2xl tracking-tight md:text-3xl lg:text-4xl">
-              Cloudflare + Stripe solved the transaction layer. AgentLair solves the accountability layer.
+              Circle built the money pipes for agents. Nobody built the trust layer.
             </h2>
             <p className="mt-6 text-muted-foreground leading-relaxed">
-              Cloudflare and Stripe just demonstrated agents that create accounts, register domains, and deploy infrastructure autonomously — no human in the dashboard. Stripe caps what the agent can spend. HN asked the follow-on question Stripe can't answer: who is accountable when the agent registers a trademarked domain, exposes a user credential, or exceeds its mandate in ways that never touch the credit card? Transaction authorization handles financial risk. Accountability handles everything else — and in an agent-mediated world, everything else is most of it. AgentLair closes that gap. Every agent operating through AgentLair carries a cryptographic identity tethered to a named human owner. Every action is signed, chained, and attributable. Stripe hands the agent a spending limit. AgentLair hands the human a chain of custody.
+              Circle's Agent Stack (agents.circle.com) launched in May 2026 — wallets, nanopayments down to 0.000001 USDC, an agent marketplace, all built on x402. Stripe and Coinbase followed with their own rails. The payment layer is commoditized. Every major agent marketplace ships it now. What none of them answer: <em>which agent made the call, who is its owner, and do I trust it?</em> A review of all 8 major agent marketplaces found zero with trust verification built in. The answer today is git commit metadata. That's the gap. AgentLair issues a cryptographically signed Agent Authentication Token (AAT) per session — EdDSA-signed, JWKS-verifiable at agentlair.dev, tethered to a named human owner. Every action is logged to a tamper-evident ledger. Circle processes the nanopayment. AgentLair tells you who sent it and whether to trust them.
             </p>
 
             {/* Distinction table */}
@@ -160,29 +160,89 @@ export const Features = () => {
                 <thead>
                   <tr className="border-b bg-muted/50">
                     <th className="px-5 py-3 text-left font-mono text-xs font-semibold tracking-widest text-muted-foreground">LAYER</th>
-                    <th className="px-5 py-3 text-left font-mono text-xs font-semibold tracking-widest text-muted-foreground">SOLVED BY</th>
-                    <th className="px-5 py-3 text-left font-mono text-xs font-semibold tracking-widest text-muted-foreground">WHAT IT HANDLES</th>
+                    <th className="px-5 py-3 text-left font-mono text-xs font-semibold tracking-widest text-muted-foreground">HANDLED BY</th>
+                    <th className="px-5 py-3 text-left font-mono text-xs font-semibold tracking-widest text-muted-foreground">WHAT IT ANSWERS</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr className="border-b">
-                    <td className="px-5 py-4 font-medium">Transaction</td>
-                    <td className="px-5 py-4 text-muted-foreground">Stripe</td>
-                    <td className="px-5 py-4 text-muted-foreground">Did the agent have financial authorization? Was the spend within limits?</td>
+                    <td className="px-5 py-4 font-medium">Payments</td>
+                    <td className="px-5 py-4 text-muted-foreground">Circle · Stripe · Coinbase</td>
+                    <td className="px-5 py-4 text-muted-foreground">Can the agent spend? How much? Gas-free USDC on-chain in seconds.</td>
                   </tr>
                   <tr className="border-b">
                     <td className="px-5 py-4 font-medium">Execution</td>
-                    <td className="px-5 py-4 text-muted-foreground">Cloudflare</td>
-                    <td className="px-5 py-4 text-muted-foreground">Did the agent successfully provision the infrastructure?</td>
+                    <td className="px-5 py-4 text-muted-foreground">Cloudflare · AWS</td>
+                    <td className="px-5 py-4 text-muted-foreground">Did the agent successfully run? Did it provision the infrastructure?</td>
                   </tr>
                   <tr className="bg-primary/5">
-                    <td className="px-5 py-4 font-bold text-foreground">Accountability</td>
+                    <td className="px-5 py-4 font-bold text-foreground">Identity</td>
                     <td className="px-5 py-4 font-bold text-foreground">AgentLair</td>
-                    <td className="px-5 py-4 font-bold text-foreground">Who is legally and cryptographically responsible for every action taken, financial or not?</td>
+                    <td className="px-5 py-4 font-bold text-foreground">Which agent acted? Who owns it? Is it trusted — and can I prove it?</td>
                   </tr>
                 </tbody>
               </table>
             </div>
+          </div>
+        </div>
+
+        {/* Use Cases */}
+        <div className="mt-20 lg:mt-28">
+          <div className="relative flex items-center justify-center">
+            <DashedLine className="text-muted-foreground" />
+            <span className="bg-muted text-muted-foreground absolute px-3 font-mono text-sm font-medium tracking-wide max-md:hidden">
+              DEPLOYMENT PATTERNS
+            </span>
+          </div>
+
+          <div className="mx-auto mt-10 grid max-w-4xl items-center gap-3 md:gap-0 lg:mt-24 lg:grid-cols-2">
+            <h2 className="text-2xl tracking-tight md:text-4xl lg:text-5xl">
+              Who deploys AgentLair
+            </h2>
+            <p className="text-muted-foreground leading-snug">
+              Named use cases for the cross-org behavioral trust layer — from autonomous security fleets to regulated agentic commerce.
+            </p>
+          </div>
+
+          <div className="mt-8 grid gap-4 sm:grid-cols-3 md:mt-12 lg:mt-16">
+            {[
+              {
+                icon: Bug,
+                label: "AUTONOMOUS SECURITY AGENT GOVERNANCE",
+                title: "Govern your security agent fleet",
+                body: "Microsoft MDASH runs 100+ adversarial agents simultaneously. OpenAI Codex Security is GA across Enterprise, Business, and Edu tiers. Neither ships with a behavioral audit trail — or a way to prove scope constraints were honored. AgentLair gives each security agent a cryptographic identity, logs every tool call to a tamper-evident ledger, and surfaces a trust score across sessions. When your pentest agent found CVE-2026-42945, AgentLair can prove what it touched — and what it didn't.",
+              },
+              {
+                icon: ShoppingCart,
+                label: "AGENTIC COMMERCE",
+                title: "Know which agent is buying",
+                body: "Circle, Stripe, and Coinbase handle the payment rail. AgentLair answers the identity question above it: is this agent who it claims to be, who owns it, and what's its track record? Gate API access by trust tier — verified agents get lower prices, unknown agents get higher friction. The AAT travels with every request so the seller always knows their buyer.",
+              },
+              {
+                icon: FileCheck,
+                label: "EU AI ACT COMPLIANCE",
+                title: "Audit artifacts for regulated industries",
+                body: "EU AI Act full enforcement lands August 2026. Every agentic deployment in healthcare, finance, and critical infrastructure needs behavioral accountability infrastructure — not just logs, but tamper-evident records an auditor can independently verify. AgentLair's hash-chained attestation ledger is that artifact. One URL per agent per session, verifiable in a browser.",
+              },
+            ].map((uc) => {
+              const Icon = uc.icon;
+              return (
+                <div key={uc.label} className="rounded-2xl border bg-card p-6 md:p-8">
+                  <div className="bg-primary/10 inline-flex rounded-xl p-3 mb-4">
+                    <Icon className="text-primary size-5" />
+                  </div>
+                  <p className="font-mono text-xs font-semibold tracking-widest text-muted-foreground mb-2">
+                    {uc.label}
+                  </p>
+                  <h3 className="font-display text-lg font-bold tracking-tight mb-3">
+                    {uc.title}
+                  </h3>
+                  <p className="text-sm text-muted-foreground leading-relaxed">
+                    {uc.body}
+                  </p>
+                </div>
+              );
+            })}
           </div>
         </div>
 

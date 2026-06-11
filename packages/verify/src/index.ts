@@ -40,6 +40,9 @@ export { verifyAAT } from './verify.js';
 export { clearJWKSCache } from './jwks.js';
 export { createExpressMiddleware, createHonoMiddleware, createFastifyHook } from './middleware.js';
 export { reportEvent, reportBatch, createEventBuffer } from './events.js';
+export { verifyFinding } from './verify-finding.js';
+export { verifyFindingPermalink } from './verify-finding.js';
+export { classifyTrustTier } from './verify-finding.js';
 
 export type {
   AATClaims,
@@ -58,4 +61,14 @@ export type {
   ReportOptions,
   BufferOptions,
   EventBuffer,
+} from './types.js';
+
+export type {
+  VerifyFindingResult,
+  VerifyFindingOptions,
+  VerifyFindingErrorReason,
+  FindingClaims,
+  FindingSeverity,
+  TrackRecord,
+  TrustTier,
 } from './types.js';

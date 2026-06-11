@@ -1,3 +1,4 @@
 /quickstart /getting-started 301
 /docs/quickstart /getting-started 301
 /popa/* /popa/ 200
+/f/* /f/ 200

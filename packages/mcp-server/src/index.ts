@@ -31,7 +31,7 @@ import {
 
 const AGENTLAIR_BASE = "https://agentlair.dev";
 const SERVER_NAME = "agentlair";
-const SERVER_VERSION = "1.2.0";
+const SERVER_VERSION = "1.3.0";
 
 // ─── API Client ───────────────────────────────────────────────────────────────
 
@@ -344,6 +344,24 @@ const TOOLS = [
     },
   },
 
+  // ── Trust Preflight ─────────────────────────────────────────────────────────
+  {
+    name: "preflight_trust_check",
+    description:
+      "Check trust readiness before engaging with an agent. Returns a ReadinessCard: trust score, behavioral maturity level, whether it's safe to engage, and any caveats. Call this before delegating tasks, accepting agent output, or authorizing payments involving an unknown agent. Free — no extra charge beyond your API key.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        agent_id: {
+          type: "string",
+          description:
+            "AgentLair agent ID to check (format: acc_<alphanumeric>). Found via the agent's AgentLair profile or DID document.",
+        },
+      },
+      required: ["agent_id"],
+    },
+  },
+
   // ── Task Delegation ──────────────────────────────────────────────────────────
   {
     name: "delegate_task",
@@ -540,6 +558,112 @@ async function handleTool(name: string, args: Record<string, unknown>): Promise<
     case "calendar_get_feed": {
       const result = await agentlairRequest("GET", "/v1/calendar/feed");
       return JSON.stringify(result, null, 2);
+    }
+
+    // ── Trust Preflight ────────────────────────────────────────────────────────
+
+    case "preflight_trust_check": {
+      const { agent_id } = args as { agent_id: string };
+
+      if (!agent_id || !/^acc_[A-Za-z0-9_-]{1,64}$/.test(agent_id)) {
+        throw new Error(
+          "agent_id must match format acc_<alphanumeric> (e.g. acc_abc123). " +
+          "Find it via the agent's AgentLair profile or DID document."
+        );
+      }
+
+      const profile = await agentlairRequest<{
+        score: number;
+        confidence: number;
+        atfLevel: string;
+        trend: string;
+        computedAt: string;
+        observationCount: number;
+        tierCap?: { appliedCap: string; rawLevel: string; tier: string };
+        dimensions: {
+          consistency: { score: number };
+          restraint: { score: number };
+          transparency: { score: number };
+        };
+      }>("GET", `/v1/trust/${encodeURIComponent(agent_id)}`);
+
+      // ── Derive ReadinessCard fields ──────────────────────────────────────────
+
+      // Engagement threshold: score ≥ 40 AND atfLevel ≥ junior AND confidence ≥ 0.3
+      const ATF_RANK: Record<string, number> = {
+        intern: 0,
+        junior: 1,
+        senior: 2,
+        principal: 3,
+      };
+      const levelRank = ATF_RANK[profile.atfLevel] ?? 0;
+      const can_engage =
+        profile.score >= 40 &&
+        levelRank >= 1 &&
+        profile.confidence >= 0.3;
+
+      // Attestation age: how old is the trust computation?
+      const computedAtMs = new Date(profile.computedAt).getTime();
+      const ageMs = Date.now() - computedAtMs;
+      const ageDays = Math.floor(ageMs / (1000 * 60 * 60 * 24));
+      const attestation_age =
+        ageDays === 0
+          ? "computed today"
+          : ageDays === 1
+          ? "1 day ago"
+          : `${ageDays} days ago`;
+
+      // Caveats: derive from profile signals
+      const caveats: string[] = [];
+
+      if (profile.observationCount < 5) {
+        caveats.push(
+          `Limited behavioral history — score based on only ${profile.observationCount} observation${profile.observationCount === 1 ? "" : "s"}.`
+        );
+      }
+      if (profile.confidence < 0.5) {
+        caveats.push(
+          "Low confidence score — treat result as indicative, not conclusive."
+        );
+      }
+      if (profile.trend === "declining") {
+        caveats.push("Behavioral trend is declining — recent activity is degrading this agent's score.");
+      }
+      if (profile.tierCap && profile.tierCap.rawLevel !== profile.tierCap.appliedCap) {
+        caveats.push(
+          `Score capped at '${profile.tierCap.appliedCap}' by account tier '${profile.tierCap.tier}' (uncapped level would be '${profile.tierCap.rawLevel}'). Upgrade for full assessment.`
+        );
+      }
+      if (profile.score >= 40 && levelRank < 1) {
+        caveats.push(
+          "Agent has a passing score but is still in 'intern' maturity — limit to low-stakes tasks."
+        );
+      }
+      if (ageDays > 30) {
+        caveats.push(
+          `Trust data is ${ageDays} days old — freshness may be low for active agents.`
+        );
+      }
+
+      const readinessCard = {
+        agent_id,
+        trust_score: profile.score,
+        behavioral_maturity: profile.atfLevel,
+        can_engage,
+        attestation_age,
+        confidence: profile.confidence,
+        trend: profile.trend,
+        observation_count: profile.observationCount,
+        caveats,
+        _meta: {
+          computed_at: profile.computedAt,
+          upgrade_hint: can_engage
+            ? "For full BHC download and detailed attestation, use the AgentLair trust API directly."
+            : "Agent does not meet engagement threshold. Run full trust query or request BHC for details.",
+        },
+      };
+
+      return JSON.stringify(readinessCard, null, 2);
     }
 
     // ── Task Delegation ────────────────────────────────────────────────────────

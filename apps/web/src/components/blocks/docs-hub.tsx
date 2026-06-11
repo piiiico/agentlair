@@ -112,6 +112,15 @@ const DOC_SECTIONS = [
     badge: "New",
     badgeColor: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
   },
+  {
+    title: "Sovereign bridges",
+    href: "/docs/sovereign-bridges",
+    icon: GitBranch,
+    description:
+      "Credibility-anchors and execution-substrate are distinct layers. Map of live bridges (Radicle NID, DID:Web) and roadmap anchors (ENS, GitHub commit-signing, npm Trusted Publishing) AgentLair speaks to.",
+    badge: "New",
+    badgeColor: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
+  },
 ];
 
 export function DocsHub() {

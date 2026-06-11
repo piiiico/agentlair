@@ -1,0 +1,125 @@
+---
+layout: ../../layouts/BasicLayout.astro
+title: "Sovereign bridges — AgentLair"
+description: "Credibility-anchors and execution-substrate are distinct layers. AgentLair is the substrate; this page maps the anchors it speaks to (Radicle NID, DID:Web today; ENS, GitHub commit-signing, npm Trusted Publishing on the roadmap)."
+alternateJson: "https://api.agentlair.dev/v1/sovereign-bridges"
+---
+
+# Sovereign bridges
+
+Identity gets conflated all the time. There is the layer where humans assert who they are: a DNS record, a git history, an ENS name, an npm publisher account. And there is the layer where an agent actually runs requests, holds an API key, pays for inference, and gets rate-limited. AgentLair lives on the second layer.
+
+Verbatim from the worldview: credibility-anchor and execution-substrate are distinct layers; value accrues to the substrate.
+
+The substrate speaks to anchors. Each bridge is a small cryptographic claim that says: this agent ID is the same key as that human-asserted identity. No coordination protocol. No federation. One key, two identities.
+
+This page lists the bridges that exist now, and the ones that do not yet.
+
+## Live bridges
+
+### AAT × Radicle NID
+
+Radicle delegates are Ed25519 public keys encoded as `did:key:z6Mk...`. AgentLair AATs issued for accounts with a registered signing key carry an `al_nid` claim derived from the same Ed25519 public key. Same primitive, two systems.
+
+Anchor: a sovereign Git forge with no central hosting. Address pattern `rad://<repo-id>`. Delegate list is part of the repo identity itself.
+
+AAT claim shape (decoded payload, signature truncated):
+
+```json
+{
+  "iss": "https://agentlair.dev",
+  "sub": "acc_pico",
+  "did": "did:web:agentlair.dev:agents:acc_pico",
+  "al_nid": "did:key:z6MkidGJESMQjq3gRraHSuCn7ax1U89EHqdRKuWRapMNZAMK"
+}
+```
+
+Verification endpoint (public, no auth):
+
+```bash
+curl https://agentlair.dev/v1/agents/by-nid/did:key:z6MkidGJESMQjq3gRraHSuCn7ax1U89EHqdRKuWRapMNZAMK
+```
+
+Live response (HTTP 200):
+
+```json
+{
+  "account_id": "acc_pico",
+  "al_nid": "did:key:z6MkidGJESMQjq3gRraHSuCn7ax1U89EHqdRKuWRapMNZAMK",
+  "did_web": "did:web:agentlair.dev:agents:acc_pico",
+  "fingerprint": "d8:c7:a8:99:83:35:af:a7:5e:59:41:09:e5:77:d0:ec:bc:05:08:37:76:f3:01:d5:1d:be:a0:5a:a3:ac:05:2a",
+  "latest_signing_key_registered_at": "2026-05-15T22:21:37Z"
+}
+```
+
+Round-trip story: [Agent identity meets a sovereign forge](/blog/aat-radicle-round-trip-shipped/). Hands-on CLI for the forward direction: [aat-to-radicle](/docs/aat-to-radicle). Derivation spec: [al_nid claim](/docs/al-nid).
+
+### AAT × DID:Web
+
+Every AgentLair account with a registered signing key publishes a W3C-style DID document at a predictable URL. The document carries verification methods, service endpoints, and an `alsoKnownAs` field that points to the same `did:key` Node ID the Radicle bridge uses.
+
+Anchor: DNS. If you control `example.com`, you can publish `did:web:example.com:agents:<id>` and any verifier can resolve it without coordinating with anyone.
+
+Verification endpoint:
+
+```bash
+curl https://agentlair.dev/agents/acc_pico/did.json
+```
+
+Live response (excerpt):
+
+```json
+{
+  "id": "did:web:agentlair.dev:agents:acc_pico",
+  "verificationMethod": [
+    {
+      "id": "did:web:agentlair.dev:agents:acc_pico#key-1",
+      "type": "JsonWebKey2020",
+      "publicKeyJwk": {
+        "kty": "OKP", "crv": "Ed25519",
+        "x": "Pf7XWot7g2FMyLLeclRwPWvbIMPfr_F4RgP_xUG9LO4",
+        "alg": "EdDSA"
+      }
+    }
+  ],
+  "alsoKnownAs": ["did:key:z6MkidGJESMQjq3gRraHSuCn7ax1U89EHqdRKuWRapMNZAMK"]
+}
+```
+
+The document is a static JSON file. No authentication. Any DID-aware system resolves it. The same `did:key` value that anchors a Radicle delegate appears here under `alsoKnownAs`, closing the loop between the two live bridges.
+
+Hands-on: [Web Bot Auth](/docs/web-bot-auth) covers signing-key registration that triggers DID-document publishing.
+
+## Roadmap
+
+These bridges are not built. They are listed because the gap is real, not because there is a date attached. No promises, no countdown.
+
+### ENS DID anchors
+
+ENS names (`.eth`) are durable on-chain identifiers with rich text records. An AgentLair agent could carry an `al_ens` claim and publish its `did:key` under the ENS text record for the matching name. A verifier reads the name, reads the text record, and checks that the claim matches. ROADMAP.
+
+Why this matters: communities that already coordinate via ENS get an agent identity surface that matches where they already vote, donate, and pay. No new namespace to learn.
+
+### GitHub commit-signing anchors
+
+Sigstore-signed commits and Gitsign already bind code to a verifiable identity. The proof-of-commitment direction goes the other way: an AgentLair agent ID derived from the SSH or GPG signing key that matches the agent's public commits. Then "this agent shipped that code" becomes one signature check, not a trust assumption. This is the angle that bridges to [getcommit.dev](https://getcommit.dev) and the commitment-graph thesis. ROADMAP.
+
+Why this matters: code provenance is the strongest skin-in-the-game signal a software agent can produce. The commits are public and uneditable. The substrate just needs to read them.
+
+### npm Trusted Publishing anchors
+
+npm Trusted Publishing binds package publishes to OIDC-signed CI runs from a specific GitHub repository. An AgentLair agent publishing under an npm scope could anchor its identity to the repo's OIDC claim, so "this version, from this repo, on this date, by this agent" is one verifiable chain. ROADMAP.
+
+Why this matters: package publishers sit at the top of the software supply chain. Tying their agent identity to the same OIDC anchor npm already trusts costs them nothing and adds a behavioral layer that traditional publisher accounts cannot.
+
+## What the layering buys you
+
+You do not have to pick. Anchor your identity wherever you already do it. Radicle if your code lives there. DNS if you have a domain. ENS if your community runs on-chain. GitHub if your provenance lives in commits. The substrate underneath stays the same: AgentLair issues a token, your agent runs requests, your audit trail accumulates, your trust score is computed across organizational boundaries.
+
+The asymmetry to remember: an anchor commits you to an assertion at registration time. The substrate commits you to behavior over time. One is a snapshot, the other is a movie. The TOCTOU gap between them is the entire reason cross-org behavioral telemetry exists as a separate layer.
+
+If you anchor identity in your own substrate, AgentLair speaks that substrate. Pick where you want the proof to live. The bridges meet you there.
+
+## Get in touch
+
+Bridge requests, roadmap feedback, anchor systems we have not named: [feedback@agentlair.dev](mailto:feedback@agentlair.dev). More docs at [/docs](/docs).

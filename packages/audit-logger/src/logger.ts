@@ -6,7 +6,35 @@
 //   const logger = new AuditLogger(); // reads AGENTLAIR_API_KEY automatically
 //   await logger.log({ agent: 'my-agent', action: 'tool_call', tool: 'search', input: query, output: results });
 
-import type { AuditLogEntry, AuditLoggerOptions, AuditSink, ResolvedAuditEntry } from './types.js';
+import type { AuditLogEntry, AuditLoggerOptions, AuditSink, ResolvedAuditEntry, AARPreAction, AARPostAction, AARTerminalReceipt, AARTerminalPhase, AARSignature, ChainVerificationResult } from './types.js';
+
+// ─── Crypto helpers ───────────────────────────────────────────────────────────
+
+function canonicalJson(value: unknown): string {
+  if (value === null || value === undefined) return 'null';
+  if (typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) {
+    return '[' + (value as unknown[]).map(canonicalJson).join(',') + ']';
+  }
+  const keys = Object.keys(value as object).sort();
+  return '{' + keys.map(k => JSON.stringify(k) + ':' + canonicalJson((value as Record<string, unknown>)[k])).join(',') + '}';
+}
+
+async function sha256Hex(input: string): Promise<string> {
+  const bytes = new TextEncoder().encode(input);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', bytes);
+  return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function hashPayload(payload: object): Promise<string> {
+  return 'sha256:' + await sha256Hex(canonicalJson(payload));
+}
+
+function generateId(length = 20): string {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  const bytes = crypto.getRandomValues(new Uint8Array(length));
+  return Array.from(bytes).map(b => chars[b % chars.length]).join('');
+}
 
 export class AuditLogger {
   private readonly apiKey: string | undefined;
@@ -14,6 +42,9 @@ export class AuditLogger {
   private readonly sinks: AuditSink[];
   private readonly useConsole: boolean;
   private readonly silent: boolean;
+  private lastReceiptHash: string | undefined = undefined;
+  private readonly hmacSecret: string | undefined;
+  private readonly actorId: string;
 
   constructor(options: AuditLoggerOptions = {}) {
     // Resolve API key from options or env
@@ -24,6 +55,8 @@ export class AuditLogger {
     this.sinks = options.sinks ?? [];
     this.useConsole = options.console !== false;
     this.silent = options.silent ?? false;
+    this.hmacSecret = options.hmacSecret;
+    this.actorId = options.actorId ?? 'unknown';
   }
 
   /**
@@ -70,6 +103,190 @@ export class AuditLogger {
     return results;
   }
 
+  /**
+   * Call BEFORE tool execution begins.
+   * Signs and chains the pre-action authority record.
+   * Returns the pre-action record — pass it to endAction().
+   */
+  async beginAction(opts: {
+    toolName: string;
+    toolCallId: string;
+    input: unknown;
+    policyRef?: string;
+    approvalDecision?: 'approved' | 'denied' | 'conditional';
+    decidedBy?: string;
+    sessionId?: string;
+    /** Authority deadline (ISO 8601 UTC string or Date). See AARPreAction.expiresAt. */
+    expiresAt?: string | Date;
+  }): Promise<AARPreAction> {
+    const expiresAtIso = opts.expiresAt === undefined
+      ? undefined
+      : (opts.expiresAt instanceof Date ? opts.expiresAt.toISOString() : opts.expiresAt);
+
+    const preActionBase: Omit<AARPreAction, 'signature'> = {
+      id: generateId(),
+      version: 'aar-v1',
+      phase: 'pre-action',
+      toolName: opts.toolName,
+      toolCallId: opts.toolCallId,
+      inputDigest: 'sha256:' + await sha256Hex(canonicalJson(opts.input)),
+      actorId: this.actorId,
+      issuedAt: new Date().toISOString(),
+      ...(opts.sessionId !== undefined && { sessionId: opts.sessionId }),
+      ...(opts.policyRef !== undefined && { policyRef: opts.policyRef }),
+      ...(opts.approvalDecision !== undefined && { approvalDecision: opts.approvalDecision }),
+      ...(opts.decidedBy !== undefined && { decidedBy: opts.decidedBy }),
+      ...(expiresAtIso !== undefined && { expiresAt: expiresAtIso }),
+      ...(this.lastReceiptHash !== undefined && { previousReceiptHash: this.lastReceiptHash }),
+    };
+
+    // Update chain state BEFORE signing (signature excluded from hash)
+    this.lastReceiptHash = await hashPayload(preActionBase);
+
+    const preAction: AARPreAction = { ...preActionBase };
+    if (this.hmacSecret) {
+      preAction.signature = await this.hmacSignPayload(preActionBase);
+    }
+
+    if (this.apiKey && !this.silent) {
+      this.shipReceiptToAgentLair(preAction).catch((err) => {
+        console.warn('[audit-logger] AgentLair receipt upload failed:', (err as Error).message);
+      });
+    }
+
+    return preAction;
+  }
+
+  /**
+   * Call AFTER tool execution completes (or is denied, cancelled, expired, etc.).
+   * Signs and chains the terminal receipt.
+   */
+  async endAction(opts: {
+    preAction: AARPreAction;
+    phase?: AARTerminalPhase;  // defaults to 'executed' if output provided, 'failed' if error provided
+    startedAt?: Date;          // only relevant for executed/failed phases
+    endedAt?: Date;            // only relevant for executed/failed phases
+    output?: unknown;          // only for executed phase
+    error?: Error;             // implies failed phase
+    terminalReason?: string;
+  }): Promise<AARTerminalReceipt> {
+    const { preAction, startedAt, endedAt, output, error, terminalReason } = opts;
+
+    // Phase resolution
+    let phase: AARTerminalPhase;
+    if (error !== undefined) {
+      phase = 'failed';
+    } else if (opts.phase !== undefined) {
+      phase = opts.phase;
+    } else {
+      phase = 'executed';
+    }
+
+    // Sign-time invariant: executed phase is not allowed for denied pre-actions
+    if (phase === 'executed' && preAction.approvalDecision === 'denied') {
+      throw new Error(
+        `Cannot record 'executed' terminal for a denied pre-action (preActionId: ${preAction.id})`
+      );
+    }
+
+    const now = new Date();
+    const terminalAt = endedAt?.toISOString() ?? now.toISOString();
+
+    // Sign-time invariant: executed phase is not allowed after the pre-action's expiresAt.
+    // executionEndedAt is the source of truth here — when endedAt is omitted, fall back to now.
+    if (phase === 'executed' && preAction.expiresAt !== undefined) {
+      const executionEndedAt = endedAt?.toISOString() ?? now.toISOString();
+      if (executionEndedAt > preAction.expiresAt) {
+        throw new Error(
+          `Cannot record 'executed' terminal after pre-action expiresAt ` +
+          `(preActionId: ${preAction.id}, expiresAt: ${preAction.expiresAt}, executionEndedAt: ${executionEndedAt})`
+        );
+      }
+    }
+
+    // Hash the preAction without signature to create the chain link
+    const { signature: _sig, ...preActionWithoutSig } = preAction;
+    const preActionHash = await hashPayload(preActionWithoutSig);
+
+    const receiptBase: Omit<AARTerminalReceipt, 'signature'> = {
+      id: generateId(),
+      version: 'aar-v1',
+      phase,
+      preActionId: preAction.id,
+      toolCallId: preAction.toolCallId,
+      terminalAt,
+      previousReceiptHash: preActionHash,
+      ...(terminalReason !== undefined && { terminalReason }),
+      // Execution fields only for executed/failed phases
+      ...((phase === 'executed' || phase === 'failed') && startedAt !== undefined && {
+        executionStartedAt: startedAt.toISOString(),
+      }),
+      ...((phase === 'executed' || phase === 'failed') && endedAt !== undefined && {
+        executionEndedAt: endedAt.toISOString(),
+      }),
+      // Result digest only for executed phase
+      ...(phase === 'executed' && output !== undefined && {
+        resultDigest: 'sha256:' + await sha256Hex(canonicalJson(output)),
+      }),
+      // Error class only for failed phase
+      ...(phase === 'failed' && error !== undefined && {
+        errorClass: error.constructor.name,
+      }),
+    };
+
+    // Update chain state
+    this.lastReceiptHash = await hashPayload(receiptBase);
+
+    const receipt: AARTerminalReceipt = { ...receiptBase };
+    if (this.hmacSecret) {
+      receipt.signature = await this.hmacSignPayload(receiptBase);
+    }
+
+    if (this.apiKey && !this.silent) {
+      this.shipReceiptToAgentLair(receipt).catch((err) => {
+        console.warn('[audit-logger] AgentLair receipt upload failed:', (err as Error).message);
+      });
+    }
+
+    return receipt;
+  }
+
+  private async hmacSignPayload(payload: object): Promise<AARSignature> {
+    const canon = canonicalJson(payload);
+    const key = await crypto.subtle.importKey(
+      'raw',
+      new TextEncoder().encode(this.hmacSecret!),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign'],
+    );
+    const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(canon));
+    return {
+      alg: 'HMAC-SHA256',
+      kid: 'hmac-sha256',
+      sig: Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, '0')).join(''),
+    };
+  }
+
+  private async shipReceiptToAgentLair(receipt: AARPreAction | AARTerminalReceipt): Promise<void> {
+    const payload = {
+      topic: 'aar-receipt',
+      content: JSON.stringify(receipt),
+    };
+    const res = await fetch(`${this.baseUrl}/v1/observations`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${this.apiKey}`,
+      },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`AgentLair ${res.status}: ${text}`);
+    }
+  }
+
   private writeConsole(entry: ResolvedAuditEntry): void {
     const tool = entry.tool ? ` [${entry.tool}]` : '';
     const ts = entry.timestamp.slice(11, 19); // HH:MM:SS
@@ -98,6 +315,153 @@ export class AuditLogger {
       throw new Error(`AgentLair ${res.status}: ${text}`);
     }
   }
+}
+
+// ─── Chain verification ───────────────────────────────────────────────────────
+
+/**
+ * Verify the integrity of an AAR receipt chain.
+ * Each receipt's previousReceiptHash must match sha256 of the prior receipt (without signature).
+ * First receipt must have previousReceiptHash = undefined.
+ * Also checks that every AARPreAction has at least one corresponding AARTerminalReceipt.
+ */
+export async function verifyChain(
+  receipts: Array<AARPreAction | AARTerminalReceipt | AARPostAction>
+): Promise<ChainVerificationResult> {
+  if (receipts.length === 0) {
+    return { intact: true, chainIntegrity: 'complete', breaks: [] };
+  }
+
+  const breaks: ChainVerificationResult['breaks'] = [];
+
+  // First receipt should have no previousReceiptHash
+  const first = receipts[0];
+  if (first.previousReceiptHash !== undefined) {
+    return {
+      intact: false,
+      chainIntegrity: 'incomplete',
+      breaks: [{ id: first.id, expected: undefined, actual: first.previousReceiptHash }],
+    };
+  }
+
+  for (let i = 1; i < receipts.length; i++) {
+    const prev = receipts[i - 1];
+    const curr = receipts[i];
+
+    // Hash prev without signature
+    const { signature: _sig, ...prevWithoutSig } = prev as AARPreAction;
+    const expectedHash = await hashPayload(prevWithoutSig);
+    const actualHash = curr.previousReceiptHash;
+
+    if (actualHash !== expectedHash) {
+      breaks.push({ id: curr.id, expected: expectedHash, actual: actualHash });
+    }
+  }
+
+  // Check that every pre-action has at least one terminal receipt
+  const terminalPreActionIds = new Set<string>();
+  for (const receipt of receipts) {
+    if (receipt.phase !== 'pre-action') {
+      // It's a terminal receipt (AARTerminalReceipt); grab its preActionId
+      terminalPreActionIds.add((receipt as AARTerminalReceipt).preActionId);
+    }
+  }
+
+  for (const receipt of receipts) {
+    if (receipt.phase === 'pre-action') {
+      const preAction = receipt as AARPreAction;
+      if (!terminalPreActionIds.has(preAction.id)) {
+        breaks.push({ id: preAction.id, expected: 'terminal-receipt', actual: 'missing' });
+      }
+    }
+  }
+
+  // Authority check: verify expiresAt invariants for terminals that depend on it.
+  // - phase === 'expired' MUST have a pre-action with expiresAt set, and terminalAt >= expiresAt.
+  // - phase === 'executed' with executionEndedAt > pre-action.expiresAt is a chain break
+  //   (catches historical chains written pre-v0.4 that violate the sign-time invariant).
+  const preActionsById = new Map<string, AARPreAction>();
+  for (const receipt of receipts) {
+    if (receipt.phase === 'pre-action') {
+      preActionsById.set(receipt.id, receipt as AARPreAction);
+    }
+  }
+  for (const receipt of receipts) {
+    if (receipt.phase === 'pre-action') continue;
+    const term = receipt as AARTerminalReceipt;
+    const pre = preActionsById.get(term.preActionId);
+    if (!pre) continue; // missing pre-action is already accounted for above
+
+    if (term.phase === 'expired') {
+      if (pre.expiresAt === undefined) {
+        breaks.push({
+          id: term.id,
+          expected: 'pre-action.expiresAt set for expired terminal',
+          actual: 'undefined',
+        });
+      } else if (term.terminalAt < pre.expiresAt) {
+        breaks.push({
+          id: term.id,
+          expected: `terminalAt >= expiresAt (${pre.expiresAt})`,
+          actual: term.terminalAt,
+        });
+      }
+    } else if (term.phase === 'executed' && pre.expiresAt !== undefined) {
+      // executionEndedAt is the source of truth for "did we finish in time?".
+      // Fall back to terminalAt when execution timestamps were not recorded.
+      const executionEndedAt = term.executionEndedAt ?? term.terminalAt;
+      if (executionEndedAt > pre.expiresAt) {
+        breaks.push({
+          id: term.id,
+          expected: `executionEndedAt <= expiresAt (${pre.expiresAt})`,
+          actual: executionEndedAt,
+        });
+      }
+    }
+  }
+
+  const authorityBreakExpected = new Set([
+    'pre-action.expiresAt set for expired terminal',
+  ]);
+  const hasHashBreaks = breaks.some(b =>
+    b.expected !== 'terminal-receipt' &&
+    !(typeof b.expected === 'string' && (
+      b.expected.startsWith('terminalAt >=') ||
+      b.expected.startsWith('executionEndedAt <=') ||
+      authorityBreakExpected.has(b.expected)
+    ))
+  );
+  const hasAuthorityBreaks = breaks.some(b =>
+    typeof b.expected === 'string' && (
+      b.expected.startsWith('terminalAt >=') ||
+      b.expected.startsWith('executionEndedAt <=') ||
+      authorityBreakExpected.has(b.expected)
+    )
+  );
+  const hasMissingTerminals = breaks.some(b => b.expected === 'terminal-receipt');
+
+  let chainIntegrity: 'complete' | 'incomplete' | 'broken';
+  if (hasHashBreaks || hasAuthorityBreaks) {
+    chainIntegrity = 'broken';
+  } else if (hasMissingTerminals) {
+    chainIntegrity = 'incomplete';
+  } else {
+    chainIntegrity = 'complete';
+  }
+
+  return {
+    intact: breaks.length === 0,
+    chainIntegrity,
+    breaks,
+  };
+}
+
+/**
+ * Compute the sha256 digest of a value (canonical JSON).
+ * Useful for verifying inputDigest independently.
+ */
+export async function computeDigest(value: unknown): Promise<string> {
+  return 'sha256:' + await sha256Hex(canonicalJson(value));
 }
 
 // ─── Module-level convenience API ────────────────────────────────────────────
