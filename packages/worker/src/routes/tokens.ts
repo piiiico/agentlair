@@ -20,13 +20,37 @@ import { getSigningKeyForAccount } from './did.js';
 import {
   ACT_BINDING_CLAIM,
   ACT_BINDING_TYP_V1,
-  computeActBindingHash,
+  canonicalizeActionTuple,
 } from '../lib/act-binding.js';
 import { trackTokenIssuance, checkAndIncrementTokenVerify, TOKEN_VERIFY_LIMITS } from '../middleware/ratelimit.js';
 import { SERVICE_PRICES, make402Response } from '../x402.js';
 import { getTrustAttestationForEmbed } from '../idp/trust-embed.js';
 import { isTokenRevoked, getAccountRevocationTime } from '../idp/revoke.js';
 import { writeMemoryAuditEvent } from '../middleware/audit.js';
+
+
+/**
+ * CF-Workers-compatible act-binding hash using native WebCrypto (crypto.subtle).
+ *
+ * Replaces computeActBindingHash from the vendored module. bun --target browser
+ * inlines crypto-browserify as a polyfill for node:crypto; that polyfill's
+ * createHash fails to initialize in CF Workers (cryptoBrowserify.createHash is
+ * undefined at request time). crypto.subtle is always natively available in CF
+ * Workers — no polyfill path.
+ *
+ * Output is byte-identical: sha256:<base64url-digest>.
+ * Frozen DashClaw hash vectors unchanged (canonicalization is pure JS).
+ */
+async function computeActBindingHashCF(
+  tuple: { action: string; target: string; goal: string },
+): Promise<string> {
+  const canonical = canonicalizeActionTuple(tuple);
+  const data = new TextEncoder().encode(canonical);
+  const hashBuf = await crypto.subtle.digest('SHA-256', data);
+  const hashBase64 = btoa(String.fromCharCode(...new Uint8Array(hashBuf)));
+  const hashBase64url = hashBase64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+  return 'sha256:' + hashBase64url;
+}
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -81,7 +105,7 @@ export function validateScopeCeiling(requestedScopes: string[], allowedScopes: u
  *   { ok: true, tuple: null }     — caller did not request binding (absent field)
  *   { ok: false, error, field }   — validation failure; caller must 400 immediately
  *
- * On `ok: true, tuple !== null`, the caller hashes via computeActBindingHash
+ * On `ok: true, tuple !== null`, the caller hashes via computeActBindingHashCF
  * (from the vendored module) and embeds the resulting claim. The hash itself
  * never fails for well-formed tuples — every error path is caught here.
  */
@@ -258,7 +282,7 @@ tokenRoutes.post('/issue', async (c) => {
   if (actBindingResult.tuple !== null) {
     claims[ACT_BINDING_CLAIM] = {
       typ: ACT_BINDING_TYP_V1,
-      hash: computeActBindingHash(actBindingResult.tuple),
+      hash: await computeActBindingHashCF(actBindingResult.tuple),
     };
   }
 
@@ -460,7 +484,7 @@ tokenRoutes.post('/issue-l3', async (c) => {
   if (l3ActBindingResult.tuple !== null) {
     claims[ACT_BINDING_CLAIM] = {
       typ: ACT_BINDING_TYP_V1,
-      hash: computeActBindingHash(l3ActBindingResult.tuple),
+      hash: await computeActBindingHashCF(l3ActBindingResult.tuple),
     };
   }
 
