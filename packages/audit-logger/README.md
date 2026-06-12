@@ -135,6 +135,89 @@ await logger.endAction({
 
 `canonicalInput` is opt-in: omitting it preserves v0.4 semantics (only `inputDigest` is bound). When the call's authority depends on *what* it does rather than *what bytes* were shipped, supply it.
 
+### Canonicalizer accountability (v0.6)
+
+v0.5 commits the chain to *what* the call meant. v0.6 commits it to *who decided what counts as a meaning* — the canonicalizer itself becomes a trust boundary. The chain now proves three contracts independently: the canonicalizer profile (what fields it preserves), the policy surface (what fields the policy gates on), and the binding between them (compatibility, registered before authority is minted).
+
+```typescript
+import {
+  AuditLogger,
+  InMemoryPolicyProfileBindingRegistry,
+  computeCanonicalizerProfileHash,
+  computePolicySurfaceHash,
+} from '@agentlair/audit-logger';
+
+// 1. Declare the canonicalizer profile — pure data, no environment lookup.
+const httpProfileData = {
+  profileId: 'http',
+  version: '1.0',
+  toolFamily: 'http',
+  includedConsequentialFields: ['method', 'url', 'body', 'scope'],
+  excludedFields: ['traceId', 'retryId', 'userAgent'],
+  normalizationRules: { url: { percentEncoded: true, lowerCaseHost: true } },
+};
+const httpProfile = {
+  ...httpProfileData,
+  profileHash: await computeCanonicalizerProfileHash(httpProfileData),
+};
+
+// 2. Declare the policy surface — what fields the policy gates on.
+const paymentsSurfaceData = {
+  policyRef: 'policy:payments',
+  gatedFields: ['method', 'url', 'body', 'scope'],
+};
+const paymentsSurface = {
+  ...paymentsSurfaceData,
+  surfaceHash: await computePolicySurfaceHash(paymentsSurfaceData),
+};
+
+// 3. Register the binding — verifies gatedFields ⊆ includedConsequentialFields.
+//    Refuses with policy_surface_unbound if the profile would hide a gated field.
+const registry = new InMemoryPolicyProfileBindingRegistry();
+await registry.register(paymentsSurface, httpProfile);
+
+// 4. beginAction looks up the binding (constant-time); no recompute, no silent compat.
+const pre = await logger.beginAction({
+  toolName: 'http_post',
+  toolCallId: 'call-1',
+  input: rawInput,
+  canonicalInput: envelope,
+  canonicalizerProfile: httpProfile,
+  policySurface: paymentsSurface,
+  bindingRegistry: registry,
+  approvalDecision: 'approved',
+  policyRef: 'policy:payments',
+});
+
+// 5. endAction binds the terminal to the same profile hash.
+await logger.endAction({
+  preAction: pre,
+  phase: 'executed',
+  effectiveCanonicalInput: envelope,
+  canonicalizerProfile: httpProfile, // mismatch throws profile_incompatible
+  output: result,
+});
+```
+
+**Pre-authority refusal — no AAR minted:**
+
+| `BeginActionRefusal.reason` | Trigger                                                                                              |
+|-----------------------------|------------------------------------------------------------------------------------------------------|
+| `unbound_policy_profile`    | No registered binding for (`policy.surfaceHash`, `profile.profileHash`).                             |
+| `policy_surface_unbound`    | At `registry.register()`: policy gates on a field absent from `profile.includedConsequentialFields`. |
+| `profile_data_incomplete`   | Profile declares a normalization rule for a field absent from the envelope.                          |
+
+Pre-authority refusals throw a `BeginActionRefusal` rather than producing a terminal record — there is no authority to terminate. Terminal `profile_incompatible` is strictly reserved for drift *after* authority is minted (terminal profile hash ≠ pre-action profile hash).
+
+**What this buys you:**
+
+- **"Trust the caller's hash function" becomes checkable.** The profile names what the canonicalizer preserves and excludes. An independent verifier with `registeredCanonicalizerProfiles` rejects pre-actions whose `canonicalizerProfileHash` is absent from the registered set — BYO canonicalizers cannot launder unknown hashes through the chain.
+- **Policy and canonicalizer evolve independently.** `policySurfaceHash` declares what the policy depends on; `canonicalizerProfileHash` declares what the profile preserves; `policyProfileBindingHash` proves they fit. Either can drift without the other, and the verifier names which drifted.
+- **Migration that changes the policy surface requires a fresh approval.** `migrationVerifiers` entries now accept `{ migrate, preservesPolicySurface }`. When `preservesPolicySurface !== true`, cross-version replay is rejected with `migration_changes_policy_surface` — a migration whose output surface differs from input is a new decision, not silent replay.
+- **Pure data, no environment lookup.** The fs profile cannot ask the host "are you case-sensitive" at runtime — that answer is host-state, not envelope-state, and host migration silently invalidates replay. Normalization assumptions go into `normalizationRules` as declared data; changing them is a new profile id.
+
+All v0.6 fields are opt-in: omitting `canonicalizerProfile` / `policySurface` / `bindingRegistry` preserves v0.5 semantics. The decomposition follows the [three-digest model](https://github.com/vercel/ai/issues/13215#issuecomment-4686858517) raised in the AAR thread.
+
 ### Chain mechanics
 
 Each receipt includes a `previousReceiptHash` (SHA-256 of the canonical-JSON prior receipt payload). The chain grows linearly:
@@ -239,6 +322,11 @@ Emits a signed, chained pre-action receipt. Call **before** tool execution.
 | `expiresAt`        | `string \| Date`                              | —        | ISO 8601 deadline (v0.4). Covered by `previousReceiptHash`. |
 | `canonicalInput`        | `unknown`                                | —        | v0.5: consequential subset of the call. Hashed into `approvedEnvelopeHash`. |
 | `canonicalizationVersion` | `string`                              | —        | v0.5: defaults to `'cv1'` when `canonicalInput` is set.     |
+| `canonicalizerProfile`  | `CanonicalizerProfile`                   | —        | v0.6: declared profile (preserved fields + normalization rules). Hashed into `canonicalizerProfileHash`. Requires `policySurface` + `bindingRegistry`. |
+| `policySurface`         | `PolicySurface`                          | —        | v0.6: declared policy surface (gated fields). Hashed into `policySurfaceHash`. |
+| `bindingRegistry`       | `PolicyProfileBindingRegistry`           | —        | v0.6: registry to look up the `(surfaceHash, profileHash)` binding. Unbound pair → `BeginActionRefusal('unbound_policy_profile')`. |
+
+**Throws `BeginActionRefusal`** (no AAR minted) when (v0.6) the policy-profile pair is not registered, the profile declares normalization for a field absent from the envelope, or `canonicalizerProfile` is supplied without `policySurface` + `bindingRegistry`.
 
 ### `logger.endAction(opts)` → `Promise<AARTerminalReceipt>`
 
@@ -256,8 +344,9 @@ Seals the attempt with a terminal receipt. Call exactly once per `beginAction`.
 | `error`          | `Error`                                                                 | —        | Error from failed execution. Only for `failed`.                                      |
 | `effectiveCanonicalInput` | `unknown`                                                      | v0.5\*   | Required when `preAction.approvedEnvelopeHash` is set AND `phase === 'executed'`.   |
 | `canonicalizationVersion` | `string`                                                       | —        | Defaults to the pre-action's stored version; cross-version sealing throws.          |
+| `canonicalizerProfile`    | `CanonicalizerProfile`                                         | v0.6\*   | Required when `preAction.canonicalizerProfileHash` is set AND `phase === 'executed'`. Mismatch throws `profile_incompatible`. |
 
-**Returns:** `AARTerminalReceipt` with `resultDigest` (executed), `errorClass` / `errorDigest` (failed), `previousReceiptHash` linking back to the pre-action, optional `effectiveEnvelopeHash` + `canonicalizationVersion` (v0.5, executed phase), and a signed `terminalAt` timestamp.
+**Returns:** `AARTerminalReceipt` with `resultDigest` (executed), `errorClass` / `errorDigest` (failed), `previousReceiptHash` linking back to the pre-action, optional `effectiveEnvelopeHash` + `canonicalizationVersion` (v0.5, executed phase), optional `canonicalizerProfileHash` (v0.6, executed phase), and a signed `terminalAt` timestamp.
 
 ### `configureLogger(options)` — configure module-level defaults
 

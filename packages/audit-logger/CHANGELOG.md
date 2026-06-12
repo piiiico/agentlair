@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.6.1] - 2026-06-12
+
+### Documentation
+
+Closes the v0.6 documentation gap — the v0.6.0 release shipped the three-hash decomposition in the CHANGELOG only; the README stopped at v0.5. v0.6.1 is README-only.
+
+- New README section: `Canonicalizer accountability (v0.6)` after the v0.5 envelope-binding section. End-to-end usage: profile declaration, surface declaration, binding registration, `beginAction` with the three v0.6 args, `endAction` profile binding.
+- `BeginActionRefusal` reason codes documented as a table: `unbound_policy_profile`, `policy_surface_unbound`, `profile_data_incomplete`. Terminal `profile_incompatible` distinguished as drift-after-authority (rpelevin's naming refinement adopted in v0.6.0 is now visible in the README).
+- API tables updated: `beginAction` adds `canonicalizerProfile` / `policySurface` / `bindingRegistry`; `endAction` adds `canonicalizerProfile`.
+- README example dogfooded against the published v0.6.0 build before publish — all three hashes embed, terminal binds matching profile hash, full chain verifies.
+
+No code changes.
+
 ## [0.6.0] - 2026-06-12
 
 ### New Features — canonicalizer accountability ("trust the caller's hash function" becomes checkable)
