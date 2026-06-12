@@ -1,5 +1,80 @@
 # Changelog
 
+## [0.7.0] - 2026-06-12
+
+### New Features — publication layer ("verifier knows the profile" stops requiring trust in the prover)
+
+v0.6 made `canonicalizerProfileHash` and `policyProfileBindingHash` first-class fields the chain commits to. But the verifier still had to trust whoever served the bytes for those hashes — "receipt names the profile" and "verifier knows the profile" were different statements. v0.7 closes that gap.
+
+The split is rpelevin's framing (vercel/ai#13215 comment 4690741717): **profile publication** answers _what bytes the profile is made of_, **binding publication** answers _whether the (policy, profile) pair was an allowed binding at the time authority was minted_. Both are required; the chain commits to which profile/binding was used, the publication layer proves what they mean.
+
+### Types added
+
+- `PublishedProfile` — decoded `CanonicalizerProfile` + `profile_canonical_json` bytes the hash is taken over + issuer record (`issuer`, `issued_at`, `expires_at`, `superseded_at`, `supersedes`) + `issuer_signature` (JWS compact, alg=EdDSA, `kid` resolves through JWKS).
+- `PublishedBinding` — decoded binding tuple + `binding_canonical_json` + `policy_surface_hash` + `canonicalizer_profile_hash` + validity window + `status` (`active` | `revoked` | `superseded`) + `issuer_signature`.
+- `ProfileResolver` — `(profileHash: string) => Promise<PublishedProfile | null>`. 404 returns null; transient errors throw. Default (`fetchPublishedProfile`) hits `https://agentlair.dev/.well-known/aar-profiles/<hash>`.
+- `BindingResolver` — `(bindingHash: string) => Promise<PublishedBinding | null>`. Default (`fetchPublishedBinding`) hits `https://agentlair.dev/.well-known/aar-bindings/<hash>`.
+- `IssuerTrustSet` — `Record<string /* kid */, Uint8Array /* ed25519 pub */>`. When supplied, the verifier rejects published records whose JWS `kid` is not in the set.
+
+### `verifyChain()` — six new break categories (profile layer) + six new (binding layer)
+
+Opt-in. The new options are:
+
+```ts
+verifyChain(records, {
+  resolveProfile?: ProfileResolver,
+  resolveBinding?: BindingResolver,
+  issuerTrustSet?: IssuerTrustSet,
+  enableDefaultResolvers?: boolean,  // false → unit tests cannot accidentally hit the network
+});
+```
+
+Omitting the resolvers preserves v0.6 behavior. When `resolveProfile` is set:
+
+| `expected` | Triggers when |
+|------------|---------------|
+| `profile_published` | Resolver returns null for a hash the receipt pins. |
+| `profile_hash_matches_published_bytes` | Recomputed `canonicalizerProfileHash` of resolver output ≠ URL hash. |
+| `terminal_profile_resolvable` | Resolver throws (network unreachable). |
+| `profile_issuer_trusted` | Published JWS `kid` ∉ `issuerTrustSet` (when supplied). |
+| `profile_within_validity_window` | `beginAction.issuedAt` < `issued_at`, OR ≥ `expires_at`, OR ≥ `superseded_at`. |
+
+When `resolveBinding` is set, rpelevin's 8 enumerated cases (vercel/ai#13215 comment 4690741717) map 1:1:
+
+| Case | `expected` |
+|------|------------|
+| 1. binding hash has no published record | `binding_published` |
+| 2. binding's profile hash ≠ terminal profile hash | `binding_canonicalizer_profile_hash_matches_pre_action` |
+| 3. binding's policy surface hash ≠ pre-action's | `binding_policy_surface_hash_matches_pre_action` |
+| 4. binding issued AFTER `beginAction` | `binding_issued_at_or_before_begin_action` |
+| 5. binding expired or superseded BEFORE `beginAction` | `binding_within_validity_window` |
+| 6. binding signed by key not in issuer trust set | `binding_issuer_trusted` |
+| 7. Merkle inclusion proof valid for different pinned root | reserved (no-op in v0.7 — Merkle is explicitly out of scope per rpelevin) |
+| 8. terminal changes only `policyProfileBindingHash` while `canonicalizerProfileHash` unchanged | `terminal_binding_hash_unchanged_when_profile_unchanged` |
+
+### Publication endpoints (issuer side, AgentLair)
+
+The verifier-side resolver pairs with a publisher-side surface:
+
+- `GET https://agentlair.dev/.well-known/aar-profiles/<canonicalizerProfileHash>` — returns the signed `PublishedProfile` record, content-addressed, immutable-cached. 404 = `profile_unpublished`.
+- `GET https://agentlair.dev/.well-known/aar-bindings/<policyProfileBindingHash>` — returns the signed `PublishedBinding` record. 404 = `binding_unpublished`.
+- `POST /v1/aar/profiles` and `POST /v1/aar/bindings` are admin-gated and accept the issuer-side publication body. The publication route refuses to publish a binding whose referenced `canonicalizer_profile_hash` is not already published.
+
+The worker's `canonicalJson` helper is byte-identical to this package's — drift between them silently breaks every hash check, so the test suite asserts shape parity.
+
+### Why no Merkle in v0.7
+
+Per rpelevin's guidance: a Merkle root only adds verifier value when the verifier gets the signed root plus an inclusion proof for the specific binding. Otherwise "binding exists in my local set" only becomes "binding exists in my tree." The future-Merkle break code (`binding case 7`) is reserved in the categorization so the chainIntegrity logic doesn't need to change when Merkle does ship.
+
+### Tests
+
+14 new tests in the `AAR v0.7 publication layer` block, covering: profile cases 1–5 (unpublished, hash mismatch, unresolvable, expired, untrusted issuer); binding cases 1–6 + 8 (all rpelevin-enumerated fail-closed paths); happy path; resolver-bypass preserves v0.6 behavior.
+
+### Migration
+
+- All v0.7 options are additive on `VerifyChainOptions`. v0.6 callers that do not pass `resolveProfile` / `resolveBinding` see no behavior change.
+- The publication endpoints are new infrastructure — they do not invalidate any existing v0.6 receipt. v0.6 chains continue to verify under v0.7 with publication checks skipped.
+
 ## [0.6.1] - 2026-06-12
 
 ### Documentation

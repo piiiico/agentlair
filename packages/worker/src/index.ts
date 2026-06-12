@@ -58,6 +58,7 @@ import { rfc9421DemoRoutes } from './routes/rfc9421-demo.js';
 import { memoryTrustRoutes } from './routes/memory-trust.js';
 import { badgeRoutes } from './routes/badge.js';
 import { wellKnownAgentlairTrustRoutes } from './routes/well-known-agentlair-trust.js';
+import { aarPublicationReadRoutes, aarPublicationWriteRoutes } from './routes/aar-publication.js';
 import { mcpTrustVerifyRoutes } from './routes/mcp-trust-verify.js';
 import { a2aCardRoutes } from './routes/a2a-cards.js';
 import { ogA2aRoutes } from './routes/og-a2a.js';
@@ -518,6 +519,15 @@ app.get('/.well-known/rsl.xml', () =>
 // Sub-router lives at packages/worker/src/routes/well-known-agentlair-trust.ts.
 
 app.route('/.well-known/agentlair-trust', wellKnownAgentlairTrustRoutes);
+
+// AAR v0.7 publication layer — content-addressed canonicalizer-profile and
+// policy/profile-binding records. Verifiers resolve `canonicalizerProfileHash`
+// via GET /.well-known/aar-profiles/<hash> and `policyProfileBindingHash` via
+// GET /.well-known/aar-bindings/<hash>. Both records carry an EdDSA JWS whose
+// `kid` resolves through /.well-known/jwks.json — same root of trust as AATs.
+// Spec: vercel/ai#13215, knowledge/agentlair-aar-v0.7-publication-design.md.
+app.route('/.well-known', aarPublicationReadRoutes);
+app.route('/v1/aar', aarPublicationWriteRoutes);
 
 // ── agents.json — Agent Discovery ────────────────────────────────────────────
 // First-mover convention: AAT issuer DID, citation policy, x402 receiver,

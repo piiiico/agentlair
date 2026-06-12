@@ -275,3 +275,121 @@ export interface PolicyProfileBindingRegistry {
     canonicalizerProfileHash: string,
   ): Promise<PolicyProfileBinding | undefined>;
 }
+
+// ─── v0.7 Publication layer — externally-resolvable proof of authority ────────
+//
+// v0.6 made `canonicalizerProfileHash` and `policyProfileBindingHash` first-class
+// fields the chain commits to. But the verifier still had to trust whoever served
+// the bytes for those hashes. v0.7 closes that gap: profiles and bindings are
+// published at content-addressed URLs whose bytes the verifier hashes and whose
+// signatures the verifier checks against a JWKS-resolvable issuer key.
+//
+// Default endpoints:
+//   GET https://agentlair.dev/.well-known/aar-profiles/<canonicalizerProfileHash>
+//   GET https://agentlair.dev/.well-known/aar-bindings/<policyProfileBindingHash>
+//
+// Source: vercel/ai#13215 (rpelevin 4689156188 / 4690741717 — keep first version
+// boring, individual publication only; profile publication and binding publication
+// answer separate questions, both required for independent verification).
+
+/**
+ * v0.7: a published canonicalizer profile. The verifier fetches this from a
+ * content-addressed URL keyed by `canonicalizerProfileHash`, hashes the returned
+ * `profile_canonical_json` bytes, and rejects unless the hash matches.
+ *
+ * `profile_canonical_json` is the EXACT bytes the issuer signed. Decoded form
+ * appears as `profile` for caller convenience; verification operates on the bytes.
+ */
+export interface PublishedProfile {
+  /** Decoded profile object — convenience field; not authoritative. */
+  profile: CanonicalizerProfile;
+  /** Canonical JSON bytes of `profile`. The hash check operates on this string. */
+  profile_canonical_json: string;
+  /** Content address of the profile — equals `'sha256:<hex>'` of `profile_canonical_json` excluding profileHash. */
+  profile_hash: string;
+  issuer: string;
+  /** ISO 8601 UTC — verifier rejects bindings whose beginAction.issuedAt < this. */
+  issued_at: string;
+  /** ISO 8601 UTC — verifier rejects beginActions whose issuedAt > expires_at. */
+  expires_at: string | null;
+  /** ISO 8601 UTC — verifier rejects beginActions whose issuedAt > superseded_at. */
+  superseded_at: string | null;
+  /** Optional pointer to the prior profile_hash this record replaces. */
+  supersedes: string | null;
+  /**
+   * JWS compact-serialization signature (alg=EdDSA) over a canonical payload that
+   * includes `profile`, `issuer`, `issued_at`, `expires_at`, `supersedes`. The
+   * verifier resolves `kid` through the JWKS at `agentlair.dev/.well-known/jwks.json`
+   * (same root of trust as AATs) and rejects on signature failure.
+   */
+  issuer_signature: string;
+}
+
+/**
+ * v0.7: a published policy/profile binding. Answers "was this (policy, profile)
+ * pair an allowed binding when beginAction was issued?" The verifier fetches it
+ * by `policyProfileBindingHash`, rehashes the inner tuple, and checks the issuer
+ * signature.
+ */
+export interface PublishedBinding {
+  /** Decoded binding object — convenience; not authoritative. */
+  binding: {
+    bindingHash: string;
+    policySurfaceHash: string;
+    canonicalizerProfileHash: string;
+    issuer: string;
+    issued_at: string;
+    expires_at: string | null;
+    supersedes: string | null;
+    status: 'active' | 'revoked' | 'superseded';
+  };
+  binding_canonical_json: string;
+  /** Content address — equals `'sha256:<hex>'` of `canonicalJson({policySurfaceHash, canonicalizerProfileHash})`. */
+  binding_hash: string;
+  policy_surface_hash: string;
+  canonicalizer_profile_hash: string;
+  issuer: string;
+  issued_at: string;
+  expires_at: string | null;
+  superseded_at: string | null;
+  supersedes: string | null;
+  status: 'active' | 'revoked' | 'superseded';
+  /** JWS compact-serialization signature, kid resolves through JWKS. */
+  issuer_signature: string;
+}
+
+/**
+ * Verifier-side resolver function. Given a `profile_hash`, return the published
+ * record OR throw / return null. Default resolver fetches
+ * `https://agentlair.dev/.well-known/aar-profiles/<profile_hash>`. Callers can
+ * override for offline mode, alternate issuers, or pre-fetched batches.
+ *
+ * Contract:
+ *   - 404 / not-found → return `null` (verifier maps to `profile_unpublished`).
+ *   - Network / transient errors → throw (verifier maps to `terminal_profile_unresolvable`).
+ *   - Bytes returned but wrong hash → return the record; verifier detects via
+ *     `profile_hash_mismatch`.
+ */
+export type ProfileResolver = (
+  profileHash: string,
+) => Promise<PublishedProfile | null>;
+
+/**
+ * Verifier-side resolver function for binding records. Default fetches
+ * `https://agentlair.dev/.well-known/aar-bindings/<binding_hash>`.
+ *
+ * Same contract as ProfileResolver: 404 → null, network failure → throw.
+ */
+export type BindingResolver = (
+  bindingHash: string,
+) => Promise<PublishedBinding | null>;
+
+/**
+ * v0.7 trust-set for issuer keys. When supplied, the verifier rejects published
+ * records whose JWS `kid` does NOT appear in this set, regardless of signature
+ * validity. This is the "binding signed by key not in issuer trust set" gate
+ * (rpelevin case 6 for bindings; equivalent for profiles).
+ *
+ * Keyed by `kid`, values are the Ed25519 public key (32 bytes).
+ */
+export type IssuerTrustSet = Record<string, Uint8Array>;

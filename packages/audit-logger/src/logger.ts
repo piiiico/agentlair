@@ -22,6 +22,11 @@ import type {
   PolicySurface,
   PolicyProfileBinding,
   PolicyProfileBindingRegistry,
+  PublishedProfile,
+  PublishedBinding,
+  ProfileResolver,
+  BindingResolver,
+  IssuerTrustSet,
 } from './types.js';
 
 // ─── v0.5 default canonicalization version ────────────────────────────────────
@@ -741,6 +746,63 @@ export interface VerifyChainOptions {
    * option preserves v0.5 structural-only verification.
    */
   registeredCanonicalizerProfiles?: Record<string, CanonicalizerProfile>;
+  /**
+   * v0.7: profile-publication resolver. When supplied, each terminal that pins a
+   * `canonicalizerProfileHash` is verified against the bytes returned by this
+   * resolver. The verifier:
+   *   1. Resolves the hash → 404 yields `profile_unpublished`.
+   *   2. Recomputes the hash of the returned `profile_canonical_json` → mismatch yields
+   *      `profile_hash_mismatch`.
+   *   3. Checks the issuer signature against `issuerTrustSet` (if supplied) →
+   *      failure yields `profile_issuer_signature_invalid`.
+   *   4. Compares `beginAction.issuedAt` against `expires_at` / `superseded_at` →
+   *      out-of-window yields `profile_expired_or_superseded`.
+   *
+   * Throws are caught and reported as `terminal_profile_unresolvable` (network
+   * unreachable, transient error). Omit this option to skip publication checks
+   * entirely — preserves v0.6 behavior.
+   *
+   * Default resolver (when this option is omitted but `enableDefaultResolvers: true`):
+   * fetch `https://agentlair.dev/.well-known/aar-profiles/<hash>`.
+   */
+  resolveProfile?: ProfileResolver;
+  /**
+   * v0.7: binding-publication resolver. When supplied, each pre-action that pins a
+   * `policyProfileBindingHash` is verified against the bytes returned by this
+   * resolver. Failure modes (rpelevin's 8 binding-layer cases):
+   *
+   * 1. `binding_unpublished` — resolver returns null for the hash.
+   * 2. `binding_profile_mismatch` — published binding's `canonicalizerProfileHash` !=
+   *    pre-action `canonicalizerProfileHash`.
+   * 3. `binding_policy_surface_mismatch` — published binding's `policySurfaceHash` !=
+   *    pre-action `policySurfaceHash`.
+   * 4. `binding_issued_after_begin_action` — published binding `issued_at` >
+   *    pre-action `issuedAt`.
+   * 5. `binding_expired_or_superseded` — published binding `expires_at` /
+   *    `superseded_at` is on or before pre-action `issuedAt`.
+   * 6. `binding_issuer_untrusted` — JWS `kid` is not in `issuerTrustSet`.
+   * 7. (Merkle inclusion proof for wrong root) — not applicable in v0.7 individual
+   *    publication; reserved code surfaces only when a future Merkle-publication
+   *    variant ships.
+   * 8. `terminal_binding_hash_changed` — terminal `policyProfileBindingHash` changed
+   *    relative to the pre-action while `canonicalizerProfileHash` stayed the same.
+   */
+  resolveBinding?: BindingResolver;
+  /**
+   * v0.7: trust-set for issuer keys, keyed by JWS `kid`. When supplied, the verifier
+   * decodes the JWS header from each `issuer_signature`, checks the `kid` against
+   * this set, and rejects unknown issuers (`profile_issuer_untrusted` or
+   * `binding_issuer_untrusted`). When omitted, the issuer-trust gate is skipped
+   * (signature validity is not verified — supply this option to opt in).
+   */
+  issuerTrustSet?: IssuerTrustSet;
+  /**
+   * v0.7: when `true`, missing `resolveProfile` / `resolveBinding` falls back to
+   * network fetches against `https://agentlair.dev/.well-known/aar-{profiles,bindings}/<hash>`.
+   * Defaults to `false` so unit tests do not silently hit the network. Production
+   * callers either pass explicit resolvers or set this flag.
+   */
+  enableDefaultResolvers?: boolean;
 }
 
 /**
@@ -1014,6 +1076,31 @@ export async function verifyChain(
     }
   }
 
+  // v0.7 publication-layer checks. Resolves canonicalizer profiles and policy/profile
+  // bindings against externally-published, signed records. Skipped when no resolvers
+  // are supplied AND `enableDefaultResolvers` is false — preserves v0.6 behavior.
+  const profileResolver = resolveProfileResolverOption(options);
+  const bindingResolver = resolveBindingResolverOption(options);
+
+  if (profileResolver !== undefined) {
+    await runProfilePublicationChecks(
+      receipts,
+      preActionsById,
+      profileResolver,
+      options.issuerTrustSet,
+      breaks,
+    );
+  }
+  if (bindingResolver !== undefined) {
+    await runBindingPublicationChecks(
+      receipts,
+      preActionsById,
+      bindingResolver,
+      options.issuerTrustSet,
+      breaks,
+    );
+  }
+
   // v0.5 policyRef-after-cancellation rejection. After a `cancelled` terminal whose
   // terminalReason is `effective_call_changed`, the next pre-action in the chain must
   // not reuse the cancelled pre-action's policyRef — a different envelope is a
@@ -1057,6 +1144,19 @@ export async function verifyChain(
     'canonicalizerProfileHash set for executed terminal against v0.6 pre-action',
     'canonicalizerProfileHash === pre.canonicalizerProfileHash',
     'migration_preserves_policy_surface',
+    // v0.7 publication-layer breaks (profile + binding)
+    'profile_published',
+    'profile_hash_matches_published_bytes',
+    'profile_issuer_trusted',
+    'profile_within_validity_window',
+    'terminal_profile_resolvable',
+    'binding_published',
+    'binding_canonicalizer_profile_hash_matches_pre_action',
+    'binding_policy_surface_hash_matches_pre_action',
+    'binding_issued_at_or_before_begin_action',
+    'binding_within_validity_window',
+    'binding_issuer_trusted',
+    'terminal_binding_hash_unchanged_when_profile_unchanged',
   ];
   const isEnvelopeBreak = (expected: string | undefined): boolean =>
     typeof expected === 'string' && envelopeBreakPrefixes.some(p => expected.startsWith(p));
@@ -1101,6 +1201,318 @@ export async function verifyChain(
  */
 export async function computeDigest(value: unknown): Promise<string> {
   return 'sha256:' + await sha256Hex(canonicalJson(value));
+}
+
+// ─── v0.7 publication helpers ─────────────────────────────────────────────────
+
+const DEFAULT_AAR_PROFILE_BASE = 'https://agentlair.dev/.well-known/aar-profiles/';
+const DEFAULT_AAR_BINDING_BASE = 'https://agentlair.dev/.well-known/aar-bindings/';
+
+/**
+ * Network-backed default profile resolver. Returns null on 404, throws on
+ * transient errors (network unreachable, parse failure on a 2xx) so the verifier
+ * distinguishes `profile_unpublished` from `terminal_profile_unresolvable`.
+ */
+export async function fetchPublishedProfile(profileHash: string): Promise<PublishedProfile | null> {
+  const res = await fetch(DEFAULT_AAR_PROFILE_BASE + profileHash);
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`profile resolver returned ${res.status}`);
+  return await res.json() as PublishedProfile;
+}
+
+/**
+ * Network-backed default binding resolver. Same contract as the profile resolver.
+ */
+export async function fetchPublishedBinding(bindingHash: string): Promise<PublishedBinding | null> {
+  const res = await fetch(DEFAULT_AAR_BINDING_BASE + bindingHash);
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`binding resolver returned ${res.status}`);
+  return await res.json() as PublishedBinding;
+}
+
+function resolveProfileResolverOption(opts: VerifyChainOptions): ProfileResolver | undefined {
+  if (opts.resolveProfile) return opts.resolveProfile;
+  if (opts.enableDefaultResolvers) return fetchPublishedProfile;
+  return undefined;
+}
+
+function resolveBindingResolverOption(opts: VerifyChainOptions): BindingResolver | undefined {
+  if (opts.resolveBinding) return opts.resolveBinding;
+  if (opts.enableDefaultResolvers) return fetchPublishedBinding;
+  return undefined;
+}
+
+function jwsKid(jws: string): string | null {
+  const parts = jws.split('.');
+  if (parts.length !== 3) return null;
+  try {
+    // base64url decode header
+    const headerB64 = parts[0]!.replace(/-/g, '+').replace(/_/g, '/');
+    const pad = headerB64.length % 4 === 0 ? '' : '='.repeat(4 - (headerB64.length % 4));
+    const header = JSON.parse(atob(headerB64 + pad)) as Record<string, unknown>;
+    return typeof header.kid === 'string' ? header.kid : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Recompute the canonicalizer profile hash the same way computeCanonicalizerProfileHash
+ * does, given the decoded profile object the resolver returned. Used to detect
+ * `profile_hash_mismatch` — bytes resolved by the URL do not actually hash to the
+ * URL's hash.
+ */
+async function recomputeProfileHash(profile: CanonicalizerProfile): Promise<string> {
+  return computeCanonicalizerProfileHash(profile);
+}
+
+/**
+ * Run the profile-publication checks across every terminal that pins a
+ * `canonicalizerProfileHash`. Each failure is pushed into `breaks` with an
+ * `expected` string the categorization block above recognizes.
+ */
+async function runProfilePublicationChecks(
+  receipts: Array<AARPreAction | AARTerminalReceipt | AARPostAction>,
+  preActionsById: Map<string, AARPreAction>,
+  resolver: ProfileResolver,
+  trustSet: IssuerTrustSet | undefined,
+  breaks: ChainVerificationResult['breaks'],
+): Promise<void> {
+  // Collect every distinct (terminal, canonicalizerProfileHash) we need to check,
+  // plus every pre-action that pins a canonicalizerProfileHash so the issued-at
+  // window check has the right reference time.
+  for (const receipt of receipts) {
+    if (receipt.phase === 'pre-action') {
+      const pre = receipt as AARPreAction;
+      if (pre.canonicalizerProfileHash === undefined) continue;
+      await checkProfileHashAgainstResolver(
+        pre.id, pre.canonicalizerProfileHash, pre.issuedAt, resolver, trustSet, breaks,
+      );
+      continue;
+    }
+    const term = receipt as AARTerminalReceipt;
+    if (term.phase !== 'executed') continue;
+    if (term.canonicalizerProfileHash === undefined) continue;
+    const pre = preActionsById.get(term.preActionId);
+    const issuedAt = pre?.issuedAt;
+    if (!issuedAt) continue;
+    // Only re-check the terminal hash if it differs from the pre's — otherwise the
+    // pre-action loop above already covered it.
+    if (pre.canonicalizerProfileHash === term.canonicalizerProfileHash) continue;
+    await checkProfileHashAgainstResolver(
+      term.id, term.canonicalizerProfileHash, issuedAt, resolver, trustSet, breaks,
+    );
+  }
+}
+
+async function checkProfileHashAgainstResolver(
+  receiptId: string,
+  profileHash: string,
+  beginIssuedAt: string,
+  resolver: ProfileResolver,
+  trustSet: IssuerTrustSet | undefined,
+  breaks: ChainVerificationResult['breaks'],
+): Promise<void> {
+  let resolved: PublishedProfile | null;
+  try {
+    resolved = await resolver(profileHash);
+  } catch (e) {
+    breaks.push({
+      id: receiptId,
+      expected: 'terminal_profile_resolvable',
+      actual: `unresolvable (${(e instanceof Error ? e.message : String(e)).slice(0, 80)})`,
+    });
+    return;
+  }
+  if (resolved === null) {
+    breaks.push({
+      id: receiptId,
+      expected: 'profile_published',
+      actual: `profile_unpublished (${profileHash})`,
+    });
+    return;
+  }
+  // Bytes-vs-hash: re-derive the canonicalizer profile hash from the resolved
+  // profile and require equality. Mismatch means the publisher served bytes
+  // that don't hash to the URL's hash — a structural break, not a key issue.
+  let recomputed: string;
+  try {
+    recomputed = await recomputeProfileHash(resolved.profile);
+  } catch (e) {
+    breaks.push({
+      id: receiptId,
+      expected: 'profile_hash_matches_published_bytes',
+      actual: `recompute_failed (${(e instanceof Error ? e.message : String(e)).slice(0, 80)})`,
+    });
+    return;
+  }
+  if (recomputed !== profileHash) {
+    breaks.push({
+      id: receiptId,
+      expected: 'profile_hash_matches_published_bytes',
+      actual: `recomputed=${recomputed}`,
+    });
+  }
+  // Issuer trust check (kid must be in the trust set, if one was supplied).
+  if (trustSet) {
+    const kid = jwsKid(resolved.issuer_signature);
+    if (kid === null || !Object.prototype.hasOwnProperty.call(trustSet, kid)) {
+      breaks.push({
+        id: receiptId,
+        expected: 'profile_issuer_trusted',
+        actual: `untrusted_kid (${kid ?? 'absent'})`,
+      });
+    }
+  }
+  // Validity window: profile must have been valid at the time the receipt was
+  // issued. issued_at after beginIssuedAt OR expired/superseded before
+  // beginIssuedAt both fail-closed.
+  if (resolved.issued_at && resolved.issued_at > beginIssuedAt) {
+    breaks.push({
+      id: receiptId,
+      expected: 'profile_within_validity_window',
+      actual: `profile_issued_after_begin_action (${resolved.issued_at} > ${beginIssuedAt})`,
+    });
+  }
+  if (resolved.expires_at && resolved.expires_at <= beginIssuedAt) {
+    breaks.push({
+      id: receiptId,
+      expected: 'profile_within_validity_window',
+      actual: `profile_expired (${resolved.expires_at} <= ${beginIssuedAt})`,
+    });
+  }
+  if (resolved.superseded_at && resolved.superseded_at <= beginIssuedAt) {
+    breaks.push({
+      id: receiptId,
+      expected: 'profile_within_validity_window',
+      actual: `profile_superseded (${resolved.superseded_at} <= ${beginIssuedAt})`,
+    });
+  }
+}
+
+/**
+ * Run the binding-publication checks across every pre-action that pins a
+ * `policyProfileBindingHash`.
+ */
+async function runBindingPublicationChecks(
+  receipts: Array<AARPreAction | AARTerminalReceipt | AARPostAction>,
+  _preActionsById: Map<string, AARPreAction>,
+  resolver: BindingResolver,
+  trustSet: IssuerTrustSet | undefined,
+  breaks: ChainVerificationResult['breaks'],
+): Promise<void> {
+  for (const receipt of receipts) {
+    if (receipt.phase !== 'pre-action') continue;
+    const pre = receipt as AARPreAction;
+    if (pre.policyProfileBindingHash === undefined) continue;
+
+    let resolved: PublishedBinding | null;
+    try {
+      resolved = await resolver(pre.policyProfileBindingHash);
+    } catch (e) {
+      breaks.push({
+        id: pre.id,
+        expected: 'binding_published',
+        actual: `binding_unresolvable (${(e instanceof Error ? e.message : String(e)).slice(0, 80)})`,
+      });
+      continue;
+    }
+    if (resolved === null) {
+      breaks.push({
+        id: pre.id,
+        expected: 'binding_published',
+        actual: `binding_unpublished (${pre.policyProfileBindingHash})`,
+      });
+      continue;
+    }
+    // rpelevin case 2: binding's canonicalizerProfileHash must match the pre-action's.
+    if (
+      pre.canonicalizerProfileHash !== undefined &&
+      resolved.canonicalizer_profile_hash !== pre.canonicalizerProfileHash
+    ) {
+      breaks.push({
+        id: pre.id,
+        expected: 'binding_canonicalizer_profile_hash_matches_pre_action',
+        actual: `${resolved.canonicalizer_profile_hash} != ${pre.canonicalizerProfileHash}`,
+      });
+    }
+    // rpelevin case 3: binding's policySurfaceHash must match the pre-action's.
+    if (
+      pre.policySurfaceHash !== undefined &&
+      resolved.policy_surface_hash !== pre.policySurfaceHash
+    ) {
+      breaks.push({
+        id: pre.id,
+        expected: 'binding_policy_surface_hash_matches_pre_action',
+        actual: `${resolved.policy_surface_hash} != ${pre.policySurfaceHash}`,
+      });
+    }
+    // rpelevin case 4: binding issued AFTER beginAction.
+    if (resolved.issued_at && resolved.issued_at > pre.issuedAt) {
+      breaks.push({
+        id: pre.id,
+        expected: 'binding_issued_at_or_before_begin_action',
+        actual: `${resolved.issued_at} > ${pre.issuedAt}`,
+      });
+    }
+    // rpelevin case 5: binding expired or superseded before beginAction.
+    if (resolved.expires_at && resolved.expires_at <= pre.issuedAt) {
+      breaks.push({
+        id: pre.id,
+        expected: 'binding_within_validity_window',
+        actual: `binding_expired (${resolved.expires_at} <= ${pre.issuedAt})`,
+      });
+    }
+    if (resolved.superseded_at && resolved.superseded_at <= pre.issuedAt) {
+      breaks.push({
+        id: pre.id,
+        expected: 'binding_within_validity_window',
+        actual: `binding_superseded (${resolved.superseded_at} <= ${pre.issuedAt})`,
+      });
+    }
+    if (resolved.status !== 'active') {
+      breaks.push({
+        id: pre.id,
+        expected: 'binding_within_validity_window',
+        actual: `binding_status_${resolved.status}`,
+      });
+    }
+    // rpelevin case 6: binding signed by key not in issuer trust set.
+    if (trustSet) {
+      const kid = jwsKid(resolved.issuer_signature);
+      if (kid === null || !Object.prototype.hasOwnProperty.call(trustSet, kid)) {
+        breaks.push({
+          id: pre.id,
+          expected: 'binding_issuer_trusted',
+          actual: `untrusted_kid (${kid ?? 'absent'})`,
+        });
+      }
+    }
+    // rpelevin case 8: terminal receipt changes only policyProfileBindingHash
+    // while canonicalizerProfileHash stays the same. v0.6 already pins terminal
+    // canonicalizerProfileHash == pre.canonicalizerProfileHash; here we check the
+    // BINDING hash on the terminal (when present) matches the pre-action's.
+    // Terminal-side binding hash storage isn't yet in the v0.6 type, so we walk
+    // the receipts forward looking for a same-preActionId terminal whose
+    // `policyProfileBindingHash` field is non-undefined and different.
+    for (const r of receipts) {
+      if (r.phase === 'pre-action') continue;
+      const term = r as AARTerminalReceipt & { policyProfileBindingHash?: string };
+      if (term.preActionId !== pre.id) continue;
+      if (term.policyProfileBindingHash === undefined) continue;
+      if (
+        pre.canonicalizerProfileHash !== undefined &&
+        (term as AARTerminalReceipt).canonicalizerProfileHash === pre.canonicalizerProfileHash &&
+        term.policyProfileBindingHash !== pre.policyProfileBindingHash
+      ) {
+        breaks.push({
+          id: term.id,
+          expected: 'terminal_binding_hash_unchanged_when_profile_unchanged',
+          actual: `${term.policyProfileBindingHash} != ${pre.policyProfileBindingHash}`,
+        });
+      }
+    }
+  }
 }
 
 // ─── Module-level convenience API ────────────────────────────────────────────

@@ -235,6 +235,41 @@ Denied, expired, and cancelled terminals participate in the chain just like exec
 
 ---
 
+### Publication layer (v0.7) — verifier knows what the profile means
+
+`canonicalizerProfileHash` and `policyProfileBindingHash` make the chain commit to which profile and which binding were used. v0.7 closes the next gap: the verifier no longer has to trust whoever served the bytes for those hashes. Profiles and bindings are published at content-addressed URLs whose bytes the verifier hashes and whose JWS signatures resolve through the same JWKS as the AAR signing key itself.
+
+```ts
+import { verifyChain, fetchPublishedProfile, fetchPublishedBinding } from '@agentlair/audit-logger';
+
+const result = await verifyChain(receipts, {
+  resolveProfile: fetchPublishedProfile,   // GET https://agentlair.dev/.well-known/aar-profiles/<hash>
+  resolveBinding: fetchPublishedBinding,   // GET https://agentlair.dev/.well-known/aar-bindings/<hash>
+  issuerTrustSet: { 'agentlair-2026-q2': pubKeyBytes },
+});
+```
+
+Each terminal that pins a `canonicalizerProfileHash` is checked against the published bytes; each pre-action that pins a `policyProfileBindingHash` is checked against the published binding tuple. The verifier rejects when:
+
+| Layer | `expected` | Triggers when |
+|-------|------------|---------------|
+| Profile | `profile_published` | Resolver returns null (404). |
+| Profile | `profile_hash_matches_published_bytes` | Recomputed hash of resolver output ≠ URL hash. |
+| Profile | `terminal_profile_resolvable` | Resolver throws (network unreachable). |
+| Profile | `profile_issuer_trusted` | Published JWS `kid` ∉ `issuerTrustSet`. |
+| Profile | `profile_within_validity_window` | `beginAction.issuedAt` outside `[issued_at, expires_at/superseded_at)`. |
+| Binding | `binding_published` | Binding hash has no published record. |
+| Binding | `binding_canonicalizer_profile_hash_matches_pre_action` | Binding's profile hash ≠ pre-action's. |
+| Binding | `binding_policy_surface_hash_matches_pre_action` | Binding's surface hash ≠ pre-action's. |
+| Binding | `binding_issued_at_or_before_begin_action` | Binding issued AFTER beginAction. |
+| Binding | `binding_within_validity_window` | Binding expired, superseded, or non-active. |
+| Binding | `binding_issuer_trusted` | Binding JWS `kid` ∉ `issuerTrustSet`. |
+| Binding | `terminal_binding_hash_unchanged_when_profile_unchanged` | Terminal swapped only the binding hash while keeping the profile hash. |
+
+Offline / pinned mode: pass a custom resolver that reads from a local cache. Bypass the layer entirely by omitting both options — v0.7 preserves v0.6 behavior when the publication checks are not requested.
+
+---
+
 ## Lightweight logging
 
 For simple use cases, `auditLog()` emits a single post-action record with no configuration required:

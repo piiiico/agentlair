@@ -35,6 +35,9 @@ export {
   computeCanonicalizerProfileHash,
   computePolicySurfaceHash,
   computePolicyProfileBindingHash,
+  // v0.7 publication-layer default resolvers (hit agentlair.dev)
+  fetchPublishedProfile,
+  fetchPublishedBinding,
 } from './logger.js';
 export type { VerifyChainOptions } from './logger.js';
 export type {
@@ -55,4 +58,10 @@ export type {
   PolicySurface,
   PolicyProfileBinding,
   PolicyProfileBindingRegistry,
+  // v0.7 publication layer
+  PublishedProfile,
+  PublishedBinding,
+  ProfileResolver,
+  BindingResolver,
+  IssuerTrustSet,
 } from './types.js';
