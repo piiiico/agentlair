@@ -206,6 +206,14 @@ We've been running our own agent infrastructure on AgentLair in production. Note
 
 [agentlair.dev/getting-started](https://agentlair.dev/getting-started)
 
+### AAT × APS boundary (cross-protocol reference)
+
+AgentLair AAT is session identity inside the issuer. [AEOESS APS](https://agent-passport.org/) is delegation chains and bilateral receipts after handoff. Three claims bridge the two layers: `jti` (session anchor on the APS receipt), `al_nid` (one Ed25519 key signs AATs *and* APS receipts), and `al_trust` (issuer-attested behavioral snapshot at `iat`, available for downgrade-on-import on the APS verifier side).
+
+Jointly maintained reference:
+- [agentlair.dev/docs/aps-boundary](https://agentlair.dev/docs/aps-boundary) (this side)
+- [agent-passport.org/aat-aps-boundary.html](https://agent-passport.org/aat-aps-boundary.html) (AEOESS side, canonical)
+
 ## Repository structure
 
 ```

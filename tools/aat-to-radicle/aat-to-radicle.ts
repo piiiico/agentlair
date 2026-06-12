@@ -247,8 +247,22 @@ export async function runPipeline(token: string, args: CliArgs, deps: RunDeps): 
 }
 
 // ─── Default fetcher ──────────────────────────────────────────────────────
+// Identifying User-Agent: issuer-side edges (Cloudflare Bot Management at
+// agentlair.dev, equivalent at agent-passport.org) often challenge or block
+// requests with a default runtime UA (`node`, `Bun/x.y`, empty). AAT
+// conformance harnesses and JWKS verifiers must traverse those edges
+// deterministically. Send a stable, informative UA so issuer logs can trace
+// requests back to this tool version.
+export const AAT_TO_RADICLE_USER_AGENT =
+  "aat-to-radicle/0.2 (+https://agentlair.dev/docs/aat-to-radicle)";
+
 export const defaultFetchJson: RunDeps["fetchJson"] = async (url: string) => {
-  const r = await fetch(url, { headers: { Accept: "application/json" } });
+  const r = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+      "User-Agent": AAT_TO_RADICLE_USER_AGENT,
+    },
+  });
   if (!r.ok) throw new Error(`HTTP ${r.status} ${r.statusText} ← ${url}`);
   return await r.json();
 };

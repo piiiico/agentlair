@@ -43,7 +43,17 @@ export async function getSigningKey(
 
   // Refresh if stale or missing
   if (!cached || now - cached.fetchedAt > cacheTtlMs) {
-    const response = await fetch(jwksUrl);
+    // Issuer-side edges (e.g. Cloudflare Bot Management) often challenge
+    // or block requests with a default runtime UA. Send a stable,
+    // informative UA so issuer logs can trace requests back to this SDK
+    // version and so conformance harnesses (e.g. AEOESS APS) traverse
+    // the edge deterministically.
+    const response = await fetch(jwksUrl, {
+      headers: {
+        Accept: 'application/json',
+        'User-Agent': '@agentlair/mastra/0.1.0 (+https://agentlair.dev)',
+      },
+    });
     if (!response.ok) {
       throw new Error(`Failed to fetch JWKS from ${jwksUrl}: HTTP ${response.status}`);
     }
