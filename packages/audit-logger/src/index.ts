@@ -29,6 +29,12 @@ export {
   verifyChain,
   computeDigest,
   DEFAULT_CANONICALIZATION_VERSION,
+  // v0.6 canonicalizer accountability
+  InMemoryPolicyProfileBindingRegistry,
+  BeginActionRefusal,
+  computeCanonicalizerProfileHash,
+  computePolicySurfaceHash,
+  computePolicyProfileBindingHash,
 } from './logger.js';
 export type { VerifyChainOptions } from './logger.js';
 export type {
@@ -44,4 +50,9 @@ export type {
   AARPostAction,
   ChainVerificationResult,
   CanonicalizationVersion,
+  // v0.6 canonicalizer accountability
+  CanonicalizerProfile,
+  PolicySurface,
+  PolicyProfileBinding,
+  PolicyProfileBindingRegistry,
 } from './types.js';

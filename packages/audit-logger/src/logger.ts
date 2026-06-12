@@ -6,7 +6,23 @@
 //   const logger = new AuditLogger(); // reads AGENTLAIR_API_KEY automatically
 //   await logger.log({ agent: 'my-agent', action: 'tool_call', tool: 'search', input: query, output: results });
 
-import type { AuditLogEntry, AuditLoggerOptions, AuditSink, ResolvedAuditEntry, AARPreAction, AARPostAction, AARTerminalReceipt, AARTerminalPhase, AARSignature, ChainVerificationResult, CanonicalizationVersion } from './types.js';
+import type {
+  AuditLogEntry,
+  AuditLoggerOptions,
+  AuditSink,
+  ResolvedAuditEntry,
+  AARPreAction,
+  AARPostAction,
+  AARTerminalReceipt,
+  AARTerminalPhase,
+  AARSignature,
+  ChainVerificationResult,
+  CanonicalizationVersion,
+  CanonicalizerProfile,
+  PolicySurface,
+  PolicyProfileBinding,
+  PolicyProfileBindingRegistry,
+} from './types.js';
 
 // ─── v0.5 default canonicalization version ────────────────────────────────────
 /**
@@ -43,6 +59,142 @@ function generateId(length = 20): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
   const bytes = crypto.getRandomValues(new Uint8Array(length));
   return Array.from(bytes).map(b => chars[b % chars.length]).join('');
+}
+
+// ─── v0.6 canonicalizer accountability helpers ───────────────────────────────
+
+/**
+ * Compute the SHA-256 hash of a canonicalizer profile (excluding the `profileHash` /
+ * `migrationVerifier` fields). The result is the value to store in `profile.profileHash`.
+ *
+ * Hashes are taken over canonical JSON of the profile's data-carrying fields. The
+ * declared normalization rules participate in the hash — changing them (e.g. swapping
+ * `caseSensitive: true` → `false`) produces a different profile id by construction.
+ */
+export async function computeCanonicalizerProfileHash(
+  profile: Omit<CanonicalizerProfile, 'profileHash'>,
+): Promise<string> {
+  const payload = {
+    profileId: profile.profileId,
+    version: profile.version,
+    toolFamily: profile.toolFamily,
+    includedConsequentialFields: [...profile.includedConsequentialFields].sort(),
+    excludedFields: [...profile.excludedFields].sort(),
+    normalizationRules: profile.normalizationRules,
+  };
+  return 'sha256:' + await sha256Hex(canonicalJson(payload));
+}
+
+/**
+ * Compute the SHA-256 hash of a policy surface (excluding the `surfaceHash` field).
+ */
+export async function computePolicySurfaceHash(
+  surface: Omit<PolicySurface, 'surfaceHash'>,
+): Promise<string> {
+  const payload = {
+    policyRef: surface.policyRef,
+    gatedFields: [...surface.gatedFields].sort(),
+  };
+  return 'sha256:' + await sha256Hex(canonicalJson(payload));
+}
+
+/**
+ * Compute the SHA-256 hash of a (policy_surface_hash, canonicalizer_profile_hash) binding.
+ * This is the value embedded in the AARPreAction as `policyProfileBindingHash`.
+ */
+export async function computePolicyProfileBindingHash(
+  policySurfaceHash: string,
+  canonicalizerProfileHash: string,
+): Promise<string> {
+  const payload = { policySurfaceHash, canonicalizerProfileHash };
+  return 'sha256:' + await sha256Hex(canonicalJson(payload));
+}
+
+/**
+ * v0.6 refusal: thrown by `beginAction()` when authority cannot be minted. Carries a
+ * machine-readable reason code so callers can route refusals (log to a refusal sink,
+ * surface to the user, etc.) without parsing error messages.
+ *
+ * Reason codes:
+ * - `unbound_policy_profile`: no registered binding for (policy_surface_hash, canonicalizer_profile_hash).
+ * - `profile_data_incomplete`: profile declares normalization rules over fields absent from
+ *   `includedConsequentialFields` or absent from the envelope.
+ * - `policy_surface_unbound`: `policy.gatedFields` is not a subset of
+ *   `profile.includedConsequentialFields` (eager check; usually surfaces as
+ *   `unbound_policy_profile` because the binding cannot be registered).
+ */
+export class BeginActionRefusal extends Error {
+  readonly reason: 'unbound_policy_profile' | 'profile_data_incomplete' | 'policy_surface_unbound';
+  constructor(
+    reason: 'unbound_policy_profile' | 'profile_data_incomplete' | 'policy_surface_unbound',
+    message: string,
+  ) {
+    super(message);
+    this.name = 'BeginActionRefusal';
+    this.reason = reason;
+  }
+}
+
+/**
+ * v0.6 default registry. In-memory, suitable for tests and single-process callers.
+ * Production callers should plug in a registry backed by AgentLair or their own store
+ * — the contract is the `PolicyProfileBindingRegistry` interface in `./types`.
+ */
+export class InMemoryPolicyProfileBindingRegistry implements PolicyProfileBindingRegistry {
+  private readonly bindings = new Map<string, PolicyProfileBinding>();
+
+  private key(policySurfaceHash: string, canonicalizerProfileHash: string): string {
+    return `${policySurfaceHash}|${canonicalizerProfileHash}`;
+  }
+
+  /**
+   * Verify compatibility (every gated field is preserved by the profile, and every
+   * declared normalization rule targets a preserved field) and register the binding.
+   * Throws `BeginActionRefusal` with reason `policy_surface_unbound` /
+   * `profile_data_incomplete` if compatibility fails.
+   */
+  async register(
+    surface: PolicySurface,
+    profile: CanonicalizerProfile,
+  ): Promise<PolicyProfileBinding> {
+    const includedSet = new Set(profile.includedConsequentialFields);
+    for (const gated of surface.gatedFields) {
+      if (!includedSet.has(gated)) {
+        throw new BeginActionRefusal(
+          'policy_surface_unbound',
+          `Policy '${surface.policyRef}' gates on '${gated}' but canonicalizer profile ` +
+          `'${profile.profileId}@${profile.version}' does not include it in ` +
+          `includedConsequentialFields. The profile cannot preserve what the policy depends on; ` +
+          `no compatible binding can be registered.`,
+        );
+      }
+    }
+    for (const ruleField of Object.keys(profile.normalizationRules)) {
+      if (!includedSet.has(ruleField)) {
+        throw new BeginActionRefusal(
+          'profile_data_incomplete',
+          `Canonicalizer profile '${profile.profileId}@${profile.version}' declares a ` +
+          `normalization rule for '${ruleField}' but that field is not in ` +
+          `includedConsequentialFields. Normalization rules must target preserved fields.`,
+        );
+      }
+    }
+    const bindingHash = await computePolicyProfileBindingHash(surface.surfaceHash, profile.profileHash);
+    const binding: PolicyProfileBinding = {
+      policySurfaceHash: surface.surfaceHash,
+      canonicalizerProfileHash: profile.profileHash,
+      bindingHash,
+    };
+    this.bindings.set(this.key(surface.surfaceHash, profile.profileHash), binding);
+    return binding;
+  }
+
+  async lookup(
+    policySurfaceHash: string,
+    canonicalizerProfileHash: string,
+  ): Promise<PolicyProfileBinding | undefined> {
+    return this.bindings.get(this.key(policySurfaceHash, canonicalizerProfileHash));
+  }
 }
 
 export class AuditLogger {
@@ -142,6 +294,28 @@ export class AuditLogger {
      * `canonicalInput` is omitted (legacy v0.4 receipt).
      */
     canonicalizationVersion?: CanonicalizationVersion;
+    /**
+     * v0.6: Canonicalizer profile under which `canonicalInput` was produced. When
+     * supplied alongside `policySurface` and `bindingRegistry`, the pre-action commits
+     * to three hashes (`canonicalizerProfileHash`, `policySurfaceHash`,
+     * `policyProfileBindingHash`). `beginAction()` refuses to mint authority when:
+     *   - no binding is registered for (`policySurface.surfaceHash`, `profile.profileHash`)
+     *     → throws `BeginActionRefusal('unbound_policy_profile')`
+     *   - the profile declares a normalization rule for a field absent from the
+     *     envelope → throws `BeginActionRefusal('profile_data_incomplete')`
+     */
+    canonicalizerProfile?: CanonicalizerProfile;
+    /**
+     * v0.6: Policy surface declaration. Required when `canonicalizerProfile` is supplied.
+     * See `canonicalizerProfile`.
+     */
+    policySurface?: PolicySurface;
+    /**
+     * v0.6: Registry to look up the (surface, profile) compatibility binding. Required
+     * when `canonicalizerProfile` and `policySurface` are supplied. Default in-memory
+     * registry available as `InMemoryPolicyProfileBindingRegistry`.
+     */
+    bindingRegistry?: PolicyProfileBindingRegistry;
   }): Promise<AARPreAction> {
     const expiresAtIso = opts.expiresAt === undefined
       ? undefined
@@ -156,6 +330,56 @@ export class AuditLogger {
     const canonicalizationVersion = hasCanonicalInput
       ? (opts.canonicalizationVersion ?? DEFAULT_CANONICALIZATION_VERSION)
       : undefined;
+
+    // v0.6: canonicalizer accountability — three-hash decomposition.
+    let canonicalizerProfileHash: string | undefined;
+    let policySurfaceHash: string | undefined;
+    let policyProfileBindingHash: string | undefined;
+    if (opts.canonicalizerProfile !== undefined) {
+      if (opts.policySurface === undefined || opts.bindingRegistry === undefined) {
+        throw new BeginActionRefusal(
+          'unbound_policy_profile',
+          `canonicalizerProfile requires policySurface and bindingRegistry to be supplied ` +
+          `together — the three-hash decomposition is all-or-nothing per AAR v0.6.`,
+        );
+      }
+      const profile = opts.canonicalizerProfile;
+      const surface = opts.policySurface;
+
+      // Case 2 ('profile_data_incomplete'): every normalization rule must target a
+      // field present in the envelope. Detect rules referencing fields the caller's
+      // canonicalInput object does not carry — fail closed before hashing.
+      if (hasCanonicalInput && typeof opts.canonicalInput === 'object' && opts.canonicalInput !== null && !Array.isArray(opts.canonicalInput)) {
+        const envelopeKeys = new Set(Object.keys(opts.canonicalInput as Record<string, unknown>));
+        for (const ruleField of Object.keys(profile.normalizationRules)) {
+          if (!envelopeKeys.has(ruleField)) {
+            throw new BeginActionRefusal(
+              'profile_data_incomplete',
+              `Canonicalizer profile '${profile.profileId}@${profile.version}' declares a ` +
+              `normalization rule for '${ruleField}' but that field is absent from the envelope. ` +
+              `Refusing to mint authority over data the profile cannot describe.`,
+            );
+          }
+        }
+      }
+
+      // Case 0 ('unbound_policy_profile'): the (surface, profile) pair MUST be
+      // registered. No silent auto-compatibility — fail closed before any record is minted.
+      const binding = await opts.bindingRegistry.lookup(surface.surfaceHash, profile.profileHash);
+      if (binding === undefined) {
+        throw new BeginActionRefusal(
+          'unbound_policy_profile',
+          `No registered binding for policy '${surface.policyRef}' (surfaceHash: ${surface.surfaceHash}) ` +
+          `against canonicalizer profile '${profile.profileId}@${profile.version}' ` +
+          `(profileHash: ${profile.profileHash}). Register the binding via ` +
+          `registry.register(surface, profile) before minting authority.`,
+        );
+      }
+
+      canonicalizerProfileHash = profile.profileHash;
+      policySurfaceHash = surface.surfaceHash;
+      policyProfileBindingHash = binding.bindingHash;
+    }
 
     const preActionBase: Omit<AARPreAction, 'signature'> = {
       id: generateId(),
@@ -173,6 +397,9 @@ export class AuditLogger {
       ...(expiresAtIso !== undefined && { expiresAt: expiresAtIso }),
       ...(approvedEnvelopeHash !== undefined && { approvedEnvelopeHash }),
       ...(canonicalizationVersion !== undefined && { canonicalizationVersion }),
+      ...(canonicalizerProfileHash !== undefined && { canonicalizerProfileHash }),
+      ...(policySurfaceHash !== undefined && { policySurfaceHash }),
+      ...(policyProfileBindingHash !== undefined && { policyProfileBindingHash }),
       ...(this.lastReceiptHash !== undefined && { previousReceiptHash: this.lastReceiptHash }),
     };
 
@@ -222,6 +449,14 @@ export class AuditLogger {
      * `preAction.canonicalizationVersion`; cross-version sealing throws.
      */
     canonicalizationVersion?: CanonicalizationVersion;
+    /**
+     * v0.6: Canonicalizer profile used at execution time. Required when
+     * `preAction.canonicalizerProfileHash` is set AND `phase === 'executed'`. Sign-time
+     * invariant: `profile.profileHash` must equal `preAction.canonicalizerProfileHash`;
+     * mismatch throws (`profile_incompatible` — authority was minted under profile A
+     * but execution sealed against profile B).
+     */
+    canonicalizerProfile?: CanonicalizerProfile;
   }): Promise<AARTerminalReceipt> {
     const { preAction, startedAt, endedAt, output, error, terminalReason } = opts;
 
@@ -296,6 +531,31 @@ export class AuditLogger {
       }
     }
 
+    // v0.6 Sign-time invariant: when the pre-action committed to a canonicalizer profile,
+    // sealing 'executed' requires a profile whose hash matches. Drift is `profile_incompatible`:
+    // authority was minted under profile A but execution sealed against profile B.
+    let terminalCanonicalizerProfileHash: string | undefined;
+    if (phase === 'executed' && preAction.canonicalizerProfileHash !== undefined) {
+      if (opts.canonicalizerProfile === undefined) {
+        throw new Error(
+          `Cannot record 'executed' terminal without canonicalizerProfile when the ` +
+          `pre-action carries canonicalizerProfileHash ` +
+          `(preActionId: ${preAction.id}, expected profileHash: ${preAction.canonicalizerProfileHash})`,
+        );
+      }
+      if (opts.canonicalizerProfile.profileHash !== preAction.canonicalizerProfileHash) {
+        throw new Error(
+          `Cannot record 'executed' terminal: profile_incompatible — authority was minted ` +
+          `under canonicalizer profile '${preAction.canonicalizerProfileHash}' but execution ` +
+          `sealed against profile '${opts.canonicalizerProfile.profileId}@${opts.canonicalizerProfile.version}' ` +
+          `(profileHash: ${opts.canonicalizerProfile.profileHash}). ` +
+          `Close this authority with phase: 'cancelled', terminalReason: 'profile_incompatible' ` +
+          `and open a new beginAction for the new profile.`,
+        );
+      }
+      terminalCanonicalizerProfileHash = opts.canonicalizerProfile.profileHash;
+    }
+
     // Hash the preAction without signature to create the chain link
     const { signature: _sig, ...preActionWithoutSig } = preAction;
     const preActionHash = await hashPayload(preActionWithoutSig);
@@ -328,6 +588,10 @@ export class AuditLogger {
       ...(effectiveEnvelopeHash !== undefined && { effectiveEnvelopeHash }),
       ...(effectiveCanonicalizationVersion !== undefined && {
         canonicalizationVersion: effectiveCanonicalizationVersion,
+      }),
+      // v0.6 canonicalizer profile binding (only for executed phase against a v0.6 pre-action)
+      ...(terminalCanonicalizerProfileHash !== undefined && {
+        canonicalizerProfileHash: terminalCanonicalizerProfileHash,
       }),
     };
 
@@ -457,8 +721,26 @@ export interface VerifyChainOptions {
    * Optional migration functions keyed by the receipt's stored canonicalization
    * version. When present, the verifier permits cross-version replay by applying the
    * migration function before re-hashing. Absent → cross-version replay is rejected.
+   *
+   * v0.6: each entry may be either a bare function (legacy v0.5 form) or a
+   * `{ migrate, preservesPolicySurface }` object. When `preservesPolicySurface` is not
+   * `true`, replay is rejected with `migration_changes_policy_surface` — this captures
+   * rpelevin's v0.6 case 4 (migration verifier whose output surface differs from input
+   * requires a fresh approval cycle, not silent replay).
    */
-  migrationVerifiers?: Record<string, (value: unknown) => unknown>;
+  migrationVerifiers?: Record<
+    string,
+    | ((value: unknown) => unknown)
+    | { migrate: (value: unknown) => unknown; preservesPolicySurface: boolean }
+  >;
+  /**
+   * v0.6: registered canonicalizer profiles known to the verifier. Keyed by
+   * `profileHash`. When supplied, any pre-action whose `canonicalizerProfileHash` is
+   * NOT in this map is rejected (`unregistered_canonicalizer_profile`) — BYO
+   * canonicalizers cannot launder unknown hashes through the chain. Absence of this
+   * option preserves v0.5 structural-only verification.
+   */
+  registeredCanonicalizerProfiles?: Record<string, CanonicalizerProfile>;
 }
 
 /**
@@ -590,8 +872,8 @@ export async function verifyChain(
           pre.canonicalizationVersion !== undefined &&
           options.canonicalizationVersion !== pre.canonicalizationVersion
         ) {
-          const migrate = options.migrationVerifiers?.[pre.canonicalizationVersion];
-          if (migrate === undefined) {
+          const migrateEntry = options.migrationVerifiers?.[pre.canonicalizationVersion];
+          if (migrateEntry === undefined) {
             breaks.push({
               id: pre.id,
               expected: `canonicalizationVersion match or migration verifier (${pre.canonicalizationVersion} → ${options.canonicalizationVersion})`,
@@ -599,6 +881,23 @@ export async function verifyChain(
             });
             continue;
           }
+          // v0.6: migration verifier may declare it does NOT preserve the policy surface.
+          // Such migrations require a fresh approval cycle (rpelevin v0.6 case 4) — silent
+          // replay is rejected.
+          if (
+            typeof migrateEntry === 'object' &&
+            migrateEntry !== null &&
+            'preservesPolicySurface' in migrateEntry &&
+            migrateEntry.preservesPolicySurface !== true
+          ) {
+            breaks.push({
+              id: pre.id,
+              expected: `migration_preserves_policy_surface (${pre.canonicalizationVersion} → ${options.canonicalizationVersion})`,
+              actual: 'migration_changes_policy_surface',
+            });
+            continue;
+          }
+          const migrate = typeof migrateEntry === 'function' ? migrateEntry : migrateEntry.migrate;
           const migrated = migrate(replay);
           const recomputed = 'sha256:' + await sha256Hex(canonicalJson(migrated));
           if (recomputed !== pre.approvedEnvelopeHash) {
@@ -669,6 +968,52 @@ export async function verifyChain(
     }
   }
 
+  // v0.6 canonicalizer profile checks.
+  // - BYO unregistered profile (rpelevin case 5): when the verifier was given a set of
+  //   registered profiles, every pre-action's `canonicalizerProfileHash` MUST appear in
+  //   that set. Unknown profile hashes are fail-closed.
+  // - Terminal profile mismatch (rpelevin case 3, verify-time): if the terminal carries
+  //   a `canonicalizerProfileHash` different from the pre-action's, the executor sealed
+  //   under a profile the authority was not minted against.
+  // - Missing terminal profile hash for executed receipts against v0.6 pre-actions.
+  for (const receipt of receipts) {
+    if (receipt.phase === 'pre-action') {
+      const pre = receipt as AARPreAction;
+      if (
+        pre.canonicalizerProfileHash !== undefined &&
+        options.registeredCanonicalizerProfiles !== undefined &&
+        !Object.prototype.hasOwnProperty.call(
+          options.registeredCanonicalizerProfiles,
+          pre.canonicalizerProfileHash,
+        )
+      ) {
+        breaks.push({
+          id: pre.id,
+          expected: 'canonicalizerProfileHash in registeredCanonicalizerProfiles',
+          actual: `unregistered_canonicalizer_profile (${pre.canonicalizerProfileHash})`,
+        });
+      }
+      continue;
+    }
+    const term = receipt as AARTerminalReceipt;
+    const pre = preActionsById.get(term.preActionId);
+    if (!pre || pre.canonicalizerProfileHash === undefined) continue;
+    if (term.phase !== 'executed') continue;
+    if (term.canonicalizerProfileHash === undefined) {
+      breaks.push({
+        id: term.id,
+        expected: 'canonicalizerProfileHash set for executed terminal against v0.6 pre-action',
+        actual: 'undefined',
+      });
+    } else if (term.canonicalizerProfileHash !== pre.canonicalizerProfileHash) {
+      breaks.push({
+        id: term.id,
+        expected: `canonicalizerProfileHash === pre.canonicalizerProfileHash (${pre.canonicalizerProfileHash})`,
+        actual: `profile_incompatible (${term.canonicalizerProfileHash})`,
+      });
+    }
+  }
+
   // v0.5 policyRef-after-cancellation rejection. After a `cancelled` terminal whose
   // terminalReason is `effective_call_changed`, the next pre-action in the chain must
   // not reuse the cancelled pre-action's policyRef — a different envelope is a
@@ -707,6 +1052,11 @@ export async function verifyChain(
     'canonicalizationVersion match or migration verifier',
     'inputDigest matches replay',
     'policyRef differs from cancelled pre-action',
+    // v0.6 canonicalizer profile breaks
+    'canonicalizerProfileHash in registeredCanonicalizerProfiles',
+    'canonicalizerProfileHash set for executed terminal against v0.6 pre-action',
+    'canonicalizerProfileHash === pre.canonicalizerProfileHash',
+    'migration_preserves_policy_surface',
   ];
   const isEnvelopeBreak = (expected: string | undefined): boolean =>
     typeof expected === 'string' && envelopeBreakPrefixes.some(p => expected.startsWith(p));

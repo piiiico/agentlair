@@ -1,7 +1,18 @@
 // ─── Tests for @agentlair/audit-logger ───────────────────────────────────────
 
 import { describe, it, expect } from 'bun:test';
-import { AuditLogger, auditLog, configureLogger, verifyChain, computeDigest } from './logger.js';
+import {
+  AuditLogger,
+  auditLog,
+  configureLogger,
+  verifyChain,
+  computeDigest,
+  InMemoryPolicyProfileBindingRegistry,
+  BeginActionRefusal,
+  computeCanonicalizerProfileHash,
+  computePolicySurfaceHash,
+} from './logger.js';
+import type { CanonicalizerProfile, PolicySurface } from './types.js';
 
 describe('AuditLogger', () => {
   it('resolves timestamp when not provided', async () => {
@@ -733,5 +744,284 @@ describe('AAR v0.5 envelope binding', () => {
     });
     expect(r2.intact).toBe(true);
     expect(r2.chainIntegrity).toBe('complete');
+  });
+});
+
+describe('AAR v0.6 canonicalizer accountability (three-hash decomposition)', () => {
+  // Test helpers — build a profile + surface pair for the http tool family.
+  async function buildHttpProfile(overrides: Partial<CanonicalizerProfile> = {}): Promise<CanonicalizerProfile> {
+    const base = {
+      profileId: 'http.v1',
+      version: '1.0.0',
+      toolFamily: 'http',
+      includedConsequentialFields: ['method', 'url', 'host', 'body', 'authScope'],
+      excludedFields: ['traceId', 'retryId', 'userAgent'],
+      normalizationRules: { url: { percentEncoded: true }, host: { caseSensitive: false } },
+      ...overrides,
+    };
+    const profileHash = await computeCanonicalizerProfileHash(base);
+    return { ...base, profileHash };
+  }
+  async function buildPolicySurface(overrides: Partial<PolicySurface> = {}): Promise<PolicySurface> {
+    const base = {
+      policyRef: 'policy:write-tenant',
+      gatedFields: ['method', 'url', 'authScope'],
+      ...overrides,
+    };
+    const surfaceHash = await computePolicySurfaceHash(base);
+    return { ...base, surfaceHash };
+  }
+
+  it('case 0 — unbound (policy, profile) pair refuses beginAction with reason=unbound_policy_profile', async () => {
+    const logger = new AuditLogger({ silent: true });
+    const profile = await buildHttpProfile();
+    const surface = await buildPolicySurface();
+    const registry = new InMemoryPolicyProfileBindingRegistry();
+    // Note: NO registry.register(surface, profile) call → binding does not exist.
+    let caught: BeginActionRefusal | undefined;
+    try {
+      await logger.beginAction({
+        toolName: 'http.fetch',
+        toolCallId: 't0',
+        input: { method: 'POST', url: 'https://api.example.com/x' },
+        canonicalInput: { method: 'POST', url: 'https://api.example.com/x', host: 'api.example.com', body: '', authScope: 'tenant-A' },
+        canonicalizerProfile: profile,
+        policySurface: surface,
+        bindingRegistry: registry,
+      });
+    } catch (e) {
+      if (e instanceof BeginActionRefusal) caught = e;
+    }
+    expect(caught).toBeInstanceOf(BeginActionRefusal);
+    expect(caught?.reason).toBe('unbound_policy_profile');
+  });
+
+  it('case 1 — policy gates on a field absent from profile.includedConsequentialFields → registry.register refuses (policy_surface_unbound)', async () => {
+    const profile = await buildHttpProfile({
+      includedConsequentialFields: ['method', 'url', 'host'],  // 'authScope' missing
+    });
+    // recompute hash after override
+    profile.profileHash = await computeCanonicalizerProfileHash(profile);
+    const surface = await buildPolicySurface({
+      gatedFields: ['method', 'url', 'authScope'],  // gates on missing 'authScope'
+    });
+    surface.surfaceHash = await computePolicySurfaceHash(surface);
+    const registry = new InMemoryPolicyProfileBindingRegistry();
+    let caught: BeginActionRefusal | undefined;
+    try {
+      await registry.register(surface, profile);
+    } catch (e) {
+      if (e instanceof BeginActionRefusal) caught = e;
+    }
+    expect(caught).toBeInstanceOf(BeginActionRefusal);
+    expect(caught?.reason).toBe('policy_surface_unbound');
+    expect(caught?.message).toContain("'authScope'");
+  });
+
+  it('case 2 — profile declares normalization rule for a field absent from the envelope → beginAction refuses (profile_data_incomplete)', async () => {
+    const logger = new AuditLogger({ silent: true });
+    const profile = await buildHttpProfile();
+    const surface = await buildPolicySurface();
+    const registry = new InMemoryPolicyProfileBindingRegistry();
+    await registry.register(surface, profile);  // binding exists; case 0 is not the failure mode
+
+    let caught: BeginActionRefusal | undefined;
+    try {
+      await logger.beginAction({
+        toolName: 'http.fetch',
+        toolCallId: 't2',
+        input: { method: 'POST', url: 'https://api.example.com/x' },
+        // Envelope is MISSING 'host' even though profile declares normalization for it.
+        canonicalInput: { method: 'POST', url: 'https://api.example.com/x', body: '', authScope: 'tenant-A' },
+        canonicalizerProfile: profile,
+        policySurface: surface,
+        bindingRegistry: registry,
+      });
+    } catch (e) {
+      if (e instanceof BeginActionRefusal) caught = e;
+    }
+    expect(caught).toBeInstanceOf(BeginActionRefusal);
+    expect(caught?.reason).toBe('profile_data_incomplete');
+    expect(caught?.message).toContain("'host'");
+  });
+
+  it('case 3 — endAction with different canonicalizerProfile than the pre-action throws profile_incompatible', async () => {
+    const logger = new AuditLogger({ silent: true });
+    const profileA = await buildHttpProfile();
+    const profileB = await buildHttpProfile({
+      version: '1.1.0',
+      normalizationRules: { url: { percentEncoded: true }, host: { caseSensitive: true } },  // different rule
+    });
+    profileB.profileHash = await computeCanonicalizerProfileHash(profileB);
+    expect(profileA.profileHash).not.toBe(profileB.profileHash);
+
+    const surface = await buildPolicySurface();
+    const registry = new InMemoryPolicyProfileBindingRegistry();
+    await registry.register(surface, profileA);
+
+    const env = { method: 'POST', url: 'https://api.example.com/x', host: 'api.example.com', body: '', authScope: 'tenant-A' };
+    const pre = await logger.beginAction({
+      toolName: 'http.fetch',
+      toolCallId: 't3',
+      input: env,
+      canonicalInput: env,
+      canonicalizerProfile: profileA,
+      policySurface: surface,
+      bindingRegistry: registry,
+      approvalDecision: 'approved',
+      policyRef: surface.policyRef,
+    });
+    expect(pre.canonicalizerProfileHash).toBe(profileA.profileHash);
+    expect(pre.policySurfaceHash).toBe(surface.surfaceHash);
+    expect(pre.policyProfileBindingHash).toBeDefined();
+
+    let caught: Error | undefined;
+    try {
+      await logger.endAction({
+        preAction: pre,
+        phase: 'executed',
+        startedAt: new Date(0),
+        endedAt: new Date(10),
+        output: { ok: true },
+        effectiveCanonicalInput: env,
+        canonicalizerProfile: profileB,  // DRIFT — different profile than approval
+      });
+    } catch (e) {
+      caught = e as Error;
+    }
+    expect(caught).toBeDefined();
+    expect(caught?.message).toContain('profile_incompatible');
+  });
+
+  it('case 4 — migration verifier marked preservesPolicySurface: false is rejected at verifyChain (migration_changes_policy_surface)', async () => {
+    const logger = new AuditLogger({ silent: true });
+    const env = { method: 'POST', url: 'https://api.example.com/x', host: 'api.example.com', body: '', authScope: 'tenant-A' };
+    const pre = await logger.beginAction({
+      toolName: 'http.fetch',
+      toolCallId: 't4',
+      input: env,
+      canonicalInput: env,
+      canonicalizationVersion: 'cv1',
+      approvalDecision: 'approved',
+      policyRef: 'policy:t4',
+    });
+    const term = await logger.endAction({
+      preAction: pre,
+      phase: 'executed',
+      startedAt: new Date(0),
+      endedAt: new Date(10),
+      output: { ok: true },
+      effectiveCanonicalInput: env,
+    });
+    const r = await verifyChain([pre, term], {
+      replayedCanonicalInputs: { [pre.id]: env },
+      canonicalizationVersion: 'cv2',
+      migrationVerifiers: {
+        // Declared as policy-surface-changing — verifier must refuse silent replay.
+        cv1: { migrate: (v) => v, preservesPolicySurface: false },
+      },
+    });
+    expect(r.intact).toBe(false);
+    expect(r.chainIntegrity).toBe('broken');
+    expect(r.breaks.some(b =>
+      b.id === pre.id &&
+      typeof b.expected === 'string' &&
+      b.expected.startsWith('migration_preserves_policy_surface') &&
+      b.actual === 'migration_changes_policy_surface'
+    )).toBe(true);
+  });
+
+  it('case 5 — pre-action carrying an unregistered canonicalizerProfileHash fails closed when verifier supplies registered set', async () => {
+    const logger = new AuditLogger({ silent: true });
+    const profile = await buildHttpProfile();
+    const surface = await buildPolicySurface();
+    const registry = new InMemoryPolicyProfileBindingRegistry();
+    await registry.register(surface, profile);
+    const env = { method: 'POST', url: 'https://api.example.com/x', host: 'api.example.com', body: '', authScope: 'tenant-A' };
+    const pre = await logger.beginAction({
+      toolName: 'http.fetch',
+      toolCallId: 't5',
+      input: env,
+      canonicalInput: env,
+      canonicalizerProfile: profile,
+      policySurface: surface,
+      bindingRegistry: registry,
+      approvalDecision: 'approved',
+      policyRef: surface.policyRef,
+    });
+    const term = await logger.endAction({
+      preAction: pre,
+      phase: 'executed',
+      startedAt: new Date(0),
+      endedAt: new Date(10),
+      output: { ok: true },
+      effectiveCanonicalInput: env,
+      canonicalizerProfile: profile,
+    });
+
+    // Verifier knows ONLY a different profile — pre's profileHash is not in the set.
+    const otherProfile = await buildHttpProfile({ profileId: 'http.experimental' });
+    otherProfile.profileHash = await computeCanonicalizerProfileHash(otherProfile);
+    const r = await verifyChain([pre, term], {
+      registeredCanonicalizerProfiles: {
+        [otherProfile.profileHash]: otherProfile,
+      },
+    });
+    expect(r.intact).toBe(false);
+    expect(r.breaks.some(b =>
+      b.id === pre.id &&
+      typeof b.expected === 'string' &&
+      b.expected.startsWith('canonicalizerProfileHash in registeredCanonicalizerProfiles') &&
+      typeof b.actual === 'string' &&
+      b.actual.startsWith('unregistered_canonicalizer_profile')
+    )).toBe(true);
+
+    // Sanity check: when the actual profile IS in the registered set, the chain is intact.
+    const rOk = await verifyChain([pre, term], {
+      registeredCanonicalizerProfiles: { [profile.profileHash]: profile },
+    });
+    expect(rOk.intact).toBe(true);
+    expect(rOk.chainIntegrity).toBe('complete');
+  });
+
+  it('happy path — full three-hash chain verifies intact when binding registered and profile preserved', async () => {
+    const logger = new AuditLogger({ silent: true });
+    const profile = await buildHttpProfile();
+    const surface = await buildPolicySurface();
+    const registry = new InMemoryPolicyProfileBindingRegistry();
+    const binding = await registry.register(surface, profile);
+
+    const env = { method: 'POST', url: 'https://api.example.com/x', host: 'api.example.com', body: '', authScope: 'tenant-A' };
+    const pre = await logger.beginAction({
+      toolName: 'http.fetch',
+      toolCallId: 'happy',
+      input: env,
+      canonicalInput: env,
+      canonicalizerProfile: profile,
+      policySurface: surface,
+      bindingRegistry: registry,
+      approvalDecision: 'approved',
+      policyRef: surface.policyRef,
+    });
+    expect(pre.canonicalizerProfileHash).toBe(profile.profileHash);
+    expect(pre.policySurfaceHash).toBe(surface.surfaceHash);
+    expect(pre.policyProfileBindingHash).toBe(binding.bindingHash);
+
+    const term = await logger.endAction({
+      preAction: pre,
+      phase: 'executed',
+      startedAt: new Date(0),
+      endedAt: new Date(10),
+      output: { ok: true },
+      effectiveCanonicalInput: env,
+      canonicalizerProfile: profile,
+    });
+    expect(term.canonicalizerProfileHash).toBe(profile.profileHash);
+
+    const r = await verifyChain([pre, term], {
+      registeredCanonicalizerProfiles: { [profile.profileHash]: profile },
+    });
+    expect(r.intact).toBe(true);
+    expect(r.chainIntegrity).toBe('complete');
   });
 });

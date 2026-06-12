@@ -110,6 +110,29 @@ export interface AARPreAction {
    * is selected.
    */
   canonicalizationVersion?: CanonicalizationVersion;
+  /**
+   * v0.6: SHA-256 hash of the canonicalizer profile declared at approval time. The
+   * profile names which envelope fields the canonicalizer preserves and which
+   * normalization rules it applies. When set, the chain commits to the rules that
+   * produced `approvedEnvelopeHash` — "trust the caller's hash function" becomes
+   * checkable. `endAction()` refuses to seal `executed` unless the terminal embeds the
+   * same `canonicalizerProfileHash`. Format: `'sha256:<hex>'`.
+   */
+  canonicalizerProfileHash?: string;
+  /**
+   * v0.6: SHA-256 hash of the policy surface — the set of fields the policy actually
+   * depends on. Declared separately from the profile so policy migration and profile
+   * migration are independent events. Format: `'sha256:<hex>'`.
+   */
+  policySurfaceHash?: string;
+  /**
+   * v0.6: SHA-256 hash of the registered (policy_surface_hash, canonicalizer_profile_hash)
+   * compatibility binding. Computed by the PolicyProfileBindingRegistry when binding is
+   * registered — `beginAction()` looks up the binding rather than recomputing
+   * compatibility. Absence of a registered binding refuses authority at `beginAction()`
+   * (`unbound_policy_profile`). Format: `'sha256:<hex>'`.
+   */
+  policyProfileBindingHash?: string;
   previousReceiptHash?: string;      // undefined for first in chain
   signature?: AARSignature;
 }
@@ -145,6 +168,15 @@ export interface AARTerminalReceipt {
    * time and at verify time unless an explicit migration verifier is selected.
    */
   canonicalizationVersion?: CanonicalizationVersion;
+  /**
+   * v0.6: SHA-256 hash of the canonicalizer profile under which `effectiveEnvelopeHash`
+   * was computed. Only set when `phase === 'executed'` AND the pre-action carries
+   * `canonicalizerProfileHash`. Sign-time invariant: must equal
+   * `preAction.canonicalizerProfileHash`. Drift here is named `profile_incompatible` —
+   * authority was minted under profile A but execution sealed against profile B.
+   * Format: `'sha256:<hex>'`.
+   */
+  canonicalizerProfileHash?: string;
   // Chain
   previousReceiptHash: string;       // REQUIRED: hash of preAction without signature
   signature?: AARSignature;
@@ -157,4 +189,89 @@ export interface ChainVerificationResult {
   intact: boolean;
   chainIntegrity: 'complete' | 'incomplete' | 'broken';
   breaks: Array<{ id: string; expected: string | undefined; actual: string | undefined }>;
+}
+
+// ─── v0.6 Canonicalizer accountability — three-hash decomposition ─────────────
+
+/**
+ * v0.6: A declared canonicalizer profile. Names what envelope fields the canonicalizer
+ * preserves, what it excludes, and what normalization rules it applies. The profile is
+ * a pure data record — `normalizationRules` is declared data (e.g. `{ caseSensitive: true }`),
+ * NOT an environment lookup. The canonicalizer is a pure function of `(envelope, profile)`.
+ *
+ * `profileHash` is SHA-256 over canonical JSON of the other fields (excluding
+ * `profileHash` itself). Profile semantics drift becomes explicit because changing any
+ * field changes the hash → it is a different profile id, not the same profile in a new
+ * environment.
+ */
+export interface CanonicalizerProfile {
+  profileId: string;                               // human-readable: 'http.v1', 'fs.v1', 'db.v1'
+  version: string;                                 // semver string
+  toolFamily: string;                              // 'http' | 'fs' | 'db' | custom string
+  /** Fields the canonicalizer preserves into the envelope hash. Sorted, stable. */
+  includedConsequentialFields: string[];
+  /** Fields explicitly excluded as non-consequential. Sorted, stable. */
+  excludedFields: string[];
+  /**
+   * Declared normalization rules. Keys are field names from `includedConsequentialFields`.
+   * Values are pure data (e.g. `{ caseSensitive: true, percentEncoded: true }`). No
+   * environment lookup — host migration cannot silently change these.
+   */
+  normalizationRules: Record<string, unknown>;
+  /** SHA-256 over canonical JSON of the other fields. Format: 'sha256:<hex>'. */
+  profileHash: string;
+  /**
+   * Optional migration metadata. When present, declares that this profile version can be
+   * cross-replayed from `fromVersion` via the registered migration function (out-of-band).
+   */
+  migrationVerifier?: {
+    fromVersion: string;
+    toVersion: string;
+  };
+}
+
+/**
+ * v0.6: A declared policy surface. Names which envelope fields the policy actually
+ * gates on. Decoupled from the canonicalizer profile so the two can evolve
+ * independently. `surfaceHash` is SHA-256 over canonical JSON of `(policyRef, gatedFields)`.
+ */
+export interface PolicySurface {
+  policyRef: string;
+  /** Sorted, stable. The set of envelope fields the policy decision depends on. */
+  gatedFields: string[];
+  /** SHA-256 over canonical JSON of `(policyRef, gatedFields)`. Format: 'sha256:<hex>'. */
+  surfaceHash: string;
+}
+
+/**
+ * v0.6: A registered compatibility binding between a policy surface and a canonicalizer
+ * profile. Exists only after `register()` verifies that every gated field is preserved
+ * by the profile — that is, `policy.gatedFields ⊆ profile.includedConsequentialFields`.
+ * `bindingHash` is SHA-256 over canonical JSON of `(policySurfaceHash, canonicalizerProfileHash)`.
+ *
+ * `beginAction()` looks up the binding by `(policySurfaceHash, canonicalizerProfileHash)`
+ * — absence is a structural refusal (`unbound_policy_profile`), no AAR is minted.
+ */
+export interface PolicyProfileBinding {
+  policySurfaceHash: string;
+  canonicalizerProfileHash: string;
+  bindingHash: string;
+}
+
+/**
+ * v0.6: Registry of compatibility bindings. Default in-memory implementation is
+ * exported from `@agentlair/audit-logger` as `InMemoryPolicyProfileBindingRegistry`.
+ * External registries (e.g. backed by AgentLair) implement the same interface.
+ */
+export interface PolicyProfileBindingRegistry {
+  /**
+   * Verify compatibility and register the binding. Throws if any gated field is absent
+   * from the profile's included consequential fields. Returns the registered binding.
+   */
+  register(surface: PolicySurface, profile: CanonicalizerProfile): Promise<PolicyProfileBinding>;
+  /** Lookup an existing binding by hash. Returns undefined if not registered. */
+  lookup(
+    policySurfaceHash: string,
+    canonicalizerProfileHash: string,
+  ): Promise<PolicyProfileBinding | undefined>;
 }

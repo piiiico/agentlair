@@ -1,5 +1,78 @@
 # Changelog
 
+## [0.6.0] - 2026-06-12
+
+### New Features — canonicalizer accountability ("trust the caller's hash function" becomes checkable)
+
+v0.5 made the receipt commit to *what* the call meant via `approvedEnvelopeHash`. v0.6 makes it commit to *who decided what counts as a meaning*. The canonicalizer is no longer implementation detail — it is a trust boundary, and the chain proves three contracts independently:
+
+- `canonicalizerProfileHash` — declares what the canonicalizer preserves (`includedConsequentialFields`, `excludedFields`, `normalizationRules`).
+- `policySurfaceHash` — declares what the policy depends on (`gatedFields`).
+- `policyProfileBindingHash` — proves the two fit, registered out-of-band before authority is minted.
+
+The decomposition (rpelevin's three-digest model, vercel/ai#13215 comment 4686858517) keeps these claims independently checkable: canonicalizer drift, policy drift, and compatibility drift each surface as their own break category.
+
+### Types added
+
+- `CanonicalizerProfile` — `{ profileId, version, toolFamily, includedConsequentialFields, excludedFields, normalizationRules, profileHash }`. Pure data. No environment lookup. `migrationVerifier?: { fromVersion, toVersion }` for cross-version replay metadata.
+- `PolicySurface` — `{ policyRef, gatedFields, surfaceHash }`.
+- `PolicyProfileBinding` — `{ policySurfaceHash, canonicalizerProfileHash, bindingHash }`. Compatibility proof.
+- `PolicyProfileBindingRegistry` — `{ register(surface, profile), lookup(surfaceHash, profileHash) }`. Default `InMemoryPolicyProfileBindingRegistry` exported.
+
+Hash helpers exported:
+- `computeCanonicalizerProfileHash(profileWithoutHash)`
+- `computePolicySurfaceHash(surfaceWithoutHash)`
+- `computePolicyProfileBindingHash(surfaceHash, profileHash)`
+
+### `beginAction()` — pre-authority refusal as a first-class concept
+
+When called with `canonicalizerProfile + policySurface + bindingRegistry`, `beginAction()` enforces three refusal cases BEFORE any AAR is minted. Each throws a `BeginActionRefusal` with a machine-readable `reason` code — pre-authority refusals do not produce a record because there is no authority to terminate.
+
+| Reason | Trigger |
+|---|---|
+| `unbound_policy_profile` | No registered binding for (`policy.surfaceHash`, `profile.profileHash`). |
+| `profile_data_incomplete` | Profile declares a normalization rule for a field absent from the envelope (or absent from `includedConsequentialFields` at registration). |
+| `policy_surface_unbound` | At `registry.register()`, the policy gates on a field absent from `profile.includedConsequentialFields`. Surfaces during registration, never reaches `beginAction`. |
+
+This is rpelevin's naming refinement adopted: `profile_incompatible` as a terminal reason is reserved strictly for drift *after* authority is minted. Pre-authority refusal gets its own reason codes.
+
+### `endAction()` — terminal profile binding
+
+When `preAction.canonicalizerProfileHash` is set and `phase === 'executed'`:
+- `canonicalizerProfile` argument is REQUIRED. Omitting throws.
+- `profile.profileHash` MUST equal `preAction.canonicalizerProfileHash`. Mismatch throws with `profile_incompatible` — authority was minted under profile A but execution sealed against profile B. The legal path is `phase: 'cancelled'`, `terminalReason: 'profile_incompatible'`, followed by a new `beginAction()` under the new profile.
+
+The terminal carries its own `canonicalizerProfileHash` so the chain pins both ends.
+
+### `verifyChain()` — three new break categories
+
+- `canonicalizerProfileHash in registeredCanonicalizerProfiles` — when the verifier supplies `registeredCanonicalizerProfiles`, any pre-action whose `canonicalizerProfileHash` is not in the set is rejected (`unregistered_canonicalizer_profile`). BYO canonicalizers cannot launder unknown hashes through the chain.
+- `canonicalizerProfileHash === pre.canonicalizerProfileHash` — terminal drift, sibling of `effectiveEnvelopeHash === approvedEnvelopeHash` from v0.5.
+- `migration_preserves_policy_surface` — `migrationVerifiers` entries now accept either a bare function (v0.5 form, preserved) or `{ migrate, preservesPolicySurface }`. When `preservesPolicySurface !== true`, cross-version replay is rejected with `migration_changes_policy_surface`. Captures the migration-that-changes-the-policy-surface case: a migration whose output surface differs from input requires a fresh approval cycle, not silent replay.
+
+### Tests
+
+Seven negative tests + one happy path for the v0.6 gate:
+0. `unbound_policy_profile` — `beginAction` refuses when no binding registered.
+1. `policy_surface_unbound` — `registry.register` refuses when policy gates on a field the profile excludes.
+2. `profile_data_incomplete` — `beginAction` refuses when profile declares normalization for a field absent from the envelope.
+3. Terminal profile mismatch — `endAction` throws when `canonicalizerProfile.profileHash !== preAction.canonicalizerProfileHash`.
+4. Migration changes policy surface — `verifyChain` rejects cross-version replay through a migration declared `preservesPolicySurface: false`.
+5. BYO unregistered profile — `verifyChain` rejects pre-actions whose `canonicalizerProfileHash` is absent from `registeredCanonicalizerProfiles`.
+6. Happy path — full three-hash chain verifies intact when binding registered and profile preserved across pre→terminal.
+
+### Migration
+
+- Field additions are non-breaking. v0.5 code that does not pass `canonicalizerProfile` / `policySurface` / `bindingRegistry` is unaffected.
+- `migrationVerifiers` value type is widened (function | object). Existing bare-function entries still work.
+- Callers that want canonicalizer accountability: pass all three to `beginAction()`, and `canonicalizerProfile` to `endAction()`.
+
+### Design Notes
+
+- `canonicalizerProfile` is **pure data**. No host environment lookup. The fs profile cannot ask the host "are you case-sensitive" at runtime — that answer is host-state, not envelope-state, and host migration silently invalidates replay. Normalization assumptions go into `normalizationRules` as declared data; changing them is a new profile id, not the same profile in a new environment.
+- **Binding-hash registry, not recompute.** `policyProfileBindingHash` is a pure function of `(surfaceHash, profileHash)`, so the compatibility check runs once at registration. `beginAction()` does a binding lookup, not a compatibility recheck — keeps the hot path constant-time and makes "no binding registered" a structural refusal. No silent auto-compatibility because someone forgot to declare otherwise.
+- **Refusal asymmetry honored.** `beginAction` refusals produce no AAR (there is no authority to terminate). Terminal `profile_incompatible` only describes drift after authority was minted.
+
 ## [0.5.0] - 2026-06-12
 
 ### New Features — envelope binding ("make invalid histories structurally hard to write" continued)

@@ -1,6 +1,6 @@
 {
   "name": "@agentlair/audit-logger",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Framework-agnostic agent action logger. Logs locally by default. Connect to AgentLair for persistent, queryable audit trails.",
   "keywords": [
     "ai-agent",
