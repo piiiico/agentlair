@@ -6,7 +6,16 @@
 //   const logger = new AuditLogger(); // reads AGENTLAIR_API_KEY automatically
 //   await logger.log({ agent: 'my-agent', action: 'tool_call', tool: 'search', input: query, output: results });
 
-import type { AuditLogEntry, AuditLoggerOptions, AuditSink, ResolvedAuditEntry, AARPreAction, AARPostAction, AARTerminalReceipt, AARTerminalPhase, AARSignature, ChainVerificationResult } from './types.js';
+import type { AuditLogEntry, AuditLoggerOptions, AuditSink, ResolvedAuditEntry, AARPreAction, AARPostAction, AARTerminalReceipt, AARTerminalPhase, AARSignature, ChainVerificationResult, CanonicalizationVersion } from './types.js';
+
+// ─── v0.5 default canonicalization version ────────────────────────────────────
+/**
+ * Default canonicalization scheme version applied when a caller passes a canonical
+ * envelope without specifying a version. v0.5 ships exactly one scheme: `'cv1'`.
+ * Successor schemes MUST be opted into explicitly per-receipt — there is no implicit
+ * upgrade path.
+ */
+export const DEFAULT_CANONICALIZATION_VERSION: CanonicalizationVersion = 'cv1';
 
 // ─── Crypto helpers ───────────────────────────────────────────────────────────
 
@@ -118,10 +127,35 @@ export class AuditLogger {
     sessionId?: string;
     /** Authority deadline (ISO 8601 UTC string or Date). See AARPreAction.expiresAt. */
     expiresAt?: string | Date;
+    /**
+     * v0.5: Consequential subset of the call (tool name, target, arguments, scope,
+     * actor, policy/approval refs, execution-affecting defaults). When supplied, the
+     * pre-action commits to this *envelope*'s hash — not the raw input bytes — so
+     * approval binds the *meaning* of the call. Non-consequential transport metadata
+     * (retry IDs, default timeouts, trace headers) should be omitted here even if
+     * present in `input`.
+     */
+    canonicalInput?: unknown;
+    /**
+     * v0.5: Canonicalization scheme version. Defaults to `'cv1'` when
+     * `canonicalInput` is supplied without an explicit version. Has no effect when
+     * `canonicalInput` is omitted (legacy v0.4 receipt).
+     */
+    canonicalizationVersion?: CanonicalizationVersion;
   }): Promise<AARPreAction> {
     const expiresAtIso = opts.expiresAt === undefined
       ? undefined
       : (opts.expiresAt instanceof Date ? opts.expiresAt.toISOString() : opts.expiresAt);
+
+    // v0.5: envelope hash + canonicalization version. Only embedded when the caller
+    // supplies a canonical envelope; absence preserves v0.4 semantics.
+    const hasCanonicalInput = opts.canonicalInput !== undefined;
+    const approvedEnvelopeHash = hasCanonicalInput
+      ? 'sha256:' + await sha256Hex(canonicalJson(opts.canonicalInput))
+      : undefined;
+    const canonicalizationVersion = hasCanonicalInput
+      ? (opts.canonicalizationVersion ?? DEFAULT_CANONICALIZATION_VERSION)
+      : undefined;
 
     const preActionBase: Omit<AARPreAction, 'signature'> = {
       id: generateId(),
@@ -137,6 +171,8 @@ export class AuditLogger {
       ...(opts.approvalDecision !== undefined && { approvalDecision: opts.approvalDecision }),
       ...(opts.decidedBy !== undefined && { decidedBy: opts.decidedBy }),
       ...(expiresAtIso !== undefined && { expiresAt: expiresAtIso }),
+      ...(approvedEnvelopeHash !== undefined && { approvedEnvelopeHash }),
+      ...(canonicalizationVersion !== undefined && { canonicalizationVersion }),
       ...(this.lastReceiptHash !== undefined && { previousReceiptHash: this.lastReceiptHash }),
     };
 
@@ -169,6 +205,23 @@ export class AuditLogger {
     output?: unknown;          // only for executed phase
     error?: Error;             // implies failed phase
     terminalReason?: string;
+    /**
+     * v0.5: Consequential subset of the call *at execution time*. Required when
+     * `preAction.approvedEnvelopeHash` is set AND `phase === 'executed'`. The terminal
+     * embeds `effectiveEnvelopeHash` computed from this value; `endAction()` refuses to
+     * seal an `executed` terminal when the hash differs from the approved envelope.
+     *
+     * Drift here is named, not silent: callers should pivot to `phase: 'cancelled'`
+     * with `terminalReason: 'effective_call_changed'` and open a fresh `beginAction`
+     * for the mutated envelope. Carrying `policyRef` forward into the new pre-action
+     * is detected as a chain break at verify time.
+     */
+    effectiveCanonicalInput?: unknown;
+    /**
+     * v0.5: Canonicalization scheme version for `effectiveCanonicalInput`. Must equal
+     * `preAction.canonicalizationVersion`; cross-version sealing throws.
+     */
+    canonicalizationVersion?: CanonicalizationVersion;
   }): Promise<AARTerminalReceipt> {
     const { preAction, startedAt, endedAt, output, error, terminalReason } = opts;
 
@@ -204,6 +257,45 @@ export class AuditLogger {
       }
     }
 
+    // v0.5 Sign-time invariant: when the pre-action committed to an approved envelope,
+    // sealing 'executed' requires an effective envelope that matches under the same
+    // canonicalization version. Drift on any consequential field (tool name, target,
+    // arguments, scope, actor, policy ref, execution-affecting defaults) fails closed.
+    let effectiveEnvelopeHash: string | undefined;
+    let effectiveCanonicalizationVersion: CanonicalizationVersion | undefined;
+    if (phase === 'executed' && preAction.approvedEnvelopeHash !== undefined) {
+      if (opts.effectiveCanonicalInput === undefined) {
+        throw new Error(
+          `Cannot record 'executed' terminal without effectiveCanonicalInput when the ` +
+          `pre-action carries approvedEnvelopeHash ` +
+          `(preActionId: ${preAction.id})`
+        );
+      }
+      const declaredVersion =
+        opts.canonicalizationVersion ?? preAction.canonicalizationVersion ?? DEFAULT_CANONICALIZATION_VERSION;
+      if (preAction.canonicalizationVersion !== undefined && declaredVersion !== preAction.canonicalizationVersion) {
+        throw new Error(
+          `Cannot record 'executed' terminal across canonicalizationVersion boundary ` +
+          `(preActionId: ${preAction.id}, ` +
+          `pre-action.canonicalizationVersion: ${preAction.canonicalizationVersion}, ` +
+          `terminal.canonicalizationVersion: ${declaredVersion})`
+        );
+      }
+      effectiveCanonicalizationVersion = declaredVersion;
+      effectiveEnvelopeHash = 'sha256:' + await sha256Hex(canonicalJson(opts.effectiveCanonicalInput));
+      if (effectiveEnvelopeHash !== preAction.approvedEnvelopeHash) {
+        throw new Error(
+          `Cannot record 'executed' terminal: effective envelope hash differs from ` +
+          `approved envelope hash — close this authority with ` +
+          `phase: 'cancelled', terminalReason: 'effective_call_changed' and open a new ` +
+          `beginAction for the mutated envelope ` +
+          `(preActionId: ${preAction.id}, ` +
+          `approvedEnvelopeHash: ${preAction.approvedEnvelopeHash}, ` +
+          `effectiveEnvelopeHash: ${effectiveEnvelopeHash})`
+        );
+      }
+    }
+
     // Hash the preAction without signature to create the chain link
     const { signature: _sig, ...preActionWithoutSig } = preAction;
     const preActionHash = await hashPayload(preActionWithoutSig);
@@ -231,6 +323,11 @@ export class AuditLogger {
       // Error class only for failed phase
       ...(phase === 'failed' && error !== undefined && {
         errorClass: error.constructor.name,
+      }),
+      // v0.5 envelope binding (only for executed phase against a v0.5 pre-action)
+      ...(effectiveEnvelopeHash !== undefined && { effectiveEnvelopeHash }),
+      ...(effectiveCanonicalizationVersion !== undefined && {
+        canonicalizationVersion: effectiveCanonicalizationVersion,
       }),
     };
 
@@ -320,13 +417,63 @@ export class AuditLogger {
 // ─── Chain verification ───────────────────────────────────────────────────────
 
 /**
+ * v0.5 verifier options. Each capability is opt-in — omitting all options gives a
+ * pure-structural verification (hash chain, terminal completeness, authority
+ * deadlines, envelope-drift between approved/effective when both hashes are stored).
+ *
+ * Supplying `replayedCanonicalInputs` / `replayedRawInputs` activates byte-level
+ * comparisons against the stored hashes — this is how the verifier distinguishes
+ * the three drift categories rpelevin's v0.5 spec names:
+ *
+ * 1. **approved-envelope drift** — the canonical envelope on disk no longer hashes
+ *    to `approvedEnvelopeHash`. Detected via `replayedCanonicalInputs`.
+ * 2. **effective-envelope drift** — `effectiveEnvelopeHash !== approvedEnvelopeHash`.
+ *    Detected without any replay (hashes are both on the receipts).
+ * 3. **raw-input byte drift** — the raw input no longer hashes to `inputDigest`.
+ *    Detected via `replayedRawInputs`.
+ */
+export interface VerifyChainOptions {
+  /**
+   * Map `preActionId → canonical envelope` replayed by the verifier. When supplied,
+   * the verifier recomputes the approved envelope hash from each value and compares
+   * it against the stored `approvedEnvelopeHash`. Mismatch is reported with
+   * `expected: 'approvedEnvelopeHash matches replay'` (approved-envelope drift).
+   */
+  replayedCanonicalInputs?: Record<string, unknown>;
+  /**
+   * Map `preActionId → raw input` replayed by the verifier. When supplied, the
+   * verifier recomputes `inputDigest` and reports mismatch as
+   * `expected: 'inputDigest matches replay'` (raw-input byte drift).
+   */
+  replayedRawInputs?: Record<string, unknown>;
+  /**
+   * Canonicalization version the verifier intends to evaluate envelopes under. When
+   * unset, each receipt's stored `canonicalizationVersion` is used. When set and it
+   * differs from the receipt's stored version, replay fails closed unless
+   * `migrationVerifiers[receipt-stored-version]` provides an explicit migration.
+   */
+  canonicalizationVersion?: CanonicalizationVersion;
+  /**
+   * Optional migration functions keyed by the receipt's stored canonicalization
+   * version. When present, the verifier permits cross-version replay by applying the
+   * migration function before re-hashing. Absent → cross-version replay is rejected.
+   */
+  migrationVerifiers?: Record<string, (value: unknown) => unknown>;
+}
+
+/**
  * Verify the integrity of an AAR receipt chain.
  * Each receipt's previousReceiptHash must match sha256 of the prior receipt (without signature).
  * First receipt must have previousReceiptHash = undefined.
  * Also checks that every AARPreAction has at least one corresponding AARTerminalReceipt.
+ *
+ * v0.5 additions: envelope-drift detection between approved and effective hashes,
+ * canonicalization-version equality between pre-action and terminal, and policyRef
+ * carryover rejection across `effective_call_changed` cancellations.
  */
 export async function verifyChain(
-  receipts: Array<AARPreAction | AARTerminalReceipt | AARPostAction>
+  receipts: Array<AARPreAction | AARTerminalReceipt | AARPostAction>,
+  options: VerifyChainOptions = {}
 ): Promise<ChainVerificationResult> {
   if (receipts.length === 0) {
     return { intact: true, chainIntegrity: 'complete', breaks: [] };
@@ -420,11 +567,152 @@ export async function verifyChain(
     }
   }
 
+  // v0.5 envelope checks. Three drift categories are reported by distinct `expected`
+  // strings so callers can route them differently (approved-envelope drift implies
+  // tampering with stored envelopes; effective-envelope drift implies the executor
+  // deviated from approval; raw-input drift implies the literal payload was rewritten).
+  for (const receipt of receipts) {
+    if (receipt.phase === 'pre-action') {
+      const pre = receipt as AARPreAction;
+      // Approved-envelope drift: replayed canonical input no longer hashes to the
+      // stored approvedEnvelopeHash. Requires the verifier to supply the replay.
+      if (
+        pre.approvedEnvelopeHash !== undefined &&
+        options.replayedCanonicalInputs !== undefined &&
+        Object.prototype.hasOwnProperty.call(options.replayedCanonicalInputs, pre.id)
+      ) {
+        const replay = options.replayedCanonicalInputs[pre.id];
+        const targetVersion = options.canonicalizationVersion ?? pre.canonicalizationVersion;
+        // Cross-version replay requires an explicit migration verifier — otherwise
+        // fail closed. (Test 6 of rpelevin's v0.5 gate.)
+        if (
+          options.canonicalizationVersion !== undefined &&
+          pre.canonicalizationVersion !== undefined &&
+          options.canonicalizationVersion !== pre.canonicalizationVersion
+        ) {
+          const migrate = options.migrationVerifiers?.[pre.canonicalizationVersion];
+          if (migrate === undefined) {
+            breaks.push({
+              id: pre.id,
+              expected: `canonicalizationVersion match or migration verifier (${pre.canonicalizationVersion} → ${options.canonicalizationVersion})`,
+              actual: 'no migration verifier supplied',
+            });
+            continue;
+          }
+          const migrated = migrate(replay);
+          const recomputed = 'sha256:' + await sha256Hex(canonicalJson(migrated));
+          if (recomputed !== pre.approvedEnvelopeHash) {
+            breaks.push({
+              id: pre.id,
+              expected: 'approvedEnvelopeHash matches replay',
+              actual: recomputed,
+            });
+          }
+        } else {
+          void targetVersion;
+          const recomputed = 'sha256:' + await sha256Hex(canonicalJson(replay));
+          if (recomputed !== pre.approvedEnvelopeHash) {
+            breaks.push({
+              id: pre.id,
+              expected: 'approvedEnvelopeHash matches replay',
+              actual: recomputed,
+            });
+          }
+        }
+      }
+      // Raw-input byte drift: replayed raw input no longer hashes to inputDigest.
+      if (
+        options.replayedRawInputs !== undefined &&
+        Object.prototype.hasOwnProperty.call(options.replayedRawInputs, pre.id)
+      ) {
+        const rawReplay = options.replayedRawInputs[pre.id];
+        const recomputedRaw = 'sha256:' + await sha256Hex(canonicalJson(rawReplay));
+        if (recomputedRaw !== pre.inputDigest) {
+          breaks.push({
+            id: pre.id,
+            expected: 'inputDigest matches replay',
+            actual: recomputedRaw,
+          });
+        }
+      }
+      continue;
+    }
+    // Terminal-side envelope checks
+    const term = receipt as AARTerminalReceipt;
+    const pre = preActionsById.get(term.preActionId);
+    if (!pre) continue;
+    if (term.phase === 'executed' && pre.approvedEnvelopeHash !== undefined) {
+      if (term.effectiveEnvelopeHash === undefined) {
+        breaks.push({
+          id: term.id,
+          expected: 'effectiveEnvelopeHash set for executed terminal against v0.5 pre-action',
+          actual: 'undefined',
+        });
+      } else if (term.effectiveEnvelopeHash !== pre.approvedEnvelopeHash) {
+        breaks.push({
+          id: term.id,
+          expected: `effectiveEnvelopeHash === approvedEnvelopeHash (${pre.approvedEnvelopeHash})`,
+          actual: term.effectiveEnvelopeHash,
+        });
+      }
+      if (
+        pre.canonicalizationVersion !== undefined &&
+        term.canonicalizationVersion !== undefined &&
+        term.canonicalizationVersion !== pre.canonicalizationVersion
+      ) {
+        breaks.push({
+          id: term.id,
+          expected: `canonicalizationVersion match (${pre.canonicalizationVersion})`,
+          actual: term.canonicalizationVersion,
+        });
+      }
+    }
+  }
+
+  // v0.5 policyRef-after-cancellation rejection. After a `cancelled` terminal whose
+  // terminalReason is `effective_call_changed`, the next pre-action in the chain must
+  // not reuse the cancelled pre-action's policyRef — a different envelope is a
+  // different decision.
+  for (let i = 0; i < receipts.length; i++) {
+    const r = receipts[i];
+    if (r.phase !== 'cancelled') continue;
+    const cancelled = r as AARTerminalReceipt;
+    if (cancelled.terminalReason !== 'effective_call_changed') continue;
+    const cancelledPre = preActionsById.get(cancelled.preActionId);
+    if (cancelledPre?.policyRef === undefined) continue;
+    // Find the next pre-action after this terminal in the chain.
+    for (let j = i + 1; j < receipts.length; j++) {
+      const next = receipts[j];
+      if (next.phase !== 'pre-action') continue;
+      const nextPre = next as AARPreAction;
+      if (nextPre.policyRef === cancelledPre.policyRef) {
+        breaks.push({
+          id: nextPre.id,
+          expected: `policyRef differs from cancelled pre-action ${cancelledPre.id} (effective_call_changed)`,
+          actual: nextPre.policyRef,
+        });
+      }
+      break;
+    }
+  }
+
   const authorityBreakExpected = new Set([
     'pre-action.expiresAt set for expired terminal',
   ]);
+  const envelopeBreakPrefixes = [
+    'approvedEnvelopeHash matches replay',
+    'effectiveEnvelopeHash set for executed terminal against v0.5 pre-action',
+    'effectiveEnvelopeHash === approvedEnvelopeHash',
+    'canonicalizationVersion match',
+    'canonicalizationVersion match or migration verifier',
+    'inputDigest matches replay',
+    'policyRef differs from cancelled pre-action',
+  ];
+  const isEnvelopeBreak = (expected: string | undefined): boolean =>
+    typeof expected === 'string' && envelopeBreakPrefixes.some(p => expected.startsWith(p));
   const hasHashBreaks = breaks.some(b =>
     b.expected !== 'terminal-receipt' &&
+    !isEnvelopeBreak(b.expected) &&
     !(typeof b.expected === 'string' && (
       b.expected.startsWith('terminalAt >=') ||
       b.expected.startsWith('executionEndedAt <=') ||
@@ -438,10 +726,11 @@ export async function verifyChain(
       authorityBreakExpected.has(b.expected)
     )
   );
+  const hasEnvelopeBreaks = breaks.some(b => isEnvelopeBreak(b.expected));
   const hasMissingTerminals = breaks.some(b => b.expected === 'terminal-receipt');
 
   let chainIntegrity: 'complete' | 'incomplete' | 'broken';
-  if (hasHashBreaks || hasAuthorityBreaks) {
+  if (hasHashBreaks || hasAuthorityBreaks || hasEnvelopeBreaks) {
     chainIntegrity = 'broken';
   } else if (hasMissingTerminals) {
     chainIntegrity = 'incomplete';

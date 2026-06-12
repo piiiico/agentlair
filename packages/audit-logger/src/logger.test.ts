@@ -396,3 +396,342 @@ describe('AAR v0.4 expiresAt authority data', () => {
     void logger;
   });
 });
+
+// ─── v0.5: envelope-binding gate ─────────────────────────────────────────────
+// Six negative tests rpelevin proposed on vercel/ai#13215 for the
+// approved-vs-effective envelope hash gate.
+describe('AAR v0.5 envelope binding', () => {
+  // Test 1: metadata-only provider normalization keeps approved and effective
+  // envelope hashes equal. The canonical envelope is the *consequential subset*;
+  // transport/runtime noise (retry IDs, trace headers) lives outside that subset.
+  it('Test 1: metadata-only normalization preserves envelope-hash equality', async () => {
+    const logger = new AuditLogger({ silent: true });
+    const canonical = {
+      toolName: 'http_post',
+      target: 'https://api.example.com/v1/charges',
+      arguments: { amount: 500, currency: 'usd' },
+      scope: 'payments:write',
+      actorId: 'agent-001',
+    };
+    const pre = await logger.beginAction({
+      toolName: 'http_post',
+      toolCallId: 'call-T1',
+      input: { ...canonical, _trace: 'trace-abc' },          // raw bytes include trace
+      canonicalInput: canonical,
+      approvalDecision: 'approved',
+      policyRef: 'policy:t1',
+    });
+    expect(pre.approvedEnvelopeHash).toBeDefined();
+    expect(pre.canonicalizationVersion).toBe('cv1');
+
+    // Effective execution carries DIFFERENT non-consequential metadata. The canonical
+    // envelope is unchanged, so the gate must pass.
+    const term = await logger.endAction({
+      preAction: pre,
+      phase: 'executed',
+      startedAt: new Date(0),
+      endedAt: new Date(50),
+      output: { id: 'ch_1' },
+      effectiveCanonicalInput: canonical,
+    });
+    expect(term.effectiveEnvelopeHash).toBe(pre.approvedEnvelopeHash);
+    expect(term.canonicalizationVersion).toBe('cv1');
+
+    const result = await verifyChain([pre, term]);
+    expect(result.intact).toBe(true);
+    expect(result.chainIntegrity).toBe('complete');
+  });
+
+  // Test 2: target/resource change after approval refuses 'executed' and the only
+  // legal close is `cancelled` with `effective_call_changed`. A new beginAction
+  // for the mutated envelope is its own approval cycle.
+  it('Test 2: target change rejects executed; cancelled effective_call_changed is the path', async () => {
+    const logger = new AuditLogger({ silent: true });
+    const approvedEnvelope = {
+      toolName: 'http_post',
+      target: 'https://api.example.com/v1/charges',
+      arguments: { amount: 500 },
+      actorId: 'agent-001',
+    };
+    const pre = await logger.beginAction({
+      toolName: 'http_post',
+      toolCallId: 'call-T2',
+      input: approvedEnvelope,
+      canonicalInput: approvedEnvelope,
+      approvalDecision: 'approved',
+      policyRef: 'policy:t2-original',
+    });
+
+    // Different target = different envelope → endAction(executed) must throw.
+    const mutated = { ...approvedEnvelope, target: 'https://api.example.com/v1/transfers' };
+    let threw = false;
+    try {
+      await logger.endAction({
+        preAction: pre,
+        phase: 'executed',
+        output: { id: 'tr_1' },
+        effectiveCanonicalInput: mutated,
+      });
+    } catch (err) {
+      threw = true;
+      expect((err as Error).message).toContain('effective envelope hash differs');
+    }
+    expect(threw).toBe(true);
+
+    // The legal close: cancelled + effective_call_changed.
+    const cancelTerm = await logger.endAction({
+      preAction: pre,
+      phase: 'cancelled',
+      terminalReason: 'effective_call_changed',
+    });
+    expect(cancelTerm.phase).toBe('cancelled');
+    expect(cancelTerm.terminalReason).toBe('effective_call_changed');
+
+    // New approval cycle for the mutated envelope (must carry a different policyRef).
+    const pre2 = await logger.beginAction({
+      toolName: 'http_post',
+      toolCallId: 'call-T2-mutated',
+      input: mutated,
+      canonicalInput: mutated,
+      approvalDecision: 'approved',
+      policyRef: 'policy:t2-mutated',                       // different policy
+    });
+    const term2 = await logger.endAction({
+      preAction: pre2,
+      phase: 'executed',
+      startedAt: new Date(100),
+      endedAt: new Date(150),
+      output: { id: 'tr_2' },
+      effectiveCanonicalInput: mutated,
+    });
+
+    const result = await verifyChain([pre, cancelTerm, pre2, term2]);
+    expect(result.intact).toBe(true);
+    expect(result.chainIntegrity).toBe('complete');
+  });
+
+  // Test 3: a defaulted argument that changes the call's effect must appear in the
+  // approval — if it only surfaces at execution time, the gate rejects.
+  it('Test 3: execution-time default that changes effect is rejected', async () => {
+    const logger = new AuditLogger({ silent: true });
+    const approved = {
+      toolName: 'http_post',
+      target: 'https://api.example.com/v1/charges',
+      arguments: { amount: 500 },                          // currency NOT in approval
+      actorId: 'agent-001',
+    };
+    const pre = await logger.beginAction({
+      toolName: 'http_post',
+      toolCallId: 'call-T3',
+      input: approved,
+      canonicalInput: approved,
+      approvalDecision: 'approved',
+      policyRef: 'policy:t3',
+    });
+
+    // Execution defaults currency:'jpy' — that's effect-changing, not transport noise.
+    const effective = {
+      ...approved,
+      arguments: { amount: 500, currency: 'jpy' },
+    };
+    let threw = false;
+    try {
+      await logger.endAction({
+        preAction: pre,
+        phase: 'executed',
+        output: { id: 'ch_3' },
+        effectiveCanonicalInput: effective,
+      });
+    } catch (err) {
+      threw = true;
+      expect((err as Error).message).toContain('effective envelope hash differs');
+    }
+    expect(threw).toBe(true);
+  });
+
+  // Test 4: carrying the cancelled pre-action's policyRef into a new beginAction is
+  // detected by verifyChain — a different envelope is a different decision.
+  it('Test 4: policyRef carried into a new beginAction across effective_call_changed is rejected', async () => {
+    const logger = new AuditLogger({ silent: true });
+    const env1 = {
+      toolName: 'http_post',
+      target: 'https://api.example.com/v1/charges',
+      arguments: { amount: 500 },
+      actorId: 'agent-001',
+    };
+    const pre = await logger.beginAction({
+      toolName: 'http_post',
+      toolCallId: 'call-T4',
+      input: env1,
+      canonicalInput: env1,
+      approvalDecision: 'approved',
+      policyRef: 'policy:t4-shared',
+    });
+    const cancel = await logger.endAction({
+      preAction: pre,
+      phase: 'cancelled',
+      terminalReason: 'effective_call_changed',
+    });
+    // Reapproval cycle reuses the SAME policyRef — that's the rule rpelevin's gate forbids.
+    const env2 = { ...env1, target: 'https://api.example.com/v1/transfers' };
+    const pre2 = await logger.beginAction({
+      toolName: 'http_post',
+      toolCallId: 'call-T4-2',
+      input: env2,
+      canonicalInput: env2,
+      approvalDecision: 'approved',
+      policyRef: 'policy:t4-shared',                       // reuses cancelled policyRef
+    });
+    const term2 = await logger.endAction({
+      preAction: pre2,
+      phase: 'executed',
+      startedAt: new Date(0),
+      endedAt: new Date(10),
+      output: { id: 'tr_4' },
+      effectiveCanonicalInput: env2,
+    });
+
+    const result = await verifyChain([pre, cancel, pre2, term2]);
+    expect(result.intact).toBe(false);
+    expect(result.chainIntegrity).toBe('broken');
+    expect(result.breaks.some(b =>
+      b.id === pre2.id &&
+      typeof b.expected === 'string' &&
+      b.expected.startsWith('policyRef differs from cancelled pre-action')
+    )).toBe(true);
+  });
+
+  // Test 5: verifier distinguishes approved-envelope drift, effective-envelope drift,
+  // and raw-input byte drift via three different `expected` strings.
+  it('Test 5: verifier distinguishes approved-envelope drift, effective-envelope drift, and raw-input drift', async () => {
+    const logger = new AuditLogger({ silent: true });
+
+    // (a) Effective-envelope drift: pre-action and terminal are constructed
+    // out-of-band so the canonicalJson hashes don't match. We use a logger that does
+    // NOT enforce the sign-time gate by skipping endAction's gate (write the terminal
+    // directly). Easiest: build a v0.5 pre-action via beginAction, then manually
+    // construct a terminal with effectiveEnvelopeHash != approvedEnvelopeHash that
+    // still chains correctly.
+    const env = {
+      toolName: 'http_post', target: 'https://example.com', arguments: { x: 1 }, actorId: 'a',
+    };
+    const pre = await logger.beginAction({
+      toolName: 'http_post',
+      toolCallId: 'call-T5',
+      input: env,
+      canonicalInput: env,
+      approvalDecision: 'approved',
+      policyRef: 'policy:t5',
+    });
+    // Manually build a tampered terminal (effectiveEnvelopeHash drifted)
+    const canonicalJsonOf = (v: any): string => {
+      if (v === null || v === undefined) return 'null';
+      if (typeof v !== 'object') return JSON.stringify(v);
+      if (Array.isArray(v)) return '[' + v.map(canonicalJsonOf).join(',') + ']';
+      const keys = Object.keys(v).sort();
+      return '{' + keys.map(k => JSON.stringify(k) + ':' + canonicalJsonOf(v[k])).join(',') + '}';
+    };
+    const sha256Hex = async (s: string): Promise<string> => {
+      const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
+      return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+    };
+    const { signature: _sig, ...preWithoutSig } = pre;
+    const preHash = 'sha256:' + await sha256Hex(canonicalJsonOf(preWithoutSig));
+    const driftedTerminal: any = {
+      id: 'T5driftTerminal0001',
+      version: 'aar-v1',
+      phase: 'executed',
+      preActionId: pre.id,
+      toolCallId: pre.toolCallId,
+      terminalAt: '2026-06-12T00:00:01.000Z',
+      executionStartedAt: '2026-06-12T00:00:00.000Z',
+      executionEndedAt: '2026-06-12T00:00:01.000Z',
+      resultDigest: 'sha256:' + await sha256Hex('"r"'),
+      effectiveEnvelopeHash: 'sha256:' + await sha256Hex('"DIFFERENT"'),
+      canonicalizationVersion: 'cv1',
+      previousReceiptHash: preHash,
+    };
+
+    const r1 = await verifyChain([pre, driftedTerminal]);
+    expect(r1.intact).toBe(false);
+    expect(r1.breaks.some(b =>
+      typeof b.expected === 'string' && b.expected.startsWith('effectiveEnvelopeHash === approvedEnvelopeHash')
+    )).toBe(true);
+
+    // (b) Approved-envelope drift: replay a tampered canonical envelope for the
+    // pre-action. The verifier reports the third category.
+    const tamperedCanonical = { ...env, arguments: { x: 999 } };  // different effect
+    const r2 = await verifyChain([pre, driftedTerminal], {
+      replayedCanonicalInputs: { [pre.id]: tamperedCanonical },
+    });
+    expect(r2.breaks.some(b =>
+      b.id === pre.id && b.expected === 'approvedEnvelopeHash matches replay'
+    )).toBe(true);
+
+    // (c) Raw-input byte drift: replay a tampered raw input for the pre-action.
+    const tamperedRaw = { ...env, _trace: 'after-the-fact' }; // changes the byte stream
+    const r3 = await verifyChain([pre, driftedTerminal], {
+      replayedRawInputs: { [pre.id]: tamperedRaw },
+    });
+    expect(r3.breaks.some(b =>
+      b.id === pre.id && b.expected === 'inputDigest matches replay'
+    )).toBe(true);
+
+    // All three categories are distinct strings — the verifier names which side drifted.
+    const allExpectedStrings = new Set([
+      ...r1.breaks.map(b => b.expected),
+      ...r2.breaks.map(b => b.expected),
+      ...r3.breaks.map(b => b.expected),
+    ]);
+    expect(allExpectedStrings.size).toBeGreaterThanOrEqual(3);
+  });
+
+  // Test 6: replaying an executed terminal under a different canonicalizationVersion
+  // fails closed unless an explicit migration verifier is selected.
+  it('Test 6: cross-version replay fails closed; explicit migration verifier permits it', async () => {
+    const logger = new AuditLogger({ silent: true });
+    const env = {
+      toolName: 'http_post', target: 'https://example.com', arguments: { x: 1 }, actorId: 'a',
+    };
+    const pre = await logger.beginAction({
+      toolName: 'http_post',
+      toolCallId: 'call-T6',
+      input: env,
+      canonicalInput: env,
+      canonicalizationVersion: 'cv1',
+      approvalDecision: 'approved',
+      policyRef: 'policy:t6',
+    });
+    const term = await logger.endAction({
+      preAction: pre,
+      phase: 'executed',
+      startedAt: new Date(0),
+      endedAt: new Date(10),
+      output: { id: 'r' },
+      effectiveCanonicalInput: env,
+    });
+
+    // (a) Replay under cv2 with NO migration verifier → fails closed.
+    const r1 = await verifyChain([pre, term], {
+      replayedCanonicalInputs: { [pre.id]: env },
+      canonicalizationVersion: 'cv2',
+    });
+    expect(r1.intact).toBe(false);
+    expect(r1.breaks.some(b =>
+      b.id === pre.id &&
+      typeof b.expected === 'string' &&
+      b.expected.startsWith('canonicalizationVersion match or migration verifier')
+    )).toBe(true);
+
+    // (b) Replay under cv2 WITH an explicit cv1 migration verifier → permitted.
+    const r2 = await verifyChain([pre, term], {
+      replayedCanonicalInputs: { [pre.id]: env },
+      canonicalizationVersion: 'cv2',
+      migrationVerifiers: {
+        cv1: (v) => v,  // identity migration: cv2 is a superset of cv1 in this stub
+      },
+    });
+    expect(r2.intact).toBe(true);
+    expect(r2.chainIntegrity).toBe('complete');
+  });
+});

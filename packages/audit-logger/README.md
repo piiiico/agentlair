@@ -92,6 +92,48 @@ A single post-action log proves nothing about intent — a compromised agent can
 
 - `phase: 'executed'` over `approvalDecision: 'denied'` throws. Executed-over-denied is structurally impossible to mint.
 - `phase: 'executed'` whose `executionEndedAt > preAction.expiresAt` throws (v0.4). The logger refuses to claim authorized execution past the deadline.
+- `phase: 'executed'` whose `effectiveEnvelopeHash !== preAction.approvedEnvelopeHash` throws (v0.5). When the pre-action bound a canonical envelope, the terminal must seal against the same envelope — drift on any consequential field (tool, target, arguments, scope, actor, policy/approval refs, execution-affecting defaults) closes the authority.
+
+### Envelope binding (v0.5)
+
+The v0.4 chain proves *that* a tool ran; v0.5 proves the call that ran was the call that was approved. Pass `canonicalInput` — the consequential subset of the call — to `beginAction()` and `effectiveCanonicalInput` to `endAction()`:
+
+```typescript
+const envelope = {
+  toolName: 'http_post',
+  target:   'https://api.example.com/v1/charges',
+  arguments: { amount: 500, currency: 'usd' },
+  scope:    'payments:write',
+  actorId:  'agent-001',
+};
+
+const pre = await logger.beginAction({
+  toolName: 'http_post',
+  toolCallId: 'call-abc',
+  input: { ...envelope, _trace: traceId },   // raw bytes include transport noise
+  canonicalInput: envelope,                  // consequential subset, hashed for approval binding
+  approvalDecision: 'approved',
+  policyRef: 'policy:t1',
+});
+
+// ... execute ...
+
+await logger.endAction({
+  preAction: pre,
+  phase: 'executed',
+  output: result,
+  effectiveCanonicalInput: envelope,         // must equal-by-hash; drift throws
+});
+```
+
+**What this buys you:**
+
+- **Non-consequential transport noise stops false-positiving the gate.** Retry IDs, trace headers, defaulted timeouts can change between approval and execution without breaking the chain — they're not in the envelope.
+- **Consequential drift fails closed.** Changing the target URL, the amount, the scope, or any defaulted argument that changes the call's effect rejects the `executed` terminal. The legal path is `phase: 'cancelled'` with `terminalReason: 'effective_call_changed'`, followed by a *new* `beginAction()` for the mutated envelope with a *different* `policyRef`.
+- **The verifier names which side drifted.** `verifyChain()` distinguishes (a) approved-envelope drift (canonical envelope on disk no longer hashes to the stored value — requires `replayedCanonicalInputs`), (b) effective-envelope drift (`effectiveEnvelopeHash !== approvedEnvelopeHash`), and (c) raw-input byte drift (`inputDigest` mismatch — requires `replayedRawInputs`). Each shows up with a distinct `expected` string on the break record.
+- **Canonicalization stays versioned.** `canonicalizationVersion` defaults to `'cv1'`. Cross-version replay fails closed unless `verifyChain(..., { migrationVerifiers: { cv1: ... } })` selects an explicit migration — old receipts stay replayable when the canonical-envelope spec evolves.
+
+`canonicalInput` is opt-in: omitting it preserves v0.4 semantics (only `inputDigest` is bound). When the call's authority depends on *what* it does rather than *what bytes* were shipped, supply it.
 
 ### Chain mechanics
 
@@ -195,6 +237,8 @@ Emits a signed, chained pre-action receipt. Call **before** tool execution.
 | `decidedBy`        | `string`                                      | —        | Identity who approved (for human-gated tools)                |
 | `sessionId`        | `string`                                      | —        | Session context                                              |
 | `expiresAt`        | `string \| Date`                              | —        | ISO 8601 deadline (v0.4). Covered by `previousReceiptHash`. |
+| `canonicalInput`        | `unknown`                                | —        | v0.5: consequential subset of the call. Hashed into `approvedEnvelopeHash`. |
+| `canonicalizationVersion` | `string`                              | —        | v0.5: defaults to `'cv1'` when `canonicalInput` is set.     |
 
 ### `logger.endAction(opts)` → `Promise<AARTerminalReceipt>`
 
@@ -210,8 +254,10 @@ Seals the attempt with a terminal receipt. Call exactly once per `beginAction`.
 | `terminalReason` | `string`                                                                | —        | Human-readable explanation (`'policy_deadline'`, `'user_cancel'`, ...).              |
 | `output`         | `unknown`                                                               | —        | Tool output (SHA-256 digested). Only for `executed`.                                 |
 | `error`          | `Error`                                                                 | —        | Error from failed execution. Only for `failed`.                                      |
+| `effectiveCanonicalInput` | `unknown`                                                      | v0.5\*   | Required when `preAction.approvedEnvelopeHash` is set AND `phase === 'executed'`.   |
+| `canonicalizationVersion` | `string`                                                       | —        | Defaults to the pre-action's stored version; cross-version sealing throws.          |
 
-**Returns:** `AARTerminalReceipt` with `resultDigest` (executed), `errorClass` / `errorDigest` (failed), `previousReceiptHash` linking back to the pre-action, and a signed `terminalAt` timestamp.
+**Returns:** `AARTerminalReceipt` with `resultDigest` (executed), `errorClass` / `errorDigest` (failed), `previousReceiptHash` linking back to the pre-action, optional `effectiveEnvelopeHash` + `canonicalizationVersion` (v0.5, executed phase), and a signed `terminalAt` timestamp.
 
 ### `configureLogger(options)` — configure module-level defaults
 

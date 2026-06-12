@@ -61,6 +61,14 @@ export interface AARSignature {
   sig: string;    // hex-encoded signature
 }
 
+/**
+ * Canonicalization scheme version. v0.5 ships with `'cv1'`; future schemes
+ * (`'cv2'`, ...) MUST be opted into explicitly. Mismatched versions between
+ * pre-action and terminal — or between a terminal and the verifier — fail
+ * closed unless an explicit migration verifier is supplied.
+ */
+export type CanonicalizationVersion = 'cv1' | (string & {});
+
 export interface AARPreAction {
   id: string;                        // random 20-char ID
   version: 'aar-v1';
@@ -85,6 +93,23 @@ export interface AARPreAction {
    * pre-action is hashed — tampering with expiresAt post-signing breaks the chain.
    */
   expiresAt?: string;                // ISO 8601 UTC
+  /**
+   * v0.5: SHA-256 hash of the canonical envelope (consequential call shape) shown for
+   * approval. When set, the chain commits to the *meaning* of the approved call, not
+   * just its raw bytes. `endAction()` refuses to seal `phase: 'executed'` unless the
+   * terminal's `effectiveEnvelopeHash` equals this value under the same
+   * canonicalizationVersion. `inputDigest` remains as evidence of the literal payload.
+   *
+   * Format: `'sha256:<hex>'`.
+   */
+  approvedEnvelopeHash?: string;
+  /**
+   * v0.5: Canonicalization scheme version under which approvedEnvelopeHash was computed.
+   * Required when approvedEnvelopeHash is set. The verifier refuses to evaluate
+   * envelope-equality across version boundaries unless an explicit migration verifier
+   * is selected.
+   */
+  canonicalizationVersion?: CanonicalizationVersion;
   previousReceiptHash?: string;      // undefined for first in chain
   signature?: AARSignature;
 }
@@ -106,6 +131,20 @@ export interface AARTerminalReceipt {
   resultDigest?: string;             // 'sha256:<hex>' of canonical output
   // Error fields — ONLY when phase is 'failed'
   errorClass?: string;
+  /**
+   * v0.5: SHA-256 hash of the consequential call envelope at execution time. Only set
+   * when phase === 'executed' AND the pre-action carries approvedEnvelopeHash.
+   * sign-time invariant: must equal preAction.approvedEnvelopeHash. Drift names which
+   * side moved — the verifier can distinguish approved-vs-effective vs raw-input drift.
+   * Format: `'sha256:<hex>'`.
+   */
+  effectiveEnvelopeHash?: string;
+  /**
+   * v0.5: Canonicalization scheme version used to compute effectiveEnvelopeHash. Must
+   * equal preAction.canonicalizationVersion. Mismatched versions fail closed at sign
+   * time and at verify time unless an explicit migration verifier is selected.
+   */
+  canonicalizationVersion?: CanonicalizationVersion;
   // Chain
   previousReceiptHash: string;       // REQUIRED: hash of preAction without signature
   signature?: AARSignature;
