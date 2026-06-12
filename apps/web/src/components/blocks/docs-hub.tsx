@@ -121,6 +121,15 @@ const DOC_SECTIONS = [
     badge: "New",
     badgeColor: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
   },
+  {
+    title: "AAT × APS boundary",
+    href: "/docs/aps-boundary",
+    icon: GitBranch,
+    description:
+      "Where session identity stops and post-handoff delegation begins. Joint reference with AEOESS: jti, al_nid, and al_trust are the three claims that bridge AAT to APS receipts.",
+    badge: "New",
+    badgeColor: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
+  },
 ];
 
 export function DocsHub() {

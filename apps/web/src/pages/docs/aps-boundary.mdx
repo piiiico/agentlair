@@ -1,0 +1,65 @@
+---
+layout: ../../layouts/BasicLayout.astro
+title: "AAT × APS boundary — AgentLair"
+description: "Where AgentLair AAT session identity stops and AEOESS APS post-handoff delegation begins. Joint reference with AEOESS: jti, al_nid, and al_trust are the three claims that bridge the two layers."
+---
+
+# AAT × APS boundary
+
+AgentLair AAT is session identity inside the issuer. AEOESS APS is delegation chains and receipts after handoff. A handoff is when an agent passes work, or delegated authority, to a counterparty agent it does not control. The boundary is the handoff.
+
+The canonical, jointly-maintained reference lives at **[agent-passport.org/aat-aps-boundary.html](https://agent-passport.org/aat-aps-boundary.html)**. This page mirrors the framing on the AgentLair side and points to the relevant AAT-side primitives.
+
+---
+
+## Where AAT stops
+
+AATs are EdDSA JWTs, one bearer / one issuer / one hour, signed against the JWKS at [`agentlair.dev/.well-known/jwks.json`](https://agentlair.dev/.well-known/jwks.json).
+
+They carry standard JWT claims plus four AgentLair-specific ones:
+
+- `al_scopes` — capabilities the issuer granted at issuance time
+- `al_trust` — behavioral snapshot at `iat` (score, level, confidence, trend)
+- `al_nid` — the agent's `did:key:z6Mk…` Ed25519 identity ([derivation](/docs/al-nid))
+- `al_audit_url` — issuer-side link to behavioral history
+
+AAT verification answers: this token, right now, is valid for this audience with these scopes, against this issuer's view of the agent's behavior at `iat`.
+
+What AAT does not claim: it does not survive expiry, it does not describe what happened after issuance, and it does not assert that the bearer is the same entity that requested it. After expiry, only what was signed and carried travels.
+
+## Where APS begins
+
+APS — the Agent Passport System — picks up at the handoff. It defines:
+
+- A delegation chain rooted at a content-addressed commitment
+- Receipts as versioned, JCS-canonicalized (RFC 8785), Ed25519-signed envelopes
+- Bilateral signing: requesting and serving agents independently sign the byte-identical canonical body
+- `action_ref` — a correlation key derived from `(agent_id, action_type, scope, timestamp)`, identical across bilateral signers by construction
+
+Reference implementation: the open SDK. Hosted endpoint: `gateway.aeoess.com`. Full spec and authority for the boundary live at [agent-passport.org](https://agent-passport.org/).
+
+## The three bridging claims
+
+| Claim | In AAT | Used by APS |
+|-------|--------|-------------|
+| `jti` | JWT ID identifying the originating AAT | Session-context anchor recorded on the APS receipt |
+| `al_nid` | `did:key:z6Mk…` derived from the agent's registered Ed25519 key | Same key signs APS receipts from that agent — one key, two scopes of use |
+| `al_trust` | Issuer-attested behavioral snapshot at `iat` | Trust input on the APS verifier side, available for downgrade-on-import |
+
+A receipt that names a `jti` and carries an `action_ref` correlatable to the AAT-authorized call is the join between session and delegation. Either side is independently verifiable; together they describe issuance → handoff → recorded outcome.
+
+## What this boundary is not
+
+- Not a replacement for either spec. AAT is defined by the AgentLair issuance API; APS by the Agent Passport System spec. This page describes their relationship.
+- Not a prescription that every agent needs both layers. Agents that only talk to their issuer need AAT. Agents that only participate in already-authorized chains need APS. Most production paths cross both.
+- Not a transport contract. Bilateral-signed receipts can be exchanged peer-to-peer, gatewayed, or batched. The protocol does not constrain this.
+
+## Related on this side
+
+- [al_nid claim](/docs/al-nid) — the cross-protocol bridge handle derivation
+- [Web Bot Auth](/docs/web-bot-auth) — register the Ed25519 key that makes `al_nid` appear
+- [Sovereign bridges](/docs/sovereign-bridges) — how AgentLair speaks to identity anchors outside its own substrate
+
+## Canonical reference
+
+[https://agent-passport.org/aat-aps-boundary.html](https://agent-passport.org/aat-aps-boundary.html) — jointly maintained with AEOESS. Issues and edits welcome via [pico@amdal.dev](mailto:pico@amdal.dev) or [tima@aeoess.com](mailto:tima@aeoess.com).

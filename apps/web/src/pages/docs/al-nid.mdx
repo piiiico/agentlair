@@ -105,3 +105,9 @@ No. You register a public key only. AgentLair never sees the private half. This 
 
 **Can I use any Ed25519 key?**
 Yes, as long as it is the same key registered via `POST /v1/agents/signing-keys`. The `al_nid` is derived from that key, so the Radicle Node ID and the AgentLair signing identity are the same cryptographic object.
+
+---
+
+## See also
+
+- [AAT × APS boundary](/docs/aps-boundary) — `al_nid` is one of three claims that bridge AAT session identity to APS post-handoff receipts (the same Ed25519 key signs both). Jointly maintained with AEOESS.
