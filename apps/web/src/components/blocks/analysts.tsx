@@ -1,13 +1,14 @@
 // ─── Analyst Validation Section ─────────────────────────────────────────────
 //
-// Deloitte governance gap stats + Forrester AEGIS framework as third-party
-// validation that cross-org behavioral monitoring is the missing enterprise layer.
-// IETF AIMS framework alignment (draft-klrc-aiagent-auth-02).
+// Deloitte governance gap stats + Forrester AEGIS + IETF AIMS + JP Morgan as
+// third-party validation that cross-org behavioral monitoring is the missing
+// enterprise layer.
 //
 // Sources:
 //   Deloitte "State of AI in the Enterprise", Jan 2026, n=3,235, 24 countries
 //   Forrester AEGIS Framework, Aug 2025 — "least agency" principle
 //   IETF draft-klrc-aiagent-auth-02, Jun 2026 — OpenAI, Okta, AWS, Zscaler, Ping Identity
+//   JP Morgan Payments — Michael Lozanoff, Global Head Merchant Services, Jun 16 2026 (Tearsheet)
 
 import { DashedLine } from "@/components/dashed-line";
 
@@ -40,6 +41,15 @@ const AIMS = {
   authors: "OpenAI · Okta · AWS · Zscaler · Ping Identity",
   body: `The Agent Identity Management System (AIMS) defines eight requirements for secure AI agent deployment: identifiers, credentials, provisioning, authentication, authorization, observability and remediation, policy, and compliance. AgentLair's architecture maps to the full stack — short-lived EdDSA JWTs for credentials, JWKS verification for authentication, audience-scoped tokens for authorization, and an EdDSA-signed hash-chained behavioral telemetry ledger for observability. AIMS Component 6 (Observability and Remediation) is where AgentLair leads: tamper-evident cross-org audit trails that the standard requires but no other vendor ships at scale.`,
   url: "https://datatracker.ietf.org/doc/html/draft-klrc-aiagent-auth-02",
+};
+
+const JPM = {
+  title: "J.P. Morgan Payments — Michael Lozanoff, Global Head Merchant Services",
+  date: "June 16, 2026",
+  quote: `"Capability without governance is the next challenge."`,
+  body: `Lozanoff describes risk signals shifting from consumer browsing to authenticated agent identity and authorization context — with continuous monitoring required across discovery, checkout, and post-transaction. The core questions he names: Is the agent known? Is it permitted to act? Is it operating within the policy it was given?`,
+  source: "Tearsheet, June 16 2026",
+  url: "https://tearsheet.co/artificial-intelligence/j-p-morgan-payments-michael-lozanoff-on-why-agentic-commerce-cant-scale-without-governance/",
 };
 
 export const Analysts = () => {
@@ -147,6 +157,36 @@ export const Analysts = () => {
                 className="text-primary text-xs font-mono hover:underline underline-offset-4 self-start"
               >
                 Read the draft ↗
+              </a>
+            </div>
+          </div>
+        </div>
+
+        {/* JP Morgan callout */}
+        <div className="mx-auto mt-4 max-w-4xl rounded-2xl border bg-card p-8 md:p-10">
+          <div className="flex flex-col gap-4 md:flex-row md:gap-8 md:items-start">
+            <div className="shrink-0">
+              <span className="bg-primary/10 text-primary font-mono text-xs font-semibold px-3 py-1.5 rounded-full">
+                JPM
+              </span>
+            </div>
+            <div className="flex flex-col gap-3">
+              <p className="font-semibold text-foreground text-base md:text-lg leading-snug">
+                {JPM.title}
+              </p>
+              <p className="text-foreground text-lg font-medium leading-snug italic">
+                {JPM.quote}
+              </p>
+              <p className="text-muted-foreground text-sm leading-relaxed">
+                {JPM.body}
+              </p>
+              <a
+                href={JPM.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary text-xs font-mono hover:underline underline-offset-4 self-start"
+              >
+                {JPM.source} ↗
               </a>
             </div>
           </div>
