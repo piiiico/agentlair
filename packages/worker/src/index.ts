@@ -84,6 +84,7 @@ import { skillProvenanceRoutes } from './routes/skill-provenance.js';
 import { runPoPADaily } from './crons/popa-daily.js';
 import { handleCheckout, handleStripeWebhook } from './routes/stripe.js';
 import { EXPLORE_HTML } from './routes/explore.js';
+import { LCP_HTML } from './routes/lcp.js';
 import { computeTrustScore } from './trust-engine.js';
 import { wbaRoutes } from './routes/wba.js';
 import { buildRoutes } from './routes/build.js';
@@ -298,6 +299,19 @@ app.get('/explore', (_c) => {
     headers: {
       'Content-Type': 'text/html; charset=utf-8',
       'Cache-Control': 'public, max-age=300',
+      'X-Powered-By': 'AgentLair',
+    },
+  });
+});
+app.get('/lcp', (_c) => {
+  // LCP outreach conversion page — served inline (no CF Pages dependency).
+  // Targets LCP ecosystem contacts (Wayfair, UiPath) who received cold outreach
+  // positioning AgentLair as the Level 4 reputation lane for LCP-governed transactions.
+  return new Response(LCP_HTML, {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'public, max-age=3600',
       'X-Powered-By': 'AgentLair',
     },
   });
