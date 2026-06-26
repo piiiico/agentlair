@@ -5356,6 +5356,279 @@ export const OPENAPI_SPEC = {
         }
       }
     },
+    "/v1/audit/{jti}": {
+      "get": {
+        "tags": ["audit"],
+        "summary": "Look up AAT token metadata by JTI (x402-paid)",
+        "description": "Returns metadata for an Agent Authentication Token by its JTI. Public endpoint — no API key required. Anonymous callers pay 0.001 USDC via x402 (payment IS authentication). Returns issued_at, expires_at, audience, scopes, and revocation status.",
+        "security": [{}],
+        "parameters": [
+          {
+            "name": "jti",
+            "in": "path",
+            "required": true,
+            "description": "Agent Authentication Token ID — format: aat_[A-Za-z0-9]{16} or aal3_[A-Za-z0-9]{16}",
+            "schema": {
+              "type": "string",
+              "pattern": "^(aat|aal3)_[A-Za-z0-9]{16}$",
+              "example": "aat_demo1234567890ab"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Token metadata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "jti": { "type": "string", "example": "aat_demo1234567890ab" },
+                    "issued_at": { "type": "string", "format": "date-time" },
+                    "expires_at": { "type": "string", "format": "date-time" },
+                    "audience": { "type": "string", "example": "example.com" },
+                    "scopes": { "type": "array", "items": { "type": "string" }, "example": ["email:send"] },
+                    "status": { "type": "string", "enum": ["active", "expired", "revoked"], "example": "active" },
+                    "revoked_at": { "type": "string", "format": "date-time", "nullable": true },
+                    "revocation_reason": { "type": "string", "nullable": true },
+                    "audit_log_url": { "type": "string", "example": "https://agentlair.dev/v1/audit/log?action=auth.token_issue" }
+                  },
+                  "required": ["jti", "issued_at", "expires_at", "status"]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid JTI format",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" },
+                "example": { "error": "invalid_jti" }
+              }
+            }
+          },
+          "402": {
+            "description": "Payment required — 0.001 USDC via x402. Include X-PAYMENT header with a valid payment to proceed."
+          },
+          "404": {
+            "description": "Token not found (not issued or already expired and purged)",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" },
+                "example": { "error": "not_found" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/agents/{name}/memory-trust": {
+      "get": {
+        "tags": ["trust"],
+        "summary": "Get memory behavioral trust profile for an agent (x402-paid)",
+        "description": "Returns verified memory behavioral patterns for the specified agent. Public endpoint — no API key required. Anonymous callers pay 0.01 USDC via x402 (payment IS authentication). Includes total memory tokens, read/write ratio, access pattern, and consistency score.",
+        "security": [{}],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "Agent account ID (acc_...) or agent handle",
+            "schema": {
+              "type": "string",
+              "example": "acc_demoid12345"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Memory trust profile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "agent_id": { "type": "string", "example": "acc_demoid12345" },
+                    "memory_behavior": {
+                      "type": "object",
+                      "properties": {
+                        "total_memory_tokens": { "type": "integer", "example": 47 },
+                        "memory_read_count": { "type": "integer", "example": 38 },
+                        "memory_write_count": { "type": "integer", "example": 9 },
+                        "read_write_ratio": { "type": "number", "example": 0.809 },
+                        "access_pattern": { "type": "string", "enum": ["read_heavy", "write_heavy", "balanced"], "example": "read_heavy" },
+                        "consistency_score": { "type": "number", "minimum": 0, "maximum": 1, "example": 0.87 }
+                      }
+                    },
+                    "verified_by": { "type": "string", "example": "agentlair.dev" }
+                  },
+                  "required": ["agent_id", "memory_behavior", "verified_by"]
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Payment required — 0.01 USDC via x402. Include X-PAYMENT header with a valid payment to proceed."
+          },
+          "404": {
+            "description": "Agent not found",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" },
+                "example": { "error": "not_found" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/agents/lookup": {
+      "get": {
+        "tags": ["agents"],
+        "summary": "Resolve agent identity by handle, email, or account ID (x402-paid)",
+        "description": "Discover and resolve an agent's full identity profile from a partial identifier. Public endpoint — no API key required. Anonymous callers pay 0.005 USDC via x402 (payment IS authentication). Returns DID, JWKS URL, registration date, and verification status.",
+        "security": [{}],
+        "parameters": [
+          {
+            "name": "handle",
+            "in": "query",
+            "required": false,
+            "description": "Agent handle (name part of @agentlair.dev email)",
+            "schema": { "type": "string", "example": "research-agent" }
+          },
+          {
+            "name": "email",
+            "in": "query",
+            "required": false,
+            "description": "Full @agentlair.dev email address",
+            "schema": { "type": "string", "example": "research-agent@agentlair.dev" }
+          },
+          {
+            "name": "id",
+            "in": "query",
+            "required": false,
+            "description": "Agent account ID (acc_...)",
+            "schema": { "type": "string", "example": "acc_demoid12345" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Agent identity profile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": { "type": "string", "example": "acc_demoid12345" },
+                    "name": { "type": "string", "example": "research-agent" },
+                    "email": { "type": "string", "example": "research-agent@agentlair.dev" },
+                    "did": { "type": "string", "example": "did:web:agentlair.dev:agents:acc_demoid12345" },
+                    "jwks_url": { "type": "string", "example": "https://agentlair.dev/agents/acc_demoid12345/.well-known/jwks.json" },
+                    "registered_at": { "type": "string", "format": "date-time" },
+                    "verified": { "type": "boolean", "example": true }
+                  },
+                  "required": ["id", "name", "email", "did", "jwks_url", "registered_at", "verified"]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing or invalid lookup parameter",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" },
+                "example": { "error": "missing_identifier" }
+              }
+            }
+          },
+          "402": {
+            "description": "Payment required — 0.005 USDC via x402. Include X-PAYMENT header with a valid payment to proceed."
+          },
+          "404": {
+            "description": "Agent not found",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" },
+                "example": { "error": "not_found" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/events": {
+      "post": {
+        "tags": ["audit"],
+        "summary": "Submit behavioral events anonymously (x402-paid)",
+        "description": "Submit a batch of behavioral events for an agent without an API key. Payment IS authentication — 0.0001 USDC per batch via x402. Requires agent_id in the request body. Events are appended to the agent's behavioral audit trail.",
+        "security": [{}],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["agent_id", "events"],
+                "properties": {
+                  "agent_id": {
+                    "type": "string",
+                    "description": "Agent account ID (acc_...) — required for anonymous submission",
+                    "pattern": "^acc_[A-Za-z0-9_-]{1,64}$",
+                    "example": "acc_demoid12345"
+                  },
+                  "events": {
+                    "type": "array",
+                    "description": "Array of behavioral event objects",
+                    "items": {
+                      "type": "object",
+                      "required": ["event_id", "timestamp", "category", "action", "result"],
+                      "properties": {
+                        "event_id": { "type": "string", "example": "evt_001" },
+                        "timestamp": { "type": "string", "format": "date-time" },
+                        "category": { "type": "string", "example": "tool" },
+                        "action": { "type": "string", "example": "tool.call" },
+                        "result": { "type": "string", "enum": ["success", "failure", "error"], "example": "success" }
+                      }
+                    },
+                    "example": [{ "event_id": "evt_001", "timestamp": "2026-04-21T00:00:00Z", "category": "tool", "action": "tool.call", "result": "success" }]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Events accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "accepted": { "type": "integer", "example": 1 },
+                    "rejected": { "type": "integer", "example": 0 },
+                    "source": { "type": "string", "example": "anonymous" }
+                  },
+                  "required": ["accepted", "rejected", "source"]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request body or missing agent_id",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" },
+                "example": { "error": "missing_agent_id" }
+              }
+            }
+          },
+          "402": {
+            "description": "Payment required — 0.0001 USDC via x402. Include X-PAYMENT header with a valid payment to proceed."
+          }
+        }
+      }
+    },
     "/v1/findings/{jti}/outcome": {
       "post": {
         "tags": ["findings"],
