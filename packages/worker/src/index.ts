@@ -13,6 +13,7 @@ import { buildSignedAgentCard } from './a2a.js';
 import { LLMS_TXT } from './llms-txt.js';
 import { ROBOTS_TXT } from './robots-txt.js';
 import { RSL_XML, AGENTS_JSON } from './well-known-extras.js';
+import { buildClientMetadata } from './cimd.js';
 import { authenticateAny } from './middleware/auth.js';
 import { buildJWKS, getPublicKey, computeKeyId, publicKeyToJWK } from './jwt.js';
 import { checkRateLimit, checkPodRateLimit } from './middleware/ratelimit.js';
@@ -894,6 +895,96 @@ app.get('/agents/:name/.well-known/jwks.json', async (c) => {
     headers: {
       'Content-Type': 'application/json',
       // Short cache: key status may change on revocation
+      'Cache-Control': 'public, max-age=300',
+    },
+  });
+});
+
+// ─── OAuth Client ID Metadata Document (CIMD) ──────────────────────────────
+//
+// MCP authorization spec 2026-07-28 deprecates Dynamic Client Registration in
+// favour of Client ID Metadata Documents
+// (draft-ietf-oauth-client-id-metadata-document-00): the client uses an HTTPS
+// URL as its `client_id` and the authorization server FETCHES that URL to get
+// the client metadata. Spec re-verified against primary on 2026-08-08.
+//
+// This is the one endpoint that turns an agent's existing AgentLair identity
+// into an MCP client identity: `jwks_uri` points at the per-agent JWKS route
+// directly above, so the same Ed25519 key that signs AATs is the key an
+// authorization server uses for `private_key_jwt` client authentication. No
+// new key material, no registration call, no shared secret.
+//
+// Normative requirements met here (quoted from the spec's client-registration
+// page, "For MCP Clients"):
+//   • "The `client_id` URL MUST use the "https" scheme and contain a path
+//     component"                              → CIMD_ISSUER + /agents/…/client-metadata.json
+//   • "The metadata document MUST include at least the following properties:
+//     `client_id`, `client_name`, `redirect_uris`"
+//   • "Clients MUST ensure the `client_id` value in the metadata matches the
+//     document URL exactly"                   → built from the same `name` param
+//   • Authorization servers "SHOULD cache metadata respecting HTTP cache
+//     headers"                                → Cache-Control below
+//
+// `client_id` is built from the CANONICAL origin rather than the inbound Host
+// for the same reason `jwks_uri` and the DID are hardcoded elsewhere in this
+// file: the value is a stable identity, and an AS that fetched it through a
+// preview hostname would otherwise cache a client_id that no client ever
+// presents. The exact-match rule binds the URL the client hands the AS, which
+// is always the canonical one.
+//
+// Document construction + the spec's MUST-level rules live in ./cimd.ts as
+// pure functions so they are unit-testable without a deployed worker.
+app.get('/agents/:name/client-metadata.json', async (c) => {
+  const name = c.req.param('name');
+
+  // Identifier handling is deliberately identical to the sibling JWKS route:
+  // acc_ IDs resolve directly, agent names resolve via canonical email.
+  const isAccId = /^acc_[A-Za-z0-9_-]{1,32}$/.test(name ?? '');
+  const isAgentName = /^[a-z0-9][a-z0-9-]{0,29}$/.test(name ?? '');
+
+  if (!name || (!isAccId && !isAgentName)) {
+    return err('Invalid agent identifier format.', 400, 'invalid_agent_name');
+  }
+
+  let resolvedAccountId: string | null;
+  let agentName = name;
+
+  if (isAccId) {
+    resolvedAccountId = name;
+  } else {
+    const emailAddress = `${name}@agentlair.dev`;
+    resolvedAccountId = await c.env.EMAILS.get('email-owner:' + emailAddress);
+    if (!resolvedAccountId) {
+      return err('Agent not found.', 404, 'agent_not_found');
+    }
+  }
+
+  // An agent with no active signing key cannot authenticate with
+  // private_key_jwt, and its jwks_uri would 404 for the AS. Advertising a
+  // client document for it would be a document that cannot be honoured, so
+  // this 404s in the same case the JWKS route does.
+  const indexRaw = await c.env.KEYS.get('signing-key-by-account:' + resolvedAccountId);
+  if (!indexRaw) {
+    return err('No signing key registered for this agent.', 404, 'no_signing_key');
+  }
+
+  const { keyid } = JSON.parse(indexRaw) as { keyid: string };
+  const record = await getSigningKey(c.env, keyid);
+  if (!record) {
+    return err('Signing key record not found.', 404, 'signing_key_not_found');
+  }
+
+  if (record.agent_name) agentName = record.agent_name;
+
+  // `name` (not the resolved account id) is the path segment this document was
+  // fetched under, so building from it is what keeps client_id === URL for
+  // both the agent-name and acc_ addressing forms.
+  return new Response(JSON.stringify(buildClientMetadata(name, agentName)), {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/json',
+      // Matches the JWKS route this document points at: an AS that caches the
+      // document longer than the key set would advertise a stale key.
       'Cache-Control': 'public, max-age=300',
     },
   });
