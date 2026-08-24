@@ -343,20 +343,12 @@ app.get('/', async (c) => {
   const acceptHeader = c.req.raw.headers.get('Accept') || '';
   const ua = c.req.raw.headers.get('User-Agent') || '';
 
-  // Accept: text/html always wins
-  if (acceptHeader.includes('text/html')) {
-    return proxyToPages(c, '/');
-  }
-
-  // Social media unfurlers / link-preview crawlers — serve HTML so share previews work.
-  // These bots send Accept: */* (no text/html) and won't match agent detection patterns.
-  if (isUnfurler(ua)) {
-    return proxyToPages(c, '/');
-  }
-
-  // Agent-first content negotiation: agents get the manifest
-  const detection = detectAgent(c.req.raw.headers);
-  if (detection.isAgent && (detection.confidence === 'high' || detection.confidence === 'medium')) {
+  // Explicit agent manifest request — served only when the caller opts in.
+  // Agents following HTTP content negotiation should send Accept: application/agent+json.
+  // UA-based detection was removed: it caught scanner tools (npx is-agentic, curl)
+  // that need HTML to verify H1/JSON-LD/canonical, not the machine manifest.
+  if (acceptHeader.includes('application/agent+json')) {
+    const detection = detectAgent(c.req.raw.headers);
     return new Response(JSON.stringify(AGENTLAIR_MANIFEST, null, 2), {
       status: 200,
       headers: {
@@ -369,8 +361,25 @@ app.get('/', async (c) => {
     });
   }
 
-  // No Accept header or JSON-only: API discovery
-  return json(API_DISCOVERY);
+  // Accept: text/html or */* → HTML.
+  // */* means "anything goes, use your default"; our default for / is HTML.
+  // This covers browsers, curl (default Accept: */*), and scanner tools.
+  if (acceptHeader.includes('text/html') || acceptHeader.includes('*/*')) {
+    return proxyToPages(c, '/');
+  }
+
+  // Social media unfurlers — serve HTML so share previews work.
+  if (isUnfurler(ua)) {
+    return proxyToPages(c, '/');
+  }
+
+  // Explicit JSON-only accept (no text/html, no */*): API discovery
+  if (acceptHeader.includes('application/json')) {
+    return json(API_DISCOVERY);
+  }
+
+  // No Accept header: serve HTML (conservative default for scanner/validator compatibility)
+  return proxyToPages(c, '/');
 });
 
 app.get('/api', (c) => {
