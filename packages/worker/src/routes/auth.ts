@@ -19,6 +19,25 @@ import {
   trackX402Spend, getX402Spend,
 } from '../x402.js';
 
+// ─── Helper: registration attribution ref (skills-registry etc.) ─────────────
+export function sanitizeRef(raw: unknown): string | undefined {
+  if (typeof raw !== 'string') return undefined;
+  const v = raw.trim().toLowerCase();
+  if (!v || v.length > 32 || !/^[a-z0-9_-]+$/.test(v)) return undefined;
+  return v;
+}
+
+export async function recordRefAccount(env: Env, ref: string | undefined, entry: { account_id: string; created_at: string; name: string }): Promise<void> {
+  if (!ref) return;
+  try {
+    const key = 'ref-accounts:' + ref;
+    const raw = await env.KEYS.get(key);
+    const list: unknown[] = raw ? JSON.parse(raw) : [];
+    list.push(entry);
+    await env.KEYS.put(key, JSON.stringify(list.slice(-500)));
+  } catch { /* attribution must never break registration */ }
+}
+
 // ─── Helper: strip ephemeral fields before KV write ───────────────────────────
 // Prevents session tokens and other runtime-only state from being persisted.
 // Apply before every account KV write in mutation endpoints.
@@ -171,6 +190,7 @@ export async function handleAuthRoutes(
       const name = typeof body.name === 'string' ? body.name : 'default';
       const approvalBypass = body.approval_bypass !== false;
       const approvalRequired = !approvalBypass;
+      const ref = sanitizeRef(body.ref ?? url.searchParams.get('ref'));
 
       const keyValue = 'al_live_' + nanoid(32);
       const keyHash = await sha256hex(keyValue);
@@ -188,6 +208,7 @@ export async function handleAuthRoutes(
         stacks: [] as string[],
         approval_required: approvalRequired,
         approval_bypass: approvalBypass,
+        ...(ref ? { ref } : {}),
       };
 
       // KV writes — wrapped in try/catch to handle quota limits gracefully.
@@ -206,6 +227,7 @@ export async function handleAuthRoutes(
         throw kvErr;
       }
 
+      await recordRefAccount(env, ref, { account_id: accountId, created_at: now, name });
       await bumpAgentStats(env);
 
       return json({
@@ -281,6 +303,7 @@ export async function handleAuthRoutes(
       const address = typeof body.address === 'string' ? body.address : undefined;
       const public_key = typeof body.public_key === 'string' ? body.public_key : undefined;
       const recovery_email = typeof body.recovery_email === 'string' ? body.recovery_email : undefined;
+      const ref = sanitizeRef(body.ref ?? url.searchParams.get('ref'));
       // approval_required defaults to false for new accounts.
       // Budget escalation (budget.ts) sets approval_required=true when limits are exceeded.
       // Sandbox mode: first emails work without human intervention — the core product promise.
@@ -353,6 +376,7 @@ export async function handleAuthRoutes(
         created_at: now,
         stacks: [] as string[],
         approval_required: agentApprovalRequired,
+        ...(ref ? { ref } : {}),
       };
 
       // KV writes — wrapped in try/catch to handle quota limits gracefully.
@@ -391,6 +415,7 @@ export async function handleAuthRoutes(
         throw kvErr; // re-throw non-KV errors to global handler
       }
 
+      await recordRefAccount(env, ref, { account_id: accountId, created_at: now, name: newAccount.name });
       await bumpAgentStats(env);
 
       return json({
