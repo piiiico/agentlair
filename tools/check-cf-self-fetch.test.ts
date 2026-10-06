@@ -273,6 +273,18 @@ describe('scanFile', () => {
     });
   });
 
+  // Default config is deliberately narrow (3479d27): subdomains are other workers.
+  test('does NOT flag agentlair.dev subdomain under default config', () => {
+    withRepo((root) => {
+      const f = writeFile(
+        root,
+        'packages/worker/src/x.ts',
+        'export async function a() { return fetch("https://mcp-demo.agentlair.dev/.well-known/mcp-trust.json"); }',
+      );
+      expect(scanFile(f, scanInput(root)).length).toBe(0);
+    });
+  });
+
   test('flags wildcard subdomain via template literal', () => {
     withRepo((root) => {
       const f = writeFile(
@@ -280,7 +292,7 @@ describe('scanFile', () => {
         'packages/worker/src/x.ts',
         'export async function a(id: string) { return fetch(`https://api.agentlair.dev/v1/${id}`); }',
       );
-      const out = scanFile(f, scanInput(root));
+      const out = scanFile(f, scanInput(root, { selfHosts: ['agentlair.dev', '*.agentlair.dev'] }));
       expect(out.length).toBe(1);
       expect(out[0]!.host).toBe('api.agentlair.dev');
       expect(out[0]!.pattern).toBe('*.agentlair.dev');
