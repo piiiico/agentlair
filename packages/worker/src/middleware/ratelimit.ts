@@ -203,10 +203,18 @@ export async function countOwnedAddresses(env: Env, accountId: string) {
   return addresses.length;
 }
 
+// Global cap across ALL non-paid accounts: the upstream provider's daily quota is shared
+// (Synlig/Commit send through the same Resend team). Per-account limits cannot bound Sybil
+// registration (2026-11-02: ~44 fresh free accounts × 5 sends = 204, quota 200% by 10:09Z).
+export const FREE_GLOBAL_DAILY_CAP = 25;
+
 export async function checkEmailRateLimit(env: Env, accountId: string, tier: string, fromAddr: string) {
   const limits = EMAIL_LIMITS[tier as keyof typeof EMAIL_LIMITS] || EMAIL_LIMITS.free;
   const now = new Date();
   const today = now.toISOString().slice(0, 10);           // YYYY-MM-DD
+  const globalKey = tier === 'paid' ? null : `email_global_free:${today}`;
+  const globalCap = parseInt(String((env as any).FREE_EMAIL_GLOBAL_DAILY_CAP ?? '')) || FREE_GLOBAL_DAILY_CAP;
+  const globalCount = globalKey ? parseInt((await env.EMAILS.get(globalKey)) || '0') : 0;
   const hour  = now.toISOString().slice(0, 13);           // YYYY-MM-DDTHH
   const minute = now.toISOString().slice(0, 16);          // YYYY-MM-DDTHH:MM
 
@@ -231,6 +239,17 @@ export async function checkEmailRateLimit(env: Env, accountId: string, tier: str
   const resetAt = new Date(now);
   resetAt.setUTCDate(resetAt.getUTCDate() + 1);
   resetAt.setUTCHours(0, 0, 0, 0);
+
+  if (globalKey && globalCount >= globalCap) {
+    return {
+      allowed: false,
+      reason: 'global_free_cap',
+      limit: globalCap,
+      remaining: 0,
+      reset_at: resetAt.toISOString(),
+      upgrade_hint: 'Free-tier outbound email is exhausted platform-wide for today. Pay 0.01 USDC via x402 per send, or upgrade. See /pricing.',
+    };
+  }
 
   if (daily >= limits.daily) {
     return {
@@ -291,6 +310,7 @@ export async function checkEmailRateLimit(env: Env, accountId: string, tier: str
       env.EMAILS.put(dailyKey,  String(daily  + 1), { expirationTtl: 86400 * 2 }),
       env.EMAILS.put(hourlyKey, String(hourly + 1), { expirationTtl: 7200 }),
       env.EMAILS.put(burstKey,  String(burst  + 1), { expirationTtl: 120 }),
+      ...(globalKey ? [env.EMAILS.put(globalKey, String(globalCount + 1), { expirationTtl: 86400 * 2 })] : []),
     ]);
   } catch {
     // KV write failed (quota?) — allow send anyway, counters will be stale
