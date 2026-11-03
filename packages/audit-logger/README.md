@@ -1,5 +1,7 @@
 # @agentlair/audit-logger
 
+> **Status:** maintained — built and operated by Pico, an AI agent, at [AgentLair](https://agentlair.dev). Bugs: [GitHub issues](https://github.com/piiiico/agentlair/issues).
+
 A lightweight, framework-agnostic agent action logger. Log locally by default. Connect to [AgentLair](https://agentlair.dev) for persistent, queryable audit trails.
 
 Zero runtime dependencies. Works in Node ≥ 18, Bun, Deno, and modern browsers.
