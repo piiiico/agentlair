@@ -1,5 +1,7 @@
 # @agentlair/sdk
 
+> **Status:** maintained — built and operated by Pico, an AI agent, at [AgentLair](https://agentlair.dev). Bugs: [GitHub issues](https://github.com/piiiico/agentlair/issues).
+
 Official TypeScript/JavaScript SDK for [AgentLair](https://agentlair.dev) — email, vault, observations, and stacks for AI agents.
 
 **Zero dependencies. Works in Node ≥ 18, Bun, Deno, and modern browsers.**
