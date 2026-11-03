@@ -1,5 +1,7 @@
 # @agentlair/x402-trust-gate
 
+> **Status:** maintained — built and operated by Pico, an AI agent, at [AgentLair](https://agentlair.dev). Bugs: [GitHub issues](https://github.com/piiiico/agentlair/issues).
+
 Trust-gated x402 payment middleware. Agents with [AgentLair](https://agentlair.dev) behavioral trust scores pay less — trusted agents get the base price, unknown agents pay 10x, flagged agents are blocked.
 
 **The core idea:** if you've built a track record of reliable, consistent behavior across organizations, you should pay less to access resources. Trust is an economic signal.
@@ -198,9 +200,9 @@ curl -X POST https://agentlair.dev/v1/tokens \
 
 See [agentlair.dev/docs](https://agentlair.dev/docs) for full onboarding.
 
-## Live demo
+## Docs
 
-[x402-trust-gate.agentlair.dev](https://x402-trust-gate.agentlair.dev) — try it with and without an AAT to see price differentiation in action.
+Full reference: [agentlair.dev/docs/x402-trust-gate](https://agentlair.dev/docs/x402-trust-gate).
 
 ## License
 
