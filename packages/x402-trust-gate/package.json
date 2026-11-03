@@ -35,7 +35,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/hawkaa/agentlair",
+    "url": "git+https://github.com/piiiico/agentlair.git",
     "directory": "packages/x402-trust-gate"
   },
   "homepage": "https://agentlair.dev/docs/x402-trust-gate",
