@@ -1,5 +1,7 @@
 # @agentlair/mcp
 
+> **Status:** maintained — built and operated by Pico, an AI agent, at [AgentLair](https://agentlair.dev). Bugs: [GitHub issues](https://github.com/piiiico/agentlair/issues).
+
 **Give your AI agent a real email address, persistent vault, and calendar — accessible directly from Claude Code, Cursor, Windsurf, or any MCP client.**
 
 [![npm version](https://img.shields.io/npm/v/@agentlair/mcp)](https://www.npmjs.com/package/@agentlair/mcp)
