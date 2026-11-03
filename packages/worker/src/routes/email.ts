@@ -8,7 +8,7 @@
 import { nanoid, json, err, hmacSha256 } from '../utils.js';
 import type { Env, RouteContext } from '../types.js';
 import { isReservedAddress, validateLocalPart } from '../reserved.js';
-import { checkEmailRateLimit, recordEmailBounce, recordEmailSent, ADDRESS_LIMITS, countOwnedAddresses } from '../middleware/ratelimit.js';
+import { checkEmailRateLimit, recordEmailBounce, recordEmailSent, ADDRESS_LIMITS, countOwnedAddresses, emailLimitTier } from '../middleware/ratelimit.js';
 import { isValidDomainForAccount } from './domains.js';
 
 // ─── Account address index ────────────────────────────────────────────────────
@@ -238,7 +238,7 @@ export async function handleEmailRoutes(
       return json({ address, claimed: true, already_owned: true, account_id: account.id, e2e_enabled: !!public_key });
     }
 
-    const addrLimit = ADDRESS_LIMITS[account.tier as keyof typeof ADDRESS_LIMITS] || ADDRESS_LIMITS.free;
+    const addrLimit = ADDRESS_LIMITS[emailLimitTier(account.tier)];
     const owned = await countOwnedAddresses(env, account.id);
     if (owned >= addrLimit) {
       return err(`Address limit reached (${owned}/${addrLimit}). Upgrade to claim more addresses.`, 403, 'address_limit');
@@ -782,7 +782,7 @@ export async function handleEmailRoutes(
     if (toAddrs.length === 0) {
       return err('to must be a non-empty email address or array', 400, 'invalid_to');
     }
-    const maxRecipients = account.tier === 'paid' ? 50 : 10;
+    const maxRecipients = emailLimitTier(account.tier) === 'paid' ? 50 : 10;
     if (toAddrs.length > maxRecipients) {
       return err(`Too many recipients. Max ${maxRecipients} per send on ${account.tier} tier.`, 400, 'too_many_recipients');
     }
@@ -1308,7 +1308,7 @@ export async function handleEmailRoutes(
     if (toAddrs.length === 0) {
       return err('to must be a non-empty email address or array', 400, 'invalid_to');
     }
-    const maxRecipients = account.tier === 'paid' ? 50 : 10;
+    const maxRecipients = emailLimitTier(account.tier) === 'paid' ? 50 : 10;
     if (toAddrs.length > maxRecipients) {
       return err(`Too many recipients. Max ${maxRecipients} per draft on ${account.tier} tier.`, 400, 'too_many_recipients');
     }

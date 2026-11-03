@@ -208,11 +208,17 @@ export async function countOwnedAddresses(env: Env, accountId: string) {
 // registration (2026-11-02: ~44 fresh free accounts × 5 sends = 204, quota 200% by 10:09Z).
 export const FREE_GLOBAL_DAILY_CAP = 25;
 
-export async function checkEmailRateLimit(env: Env, accountId: string, tier: string, fromAddr: string) {
-  const limits = EMAIL_LIMITS[tier as keyof typeof EMAIL_LIMITS] || EMAIL_LIMITS.free;
+/** Email-path limit tier. Stripe writes 'starter'|'pro'; legacy accounts carry 'paid'. */
+export function emailLimitTier(tier: string | undefined): 'free' | 'paid' {
+  return tier === 'paid' || tier === 'starter' || tier === 'pro' || tier === 'enterprise' ? 'paid' : 'free';
+}
+
+export async function checkEmailRateLimit(env: Env, accountId: string, rawTier: string, fromAddr: string) {
+  const tier = emailLimitTier(rawTier);
+  const limits = EMAIL_LIMITS[tier];
   const now = new Date();
   const today = now.toISOString().slice(0, 10);           // YYYY-MM-DD
-  const globalKey = tier === 'paid' ? null : `email_global_free:${today}`;
+  const globalKey = tier === 'paid' ? null : `email_global_free:${today}`; // tier is normalized above
   const globalCap = parseInt(String((env as any).FREE_EMAIL_GLOBAL_DAILY_CAP ?? '')) || FREE_GLOBAL_DAILY_CAP;
   const globalCount = globalKey ? parseInt((await env.EMAILS.get(globalKey)) || '0') : 0;
   const hour  = now.toISOString().slice(0, 13);           // YYYY-MM-DDTHH
