@@ -19,6 +19,8 @@ import { buildJWKS, getPublicKey, computeKeyId, publicKeyToJWK } from './jwt.js'
 import { checkRateLimit, checkPodRateLimit } from './middleware/ratelimit.js';
 import { detectAgent, AGENTLAIR_MANIFEST } from './middleware/agent-detect.js';
 import { securityHeaders } from './middleware/security-headers.js';
+import { visitBeacon } from './middleware/visit-beacon.js';
+import { adminStatsRoutes } from './routes/admin-stats.js';
 import { auditMiddleware } from './middleware/audit.js';
 import { budgetMiddleware } from './middleware/budget.js';
 import { encryptEmailField, encryptEmailE2E } from './platform-crypto.js';
@@ -251,6 +253,11 @@ app.use('*', cors({
 // Must come after CORS so CORS headers are set first, security headers layer on top.
 
 app.use('*', securityHeaders());
+
+// ── 1.6. First-party visit beacon on HTML (AI-referral meter) ────────────────────
+// Registered after securityHeaders so it runs first on the way out; the CSP
+// layer then sees the final HTML response.
+app.use('*', visitBeacon());
 
 // ── 2. Astro static assets — proxy to CF Pages ───────────────────────────────────
 // These MUST come before any other route handlers so /_astro/*, /fonts/*, etc.
@@ -1450,6 +1457,7 @@ app.post('/v1/stripe/webhook', async (c) => {
 });
 
 // Admin routes: own auth via ADMIN_KEY (not user API keys)
+app.route('/v1/admin/stats', adminStatsRoutes);  // count-only accounts-per-day (AI-referral meter, 11-03)
 app.post('/v1/admin/tier', async (c) => {
   const response = await handleAdminRoutes(c.req.raw, c.env);
   if (response) return response;

@@ -16,7 +16,9 @@ export function securityHeaders() {
     // Content-Security-Policy: split by response content type
     const contentType = c.res.headers.get('Content-Type') || '';
     if (contentType.includes('text/html')) {
-      c.header('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data: https:");
+      // connect-src: first-party visit beacon (poc-backend) + Cloudflare RUM;
+      // without it default-src 'self' silently blocks both (11-03).
+      c.header('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data: https:; connect-src 'self' https://poc-backend.amdal-dev.workers.dev https://cloudflareinsights.com");
     } else {
       // JSON and all other API responses: strictest possible
       c.header('Content-Security-Policy', "default-src 'none'");
