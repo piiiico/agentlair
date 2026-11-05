@@ -197,6 +197,10 @@ describe('getAction', () => {
     expect(getAction('vault', 'POST', '/v1/vault/store')).toBe('vault.store');
   });
 
+  test('PUT /v1/vault/mykey → vault.store (documented store method; was mislabelled vault.read)', () => {
+    expect(getAction('vault', 'PUT', '/v1/vault/mykey')).toBe('vault.store');
+  });
+
   test('GET /v1/vault/mykey → vault.retrieve', () => {
     expect(getAction('vault', 'GET', '/v1/vault/mykey')).toBe('vault.retrieve');
   });

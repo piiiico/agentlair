@@ -305,7 +305,7 @@ export function getAction(category: string, method: string, path: string): strin
   if (category === 'vault') {
     if (method === 'GET') return 'vault.retrieve';
     if (method === 'DELETE') return 'vault.delete';
-    if (method === 'POST') return 'vault.store';
+    if (method === 'POST' || method === 'PUT') return 'vault.store';
     return 'vault.read';
   }
 
