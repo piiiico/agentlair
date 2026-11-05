@@ -306,6 +306,8 @@ This ensures that artificially perfect behavior is penalized, not rewarded.
 
 **Zero-escalation detection.** Active agents (above 20 events in the observation window) with zero escalation events receive a reduced escalation appropriateness score (0.60 instead of 0.85). Complete autonomy without any escalation is itself a behavioral anomaly — real agents encounter situations that require human approval or privilege escalation.
 
+**Limitation: the score belongs to the account, not the model.** The BTS describes an account's history. It is not bound to the model weights answering now, and an AAT carries no model claim. If an operator swaps the model under the same account, the new model inherits the score; the consistency dimension shows the swap only as drift (7-day vs 90-day divergence), only after the new model acts, and cannot tell it apart from a change of task.
+
 ### 4.5 ATF Level Derivation
 
 The Agent Trust Framework (ATF) defines four discrete maturity levels derived from the combination of BTS and confidence:
