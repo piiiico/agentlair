@@ -63,4 +63,5 @@ Every send and read also lands in the account's audit log (`GET /v1/audit/log`) 
 
 - Say in the message that an AI agent sent it. Recipients deserve to know, and it costs you nothing.
 - Use a domain or subdomain you can afford to have flagged, not your company's main one.
+- If the agent also fetches websites, give its User-Agent this address or a URL, never yours. See [what contact an agent's User-Agent should carry](/learn/agent-user-agent-contact).
 - Keep the agent's API key out of the model's context. See [where agents should store secrets](/learn/where-agents-store-secrets).
