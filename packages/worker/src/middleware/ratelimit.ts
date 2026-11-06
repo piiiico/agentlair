@@ -143,9 +143,14 @@ export async function checkPodRateLimit(
   }
 }
 
+/** API requests/day. Normalises Stripe's 'starter'|'pro' (and 'enterprise') via emailLimitTier. */
+export function apiRequestLimit(tier: string | undefined): number {
+  return emailLimitTier(tier) === 'paid' ? 10000 : 100;
+}
+
 export async function checkRateLimit(env: Env, accountId: string, tier: string) {
   try {
-    const limit = tier === 'paid' ? 10000 : 100; // requests/day
+    const limit = apiRequestLimit(tier); // requests/day
     const today = new Date().toISOString().slice(0, 10);
     const counterKey = 'rl:' + accountId + ':' + today;
     const current = parseInt(await env.KEYS.get(counterKey) || '0');
@@ -486,7 +491,7 @@ export const EVENT_LIMITS = {
 
 /** Map account tier string to event rate limit tier. */
 export function getEventRateLimitTier(tier: string): 'free' | 'paid' | 'pro' {
-  if (tier === 'pro') return 'pro';
+  if (tier === 'pro' || tier === 'enterprise') return 'pro';
   if (tier === 'paid' || tier === 'starter') return 'paid';
   return 'free';
 }

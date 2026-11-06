@@ -11,7 +11,7 @@
 import { Hono } from 'hono';
 import { json, err, nanoid } from '../utils.js';
 import type { HonoEnv } from '../types.js';
-import { EMAIL_LIMITS, getTokenVerifyCount, getTokenIssueCount, TOKEN_VERIFY_LIMITS, AGENT_LIMITS, getAgentCount } from '../middleware/ratelimit.js';
+import { EMAIL_LIMITS, getTokenVerifyCount, getTokenIssueCount, TOKEN_VERIFY_LIMITS, AGENT_LIMITS, getAgentCount, apiRequestLimit } from '../middleware/ratelimit.js';
 import { X402_CONFIG, SERVICE_PRICES, verifyX402Payment, settleX402Payment, make402Response, getX402Spend, trackX402Spend, autoUpgradeIfThreshold } from '../x402.js';
 import { recordBudgetSpend } from '../middleware/budget.js';
 import { tursoExecute } from '../email-provider.js';
@@ -214,7 +214,7 @@ stackRoutes.get('/usage', async (c) => {
         note: 'Agents registered under your operator email.',
       },
     }),
-    requests: { used: parseInt(usedToday || '0'), limit: account.tier === 'paid' ? 10000 : 100, reset_at: resetAt.toISOString() },
+    requests: { used: parseInt(usedToday || '0'), limit: apiRequestLimit(account.tier), reset_at: resetAt.toISOString() },
     stacks: { used: stacks.length, limit: account.tier === 'free' ? 1 : 999 },
     emails: {
       daily_used: emailDailyUsed,
