@@ -1,6 +1,6 @@
 ---
 title: "What contact should my AI agent put in its User-Agent?"
-description: "Some sites ask scripts for a contact in the User-Agent header. Give them a contact for the agent, never the human's login email. The options, what Wikimedia and the SEC ask for, what the SEC's filter actually lets through, and what to do about Claude Code's email leak."
+description: "Some sites ask scripts for a contact in the User-Agent header. Give them a contact for the agent, never the human's login email. The options, what Wikimedia and the SEC ask for, what six sites' filters actually let through, and what to do about Claude Code's email leak."
 pubDate: 2026-11-06
 updatedDate: 2026-11-07
 schemaType: "TechArticle"
@@ -18,27 +18,30 @@ Some sites want to be able to reach whoever runs a script before they block it.
 
 An agent that reads these pages, or has seen them in training, will try to comply. If the only email it knows is yours, it uses yours.
 
-## What the SEC's filter actually checks
+## What sites actually check
 
-On November 7, 2026 we sent the same request to an EDGAR company page on www.sec.gov with different User-Agents, three times each, from one server. Every run gave the same result:
+On November 7, 2026 we sent the same request to six endpoints whose owners ask scripts to identify themselves, with four User-Agents, three times each, from one server. Every run gave the same result:
 
-| User-Agent | Result |
-|---|---|
-| `curl/8.5.0`, `python-requests/2.31.0` | blocked (403) |
-| `Pico/1.0`, `Pico/1.0 (AI agent)`, `Pico/1.0 (agentlair.dev)` | blocked (403) |
-| `Pico/1.0 (+https://agentlair.dev)`, `Pico/1.0 (www.agentlair.dev)` | served (200) |
-| `Pico/1.0 pico@amdal.dev` (our real address) | served (200) |
-| `Pico/1.0 user@example.com` (made up) | served (200) |
+| Endpoint (what it asks for) | `python-requests/2.31.0` | `Pico/1.0` | `Pico/1.0 (+https://agentlair.dev)` | `Pico/1.0 user@example.com` |
+|---|---|---|---|---|
+| SEC EDGAR, www.sec.gov (company name and admin email) | 403 | 403 | 200 | 200 |
+| SEC API, data.sec.gov (same) | 403 | 200 | 200 | 200 |
+| Wikipedia API (email, website or wiki user) | 403 | 200 | 200 | 200 |
+| crates.io API (a User-Agent that identifies your application) | 403 | 200 | 200 | 200 |
+| Nominatim, OpenStreetMap (identify the application; library defaults "will not do") | 403 | 200 | 200 | 403 |
+| MusicBrainz API (a contact URL or email) | 200 | 200 | 200 | 200 |
 
-So a URL is enough, and so is an address nobody reads. The filter checks that something looks like a contact, not that it reaches anyone. The JSON API at data.sec.gov was looser: it blocked the curl and python-requests defaults but served a bare `Pico/1.0`. This is one server's view on one day, and the SEC can change it.
+403 means blocked, 200 means served. `user@example.com` is made up.
 
-What that means for an agent: a made-up address gets it through, and only a real one helps the site. Anthropic added the account email to Claude Code's context because without it Claude "would hallucinate names for things like @author tags" ([same HN comment](https://news.ycombinator.com/item?id=50388176)). If you take your email away and give the agent nothing, a made-up contact is the likely stand-in, and it would pass.
+None of them checks that the contact reaches anyone. Three of the six blocked only the library default we sent. www.sec.gov is the strictest: it also blocked `Pico/1.0 (AI agent)` and `Pico/1.0 (agentlair.dev)`, and served every User-Agent we tried that held an address like `name@domain.tld` or a URL starting with `http://`, `https://` or `www.`, made-up address included. Nominatim was the only one to refuse a placeholder: it blocked `user@example.com` and `user@example.org`, but served the URL `+https://example.com/bot` and an address on a domain that does not exist. MusicBrainz's docs say it rate-limits "anonymous" User-Agents as one group ([rate limiting](https://musicbrainz.org/doc/MusicBrainz_API/Rate_Limiting)). This is one server's view on one day, and any of these sites can change it.
+
+What that means for an agent: a made-up address gets it through almost everywhere, and only a real one helps the site. Anthropic added the account email to Claude Code's context because without it Claude "would hallucinate names for things like @author tags" ([a Claude Code engineer on HN](https://news.ycombinator.com/item?id=50388176)). If you take your email away and give the agent nothing, a made-up contact is the likely stand-in, and it would pass.
 
 ## The options
 
 | Contact | Who reads replies | Good for | Watch out |
 |---|---|---|---|
-| A website URL, e.g. `+https://example.com/bot` | Whoever reads the page's contact info | Wikimedia and most sites that only want a way to reach you | The SEC's sample shows an email, but its filter served a URL-only User-Agent in our test (above) |
+| A website URL, e.g. `+https://example.com/bot` | Whoever reads the page's contact info | Wikimedia and most sites that only want a way to reach you | The SEC's sample shows an email, but every endpoint in our test served a URL-only User-Agent (above) |
 | An email alias ([Firefox Relay](https://relay.firefox.com/), [SimpleLogin](https://simplelogin.io/), Apple's Hide My Email) | You, forwarded | A human who wants to see the rare "your bot is hammering us" mail | You can kill the alias when it gets spam, but someone still has to read it |
 | An inbox the agent owns ([AgentMail](https://www.agentmail.to/), AgentLair) | The agent, through an API | Agents that run unattended and should handle the reply themselves | Someone has to decide what the agent does with the mail it reads |
 
