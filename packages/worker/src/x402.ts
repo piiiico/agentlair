@@ -319,7 +319,7 @@ export const SERVICE_PRICES: Record<string, ServicePaymentConfig> = {
     // resource: broader product resource (covers /v1/trust/{agentId}, /:agentId/check, /score).
     // Intentional fungibility — one payment, three route shapes.
     resource: 'https://agentlair.dev/v1/trust',
-    description: 'AgentLair trust score query — 0.01 USDC per lookup. Payment authorizes trust-query routes: /v1/trust/{agentId}, /v1/trust/{agentId}/check, /v1/trust/score, and /v1/trust/batch (broader product resource = /v1/trust).',
+    description: 'AgentLair trust score query — 0.01 USDC per lookup. Returns a behavioural trust score, ATF level, confidence and observation count for an AgentLair agent ID (acc_...), computed from events observed across its sessions. Answers whether an unfamiliar agent has a track record before a request, payment or delegated task from it is accepted. One payment covers /v1/trust/{agentId}, /v1/trust/{agentId}/check, /v1/trust/score and /v1/trust/batch (product resource = /v1/trust).',
     mimeType: 'application/json',
     discovery: {
       input: { agent_id: 'acc_abc123' },
@@ -343,7 +343,7 @@ export const SERVICE_PRICES: Record<string, ServicePaymentConfig> = {
   memory_trust: {
     amount: '10000', // 0.01 USDC
     resource: 'https://agentlair.dev/v1/agents/{id}/memory-trust',
-    description: 'AgentLair memory trust query — 0.01 USDC per lookup. Returns verified memory behavioral patterns for an agent.',
+    description: 'AgentLair memory trust query — 0.01 USDC per lookup. Returns how an AgentLair agent has used memory: read and write counts, read/write ratio, access pattern and a consistency score, verified by agentlair.dev. Answers whether an agent that will share or hand over memory has behaved consistently with it so far.',
     mimeType: 'application/json',
     discovery: {
       input: { agent_id: 'acc_abc123' },
@@ -372,7 +372,7 @@ export const SERVICE_PRICES: Record<string, ServicePaymentConfig> = {
   agent_lookup: {
     amount: '5000', // 0.005 USDC
     resource: 'https://agentlair.dev/v1/agents/lookup',
-    description: 'AgentLair agent discovery lookup — 0.005 USDC to resolve agent name to identity.',
+    description: 'AgentLair agent discovery lookup — 0.005 USDC per lookup. Resolves an agent handle, @agentlair.dev email or account ID to its identity record: account ID, DID, JWKS URL for verifying its signed tokens, and registration date. Answers who is behind an agent address before its messages or tokens are trusted.',
     mimeType: 'application/json',
     discovery: {
       input: { handle: 'research-agent' },
@@ -399,7 +399,7 @@ export const SERVICE_PRICES: Record<string, ServicePaymentConfig> = {
   audit_lookup: {
     amount: '1000', // 0.001 USDC
     resource: 'https://agentlair.dev/v1/audit',
-    description: 'AgentLair token audit lookup — 0.001 USDC per JTI metadata query.',
+    description: 'AgentLair token audit lookup — 0.001 USDC per query. Returns the metadata of one Agent Authentication Token by its JTI (aat_...): issue and expiry time, audience, scopes, and whether and why it was revoked. Answers whether a token an agent presented is still active and was issued for this audience.',
     mimeType: 'application/json',
     discovery: {
       input: { jti: 'aat_AbCdEfGhIjKlMn01' },

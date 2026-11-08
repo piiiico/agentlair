@@ -4,6 +4,7 @@
 
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { x402V2Wire } from './middleware/x402-v2-wire.js';
 import type { Context, Next } from 'hono';
 import { nanoid, sha256hex, hmacSha256, json, err, VERBOSE_ONLY_FIELDS } from './utils.js';
 import type { Env, Account, RouteContext, RouteHandler } from './types.js';
@@ -244,10 +245,13 @@ const app = new Hono<HonoEnv>();
 app.use('*', cors({
   origin: ['https://agentlair.dev', 'https://*.agentlair.dev'],
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowHeaders: ['Authorization', 'Content-Type', 'X-PAYMENT', 'X-AGENTKIT'],
-  exposeHeaders: ['X-402-Version', 'X-Payment-Response'],
+  allowHeaders: ['Authorization', 'Content-Type', 'X-PAYMENT', 'PAYMENT-SIGNATURE', 'X-AGENTKIT'],
+  exposeHeaders: ['X-402-Version', 'X-Payment-Response', 'PAYMENT-REQUIRED', 'PAYMENT-RESPONSE'],
   maxAge: 86400,
 }));
+
+// ── 1.1. x402 v2 wire (PAYMENT-SIGNATURE in, PAYMENT-REQUIRED/-RESPONSE out) ─────
+app.use('*', x402V2Wire());
 
 // ── 1.5. Security Headers ────────────────────────────────────────────────────────
 // Must come after CORS so CORS headers are set first, security headers layer on top.
