@@ -1,7 +1,8 @@
 ---
 title: "AgentLair vs Skyfire: Two Models for Agent Identity Trust"
-description: "Skyfire binds agent identity to payment transactions. AgentLair issues cryptographic session credentials verifiable without a central registry. Same problem, different architectures."
+description: "Skyfire issues signed identity and payment tokens backed by a verified human. AgentLair issues per-session agent credentials with no signup. Both verify against a public JWKS. Corrected 2026-11-08."
 pubDate: 2026-05-18
+updatedDate: 2026-11-08
 authorName: "Pico"
 related:
   - payment-rails-trust-rails
@@ -14,7 +15,7 @@ related:
   "@context": "https://schema.org",
   "@type": "BlogPosting",
   "headline": "AgentLair vs Skyfire: Two Models for Agent Identity Trust",
-  "description": "Skyfire binds agent identity to payment transactions. AgentLair issues cryptographic session credentials verifiable without a central registry. Same problem, different architectures.",
+  "description": "Skyfire issues signed identity and payment tokens backed by a verified human. AgentLair issues per-session agent credentials with no signup. Both verify against a public JWKS. Corrected 2026-11-08.",
   "datePublished": "2026-05-18",
   "author": {
     "@type": "Person",
@@ -35,7 +36,9 @@ related:
 
 The agent identity problem splits at a fundamental question: what does a trust credential bind to?
 
-Skyfire's answer is the transaction. An agent that can pay is an agent that has been verified — Skyfire's KYA (Know Your Agent) protocol ties identity to the payment flow. If the agent can't transact through Skyfire's network, it doesn't get a credential. The identity and the payment rail are the same artifact.
+Skyfire's answer is the verified human behind the agent. Its `kya` token carries that identity, and `pay` and `kya-pay` tokens add payment. A `kya` token [only proves identity and can't be charged](https://docs.skyfire.xyz/docs/introduction-to-skyfire), so a Skyfire credential does not require a payment.
+
+*Correction, 2026-11-08: the first version of this post said Skyfire only issues credentials to agents that transact, and that its tokens are checked against a closed Experian registry. Both were wrong. We re-read Skyfire's docs and fixed the table and the sections below.*
 
 AgentLair's answer is the session. A per-session EdDSA JWT (AAT — Agent Attestation Token) issued at container spin-up, signed with Ed25519, verifiable against a JWKS endpoint at `agentlair.dev/.well-known/jwks.json` without contacting AgentLair. The credential exists before any payment happens, and independent of whether any payment ever happens.
 
@@ -60,13 +63,13 @@ Two valid models. Different tradeoffs. The choice depends on what you're buildin
   "name": "AgentLair vs Skyfire Feature Comparison",
   "url": "https://agentlair.dev/blog/agentlair-vs-skyfire-2026",
   "itemListElement": [
-    {"@type":"ListItem","position":1,"name":"Identity model","item":{"@type":"Thing","name":"Skyfire: ES256 JWT, payment-bound. AgentLair: Ed25519 JWT (AAT), per-session, behavior-scoped."}},
-    {"@type":"ListItem","position":2,"name":"Verification path","item":{"@type":"Thing","name":"Skyfire: Closed registry via Experian KYA. AgentLair: Open JWKS at agentlair.dev (RFC-compliant, no registry contact required)."}},
+    {"@type":"ListItem","position":1,"name":"Identity model","item":{"@type":"Thing","name":"Skyfire: ES256 JWTs (kya identity-only, pay, kya-pay). AgentLair: Ed25519 JWT (AAT), per-session, behavior-scoped."}},
+    {"@type":"ListItem","position":2,"name":"Verification path","item":{"@type":"Thing","name":"Skyfire: public JWKS at app.skyfire.xyz, tokens passed directly from buyer to seller. AgentLair: Open JWKS at agentlair.dev (RFC-compliant, no registry contact required)."}},
     {"@type":"ListItem","position":3,"name":"Cryptographic primitive","item":{"@type":"Thing","name":"Skyfire: ES256 (ECDSA P-256). AgentLair: Ed25519 (EdDSA), same as Visa TAP."}},
-    {"@type":"ListItem","position":4,"name":"Open standards","item":{"@type":"Thing","name":"Skyfire: Proprietary KYAPay (IETF draft submitted). AgentLair: RFC 9421 + did:key + MCP SEP-2133 extension."}},
-    {"@type":"ListItem","position":5,"name":"Trust scope","item":{"@type":"Thing","name":"Skyfire: Transaction-bound. AgentLair: Behavior+identity scope, output-bound BHC."}},
+    {"@type":"ListItem","position":4,"name":"Open standards","item":{"@type":"Thing","name":"Skyfire: KYAPay spec (kyapay.org) plus an IETF draft. AgentLair: RFC 9421 + did:key + MCP SEP-2133 extension."}},
+    {"@type":"ListItem","position":5,"name":"Trust scope","item":{"@type":"Thing","name":"Skyfire: Verified human identity plus payment. AgentLair: Behavior+identity scope, output-bound BHC."}},
     {"@type":"ListItem","position":6,"name":"Audit trail","item":{"@type":"Thing","name":"Skyfire: Payment receipts. AgentLair: Behavioral receipts (BHC + ATF)."}},
-    {"@type":"ListItem","position":7,"name":"Enrollment","item":{"@type":"Thing","name":"Skyfire: Skyfire network enrollment required. AgentLair: npm install, no enrollment gate."}},
+    {"@type":"ListItem","position":7,"name":"Enrollment","item":{"@type":"Thing","name":"Skyfire: Skyfire account; identity verification needs a paid subscription. AgentLair: npm install, no enrollment gate."}},
     {"@type":"ListItem","position":8,"name":"Funding","item":{"@type":"Thing","name":"Skyfire: $9.5M seed. AgentLair: indie, no external funding."}}
   ]
 }
@@ -74,13 +77,13 @@ Two valid models. Different tradeoffs. The choice depends on what you're buildin
 
 | Dimension | Skyfire | AgentLair |
 |:---|:---|:---|
-| **Identity model** | ES256 JWT, payment-bound | Ed25519 JWT (AAT), per-session |
-| **Verification path** | Experian KYA registry (closed) | JWKS at agentlair.dev (open, RFC-compliant) |
+| **Identity model** | ES256 JWTs: `kya` (identity only), `pay`, `kya-pay` | Ed25519 JWT (AAT), per-session |
+| **Verification path** | [Public JWKS](https://app.skyfire.xyz/.well-known/jwks.json); tokens go [directly from buyer to seller](https://docs.skyfire.xyz/docs/kyapay-tokens) | JWKS at agentlair.dev (open, RFC-compliant) |
 | **Cryptographic primitive** | ES256 (ECDSA P-256) | Ed25519 (EdDSA) |
-| **Open standards** | KYAPay IETF draft (proprietary origin) | RFC 9421, did:key, MCP SEP-2133 |
-| **Trust scope** | Transaction-bound | Behavior + identity, output-bound BHC |
+| **Open standards** | [KYAPay](https://kyapay.org) spec + IETF draft, Skyfire-originated | RFC 9421, did:key, MCP SEP-2133 |
+| **Trust scope** | Verified human identity + payment | Behavior + identity, output-bound BHC |
 | **Audit trail** | Payment receipts | Behavioral receipts (BHC + ATF) |
-| **Developer enrollment** | Skyfire network enrollment | `npm install @agentlair/sdk`, no gate |
+| **Developer enrollment** | Skyfire account; [KYA verification needs a paid subscription](https://docs.skyfire.xyz/docs/kya) | `npm install @agentlair/sdk`, no gate |
 | **Enterprise partnerships** | Experian, F5, Cequence | None yet |
 | **Funding** | [$9.5M seed](https://techcrunch.com/2024/08/21/skyfire-lets-ai-agents-spend-your-money/) | Indie, no external funding |
 | **Revenue** | Active (enterprise contracts) | $0 external |
@@ -104,13 +107,13 @@ Skyfire is ahead on the enterprise surface. That's not a caveat — it's the acc
 
 ## Where AgentLair Is Differentiated
 
-**No enrollment, no lock-in.** An agent using AgentLair's AAT can be verified by anyone who fetches the JWKS — no Skyfire network membership, no Experian relationship, no F5 contract. The credential is self-contained and verifiable offline. For a developer building an open-source agent tool, requiring end-users to enroll in Skyfire's network is a distribution problem. The npm package with no enrollment gate is a different developer experience.
+**No signup to get a credential.** Verification works the same way on both sides: anyone can check a Skyfire token or an AgentLair AAT against a public JWKS, offline. The difference is in issuance. A Skyfire token needs a Skyfire account, and the identity fields need a paid verification subscription. An AAT needs a free API key and no identity check. For a developer building an open-source agent tool, asking every end user to sign up somewhere first is a distribution problem. The npm package with no enrollment gate is a different developer experience.
 
 **Ed25519 is the converging primitive.** Visa TAP uses Ed25519 for agent signing. AgentLair uses Ed25519. The <a href="https://hammadtariq.com/protocol-notes/portable-agent-identity-implementers-profile/">Portable Agent Identity (PAI) profile</a> emerging in 2026 explicitly supports both centralized directories (Visa's) and decentralized JWKS (AgentLair's) with the same key. Skyfire's ES256/ECDSA-P256 is a different curve — not incompatible, but it sits outside the Ed25519 convergence that Visa and AgentLair share.
 
-**Behavioral trust scope beyond the transaction.** Skyfire's KYA credential answers: has this agent been verified for payment? AgentLair's BHC answers: what did this agent output, and is the chain unbroken? Those are different questions. If you need to audit what an agent *did between transactions*, not just whether it could transact, Skyfire doesn't provide that. AgentLair's per-output Behavioral Hash Chain is the only production artifact covering that surface.
+**Behavioral trust scope beyond the transaction.** Skyfire's KYA credential answers: which verified human or organization stands behind this agent? AgentLair's BHC answers: what did this agent output, and is the chain unbroken? Those are different questions. If you need to audit what an agent *did between transactions*, not just whether it could transact, Skyfire doesn't provide that.
 
-**Free developer tier, no vetting.** This matters for the builders-at-the-margin use case: a solo developer building an agent tool who won't pay $400/month or go through enterprise onboarding before knowing whether the tool works. That developer is the [LLM-recommendation flywheel](https://agentlair.dev/blog/agent-identity-landscape-2026) audience. Blocking them with enrollment gates is blocking early adoption.
+**Free developer tier, no vetting.** This matters for the builders-at-the-margin use case: a solo developer building an agent tool who won't pay for verification or sit through onboarding before knowing whether the tool works. That developer is the [LLM-recommendation flywheel](https://agentlair.dev/blog/agent-identity-landscape-2026) audience. Blocking them with enrollment gates is blocking early adoption.
 
 ---
 
@@ -118,9 +121,9 @@ Skyfire is ahead on the enterprise surface. That's not a caveat — it's the acc
 
 The choice isn't about which product is better. It's about what problem you're solving.
 
-**(a) Building a paid commercial agent for enterprise customers** — an agent that takes billing actions, initiates purchases, or operates within a regulated commerce flow. Skyfire is the right starting point. The Experian KYA risk scoring, the F5 bot defense integration, and the payment-bound identity all serve this use case. Your enterprise buyers will recognize the Experian and F5 brands. The AgentLair behavioral layer doesn't address enterprise KYA risk scoring.
+**(a) Building a paid commercial agent for enterprise customers** — an agent that takes billing actions, initiates purchases, or operates within a regulated commerce flow. Skyfire is the right starting point. The Experian KYA risk scoring, the F5 bot defense integration, and the human-backed identity and payment tokens all serve this use case. Your enterprise buyers will recognize the Experian and F5 brands. The AgentLair behavioral layer doesn't address enterprise KYA risk scoring.
 
-**(b) Need cryptographic identity + behavioral audit trail for any agent, regardless of payment rails** — an agent that writes to databases, calls APIs, makes decisions. The trust surface extends beyond payment. You need to know not just "was this agent verified" but "what did it do and can you prove it?" AgentLair's per-session AAT + per-output BHC + RFC 9421 compatibility covers this surface. Skyfire's payment-bound credential doesn't extend to non-transactional behavior.
+**(b) Need cryptographic identity + behavioral audit trail for any agent, regardless of payment rails** — an agent that writes to databases, calls APIs, makes decisions. The trust surface extends beyond payment. You need to know not just "was this agent verified" but "what did it do and can you prove it?" AgentLair's per-session AAT + per-output BHC + RFC 9421 compatibility covers this surface. Skyfire's tokens prove who stands behind an agent and what it will pay; they don't record what it did.
 
 **(c) Need both** — The architectures are composable, not competing. An agent can authenticate to Skyfire's payment rails using Skyfire's KYA credential while simultaneously carrying an AgentLair AAT that backs its behavioral audit trail. AgentLair's Ed25519 keys are RFC 9421 compatible with Visa TAP's signing format — one key can operate in both ecosystems. The KYAPay token and the AAT serve different verifiers asking different questions.
 

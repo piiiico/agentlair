@@ -7,17 +7,17 @@ import { Navbar } from "@/components/blocks/navbar";
 <html lang="en">
   <head>
     <BaseHead
-      title="AgentLair vs. Lyrie, ARIA, Experian + AWS, Visa — May 2026"
+      title="AgentLair vs. Microsoft AGT, AgentMail, Lyrie, Experian (re-read Nov 2026)"
       description="How AgentLair compares to Lyrie ATP, ARIA, Experian, AWS AgentCore, Visa TAP, MCP, ERC-8004 — agent identity, credentials, and behavioral trust."
     />
-    <meta property="article:modified_time" content="2026-05-14T00:00:00Z" />
+    <meta property="article:modified_time" content="2026-11-08T00:00:00Z" />
     <script type="application/ld+json">{
   "@context": "https://schema.org",
   "@type": "Article",
-  "headline": "AgentLair vs. The Field — May 2026 Identity-Protocol Comparison",
+  "headline": "AgentLair vs. The Field — Agent Identity and Trust Comparison (corrected Nov 2026)",
   "description": "How AgentLair compares to Lyrie ATP, ARIA, Experian, AWS AgentCore, Visa TAP, MCP, ERC-8004 — agent identity, credentials, and behavioral trust.",
   "datePublished": "2026-05-01",
-  "dateModified": "2026-05-14",
+  "dateModified": "2026-11-08",
   "author": { "@type": "Organization", "name": "AgentLair", "url": "https://agentlair.dev" },
   "mainEntityOfPage": "https://agentlair.dev/compare",
   "mentions": [
@@ -70,6 +70,9 @@ import { Navbar } from "@/components/blocks/navbar";
         <p class="text-xl text-muted-foreground leading-relaxed max-w-2xl">
           The agent identity space is moving fast. Several good tools have emerged — each solving a real problem.
           Here's an honest look at what each does, what it misses, and where AgentLair fits.
+        </p>
+        <p class="text-sm text-muted-foreground mt-4 max-w-2xl">
+          Corrected 2026-11-08: we re-read the live docs for Microsoft AGT and AgentMail and fixed three table cells and two write-ups where we had understated them. The other columns date from May 2026 and have not been re-checked.
         </p>
       </section>
 
@@ -223,7 +226,7 @@ import { Navbar } from "@/components/blocks/navbar";
                   <span class="text-muted-foreground/50 text-base" title="No">—</span>
                 </td>
                 <td class="py-4 px-4 text-center">
-                  <span class="text-muted-foreground/50 text-base" title="No">—</span>
+                  <span class="text-green-500 text-base" title="Yes">✓</span>
                 </td>
                 <td class="py-4 px-4 text-center">
                   <span class="text-muted-foreground/50 text-base" title="No">—</span>
@@ -293,7 +296,7 @@ import { Navbar } from "@/components/blocks/navbar";
                   <span class="text-muted-foreground/50 text-base" title="No">—</span>
                 </td>
                 <td class="py-4 px-4 text-center">
-                  <span class="text-muted-foreground/50 text-base" title="No">—</span>
+                  <span class="text-green-500 text-base" title="Yes">✓</span>
                 </td>
                 <td class="py-4 px-4 text-center">
                   <span class="text-muted-foreground/50 text-base" title="No">—</span>
@@ -369,7 +372,7 @@ import { Navbar } from "@/components/blocks/navbar";
                   <span class="text-muted-foreground/50 text-base" title="No — ZK unlinkability prevents cross-app aggregation">—</span>
                 </td>
                 <td class="py-4 px-4 text-center">
-                  <span class="text-muted-foreground/50 text-base" title="No — single-org only">—</span>
+                  <span class="text-amber-500 text-base" title="Partial — cross-org identity federation (external JWKS, ADR-0007); no shared behavioral history">~</span>
                 </td>
                 <td class="py-4 px-4 text-center">
                   <span class="text-amber-500 text-base" title="Partial — chain-scoped, not org-to-org">~</span>
@@ -543,7 +546,7 @@ import { Navbar } from "@/components/blocks/navbar";
               <span class="text-xs font-medium text-muted-foreground border rounded-full px-3 py-1 whitespace-nowrap shrink-0">L1–L2 Identity</span>
             </div>
             <p class="text-muted-foreground leading-relaxed">
-              AgentMail raised $6M (TechCrunch, March 2026) and has built a clean product: REST API, Go SDK, CLI, and a Replit integration that makes it genuinely easy to add email to an agent. Their focus is narrow by design — email, done well. The gaps are also clear: no vault, no E2E encryption, no DNS management, no trust layer of any kind. If you need email-only and want a dedicated provider without cloud lock-in, AgentMail is worth evaluating. If you need trust infrastructure, it's out of scope.
+              AgentMail raised $6M (TechCrunch, March 2026) and has built a clean product: REST API, Go SDK, CLI, and a Replit integration that makes it genuinely easy to add email to an agent. Their focus is narrow by design — email, done well. It is also wider than email now. An earlier version of this page said AgentMail had no MCP server, no calendar, no domain management and no trust layer of any kind. All four were wrong by the time we re-read <a href="https://docs.agentmail.to/llms.txt" rel="nofollow" class="underline underline-offset-2">their docs index</a> on 2026-11-08: they run a hosted MCP server, every inbox has a calendar, custom domains are managed through the API, and AgentID sign-in lets an agent log in to apps with its inbox as its identity. We found no vault and no end-to-end encryption in that index. What they don't do is score behavior across organizations. If you want inbox-centred agent identity, AgentMail is strong.
             </p>
           </div>
 
@@ -562,10 +565,10 @@ import { Navbar } from "@/components/blocks/navbar";
           <div class="border rounded-xl p-6">
             <div class="flex items-start justify-between gap-4 mb-3">
               <h3 class="text-lg font-semibold">Microsoft Agent Governance Toolkit</h3>
-              <span class="text-xs font-medium text-muted-foreground border rounded-full px-3 py-1 whitespace-nowrap shrink-0">L3 (single-org)</span>
+              <span class="text-xs font-medium text-muted-foreground border rounded-full px-3 py-1 whitespace-nowrap shrink-0">L3 + cross-org identity</span>
             </div>
             <p class="text-muted-foreground leading-relaxed">
-              Released as OSS in April 2026, Microsoft's AGT is the most sophisticated single-org trust infrastructure available today. The 0–1000 behavioral scoring model is well-designed, sub-millisecond policy enforcement is impressive, and post-quantum cryptographic identities are forward-looking. Within an organization, it's excellent. The structural limit is that trust scores don't travel — an agent with a perfect 1000-point history walks into a new org and starts at 0, indistinguishable from a brand-new attacker agent. AGT is the right tool for intra-org governance; it doesn't solve the cross-org cold-start problem.
+              Released as OSS in April 2026, Microsoft's AGT is the most sophisticated single-org trust infrastructure available today. The 0–1000 behavioral scoring model is well-designed, sub-millisecond policy enforcement is impressive, and post-quantum cryptographic identities are forward-looking. Within an organization, it's excellent. This page used to say AGT stops at the org boundary. That was wrong. <a href="https://github.com/microsoft/agent-governance-toolkit/blob/main/docs/adr/0007-external-jwks-federation-for-cross-org-identity.md" rel="nofollow" class="underline underline-offset-2">ADR-0007</a> (accepted 2026-04-23) verifies agents from other organizations through external JWKS and <code>did:web</code>. Disclosure: AgentLair's agent drafted that ADR. <a href="https://github.com/microsoft/agent-governance-toolkit/blob/main/docs/adr/0032-agt-emits-trace-v01-trust-records.md" rel="nofollow" class="underline underline-offset-2">ADR-0032</a> emits signed per-session trust records that anyone with the public key can check. What it still doesn't do is carry an agent's behavioral history from one org to the next. The receiving org gives a federated agent the trust tier it has configured for the issuer's domain, not a score built from what the agent did elsewhere (re-read 2026-11-08).
             </p>
           </div>
 
@@ -576,7 +579,7 @@ import { Navbar } from "@/components/blocks/navbar";
               <span class="text-xs font-medium text-muted-foreground border rounded-full px-3 py-1 whitespace-nowrap shrink-0">L1–L3 (chain-scoped)</span>
             </div>
             <p class="text-muted-foreground leading-relaxed">
-              With 129,000 agents enrolled, ERC-8004 has real adoption. NFT-based agent identity plus ZK proofs plus reputation staking is an interesting combination, and the on-chain anchoring gives it verifiability. The scope limitation is that "cross-org" here means "cross-org on the same chain" — it doesn't cover agents operating in off-chain environments, and the financial staking model means trust is priced rather than observed. Staking skin in the game is valuable; it doesn't detect behavioral anomalies in real time. For blockchain-native agent deployments, ERC-8004 is a serious option; for general-purpose agent infrastructure, the scope is constrained.
+              ERC-8004 had 129,000 agents enrolled when we counted in May 2026; we have not re-counted. NFT-based agent identity plus ZK proofs plus reputation staking is an interesting combination, and the on-chain anchoring gives it verifiability. The scope limitation is that "cross-org" here means "cross-org on the same chain" — it doesn't cover agents operating in off-chain environments, and the financial staking model means trust is priced rather than observed. Staking skin in the game is valuable; it doesn't detect behavioral anomalies in real time. For blockchain-native agent deployments, ERC-8004 is a serious option; for general-purpose agent infrastructure, the scope is constrained.
             </p>
           </div>
 
