@@ -7,17 +7,17 @@ import { Navbar } from "@/components/blocks/navbar";
 <html lang="en">
   <head>
     <BaseHead
-      title="AgentLair vs. Microsoft AGT, AgentMail, Lyrie, Experian (re-read Nov 2026)"
+      title="AgentLair vs. Microsoft AGT, AgentMail, Cloudflare, Lyrie, Experian (re-read Nov 2026)"
       description="How AgentLair compares to Lyrie ATP, ARIA, Experian, AWS AgentCore, Visa TAP, MCP, ERC-8004 — agent identity, credentials, and behavioral trust."
     />
-    <meta property="article:modified_time" content="2026-11-08T00:00:00Z" />
+    <meta property="article:modified_time" content="2026-11-09T00:00:00Z" />
     <script type="application/ld+json">{
   "@context": "https://schema.org",
   "@type": "Article",
   "headline": "AgentLair vs. The Field — Agent Identity and Trust Comparison (corrected Nov 2026)",
   "description": "How AgentLair compares to Lyrie ATP, ARIA, Experian, AWS AgentCore, Visa TAP, MCP, ERC-8004 — agent identity, credentials, and behavioral trust.",
   "datePublished": "2026-05-01",
-  "dateModified": "2026-11-08",
+  "dateModified": "2026-11-09",
   "author": { "@type": "Organization", "name": "AgentLair", "url": "https://agentlair.dev" },
   "mainEntityOfPage": "https://agentlair.dev/compare",
   "mentions": [
@@ -35,7 +35,7 @@ import { Navbar } from "@/components/blocks/navbar";
       "name": "How does AgentLair compare to Lyrie ATP?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Lyrie ATP is an open identity standard for agent credentials. AgentLair is a behavioral-trust runtime for the same agents after they're credentialed. The two are complementary: an ATP-credentialed agent operating across organizations is the natural input to AgentLair's behavioral attestation."
+        "text": "Lyrie ATP is an open identity standard for agent credentials, with a signed action log per session. AgentLair scores behavior across sessions and organizations. The two fit together: an ATP-credentialed agent with session logs is good input to a cross-org score."
       }
     },
     {
@@ -43,7 +43,7 @@ import { Navbar } from "@/components/blocks/navbar";
       "name": "Is Experian Agent Trust a replacement for AgentLair?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "No. Experian's Agent Trust binds a verified human to an authorized agent and scores fraud risk at transaction time. It does not monitor agent behavior across organizations during execution. AgentLair closes that runtime gap."
+        "text": "Not outside commerce. Experian binds a verified human to an agent and, per its announcement, adjusts the agent's trust score over time from behavioral signals across merchants in its network. It does not read tool-call logs or cover non-commerce work across organizations, which is where AgentLair operates."
       }
     },
     {
@@ -51,7 +51,7 @@ import { Navbar } from "@/components/blocks/navbar";
       "name": "What does AgentLair do that Lyrie, ARIA, and Experian don't?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Cross-organizational behavioral attestation — a portable, observed record of how an agent has acted across every organization that has issued it work."
+        "text": "A behavioral score built across organizations and sessions. Lyrie logs one session, ARIA signs per-operation receipts, Experian scores inside commerce."
       }
     }
   ]
@@ -72,7 +72,7 @@ import { Navbar } from "@/components/blocks/navbar";
           Here's an honest look at what each does, what it misses, and where AgentLair fits.
         </p>
         <p class="text-sm text-muted-foreground mt-4 max-w-2xl">
-          Corrected 2026-11-08: we re-read the live docs for Microsoft AGT and AgentMail and fixed three table cells and two write-ups where we had understated them. The other columns date from May 2026 and have not been re-checked.
+          Corrected 2026-11-08 and 2026-11-09: we re-read the live docs, repos or launch posts for every product in the table and fixed the cells and write-ups where we had understated them. Each correction is dated and linked below. Experian's own site refused our declared AI user agent, so that column rests on partner and press sources.
         </p>
       </section>
 
@@ -104,7 +104,7 @@ import { Navbar } from "@/components/blocks/navbar";
                 <th class="py-4 px-4 text-center font-medium text-foreground min-w-[120px]">
                   <div class="flex flex-col items-center gap-1">
                     <span>World ID</span>
-                    <span class="text-xs font-normal text-muted-foreground">4.0 "Lift Off"</span>
+                    <span class="text-xs font-normal text-muted-foreground">4.0 + AgentKit</span>
                   </div>
                 </th>
                 <th class="py-4 px-4 text-center font-medium text-foreground min-w-[120px]">
@@ -116,7 +116,7 @@ import { Navbar } from "@/components/blocks/navbar";
                 <th class="py-4 px-4 text-center font-medium text-foreground min-w-[120px]">
                   <div class="flex flex-col items-center gap-1">
                     <span>ERC-8004</span>
-                    <span class="text-xs font-normal text-muted-foreground">"Know Your Agent"</span>
+                    <span class="text-xs font-normal text-muted-foreground">"Trustless Agents"</span>
                   </div>
                 </th>
                 <th class="py-4 px-4 text-center font-medium text-foreground min-w-[120px]">
@@ -188,7 +188,7 @@ import { Navbar } from "@/components/blocks/navbar";
                   <span class="text-green-500 text-base" title="Yes">✓</span>
                 </td>
                 <td class="py-4 px-4 text-center">
-                  <span class="text-muted-foreground/50 text-base" title="No">—</span>
+                  <span class="text-amber-500 text-base" title="Partial — account-level Secrets Store for Workers, not a per-agent vault">~</span>
                 </td>
                 <td class="py-4 px-4 text-center">
                   <span class="text-muted-foreground/50 text-base" title="No">—</span>
@@ -273,10 +273,10 @@ import { Navbar } from "@/components/blocks/navbar";
                   <span class="text-muted-foreground/50 text-base" title="No">—</span>
                 </td>
                 <td class="py-4 px-4 text-center">
-                  <span class="text-muted-foreground/50 text-base" title="No">—</span>
+                  <span class="text-amber-500 text-base" title="Partial — trust level (unverified, verified_third_party, first_party) set by attestation and carried in tokens">~</span>
                 </td>
                 <td class="py-4 px-4 text-center">
-                  <span class="text-muted-foreground/50 text-base" title="No">—</span>
+                  <span class="text-amber-500 text-base" title="Partial — ATP compliance badge from the CLI">~</span>
                 </td>
                 <td class="py-4 px-4 text-center">
                   <span class="text-amber-500 text-base" title="Partial — declarative L0–L3 tiers, not behavioral">~</span>
@@ -293,7 +293,7 @@ import { Navbar } from "@/components/blocks/navbar";
                   <span class="text-green-500 text-base" title="Yes">✓</span>
                 </td>
                 <td class="py-4 px-4 text-center">
-                  <span class="text-muted-foreground/50 text-base" title="No">—</span>
+                  <span class="text-green-500 text-base" title="Yes — email tools in the Cloudflare MCP server (Apr 2026)">✓</span>
                 </td>
                 <td class="py-4 px-4 text-center">
                   <span class="text-green-500 text-base" title="Yes">✓</span>
@@ -311,7 +311,7 @@ import { Navbar } from "@/components/blocks/navbar";
                   <span class="text-muted-foreground/50 text-base" title="No">—</span>
                 </td>
                 <td class="py-4 px-4 text-center">
-                  <span class="text-muted-foreground/50 text-base" title="No">—</span>
+                  <span class="text-green-500 text-base" title="Yes — @lyrie/mcp runs as MCP client and server">✓</span>
                 </td>
                 <td class="py-4 px-4 text-center">
                   <span class="text-muted-foreground/50 text-base" title="No">—</span>
@@ -334,13 +334,13 @@ import { Navbar } from "@/components/blocks/navbar";
                   <span class="text-muted-foreground/50 text-base" title="No">—</span>
                 </td>
                 <td class="py-4 px-4 text-center">
-                  <span class="text-amber-500 text-base" title="Partial — ZK proof of human principal">~</span>
+                  <span class="text-muted-foreground/50 text-base" title="No — a ZK proof of a human is not message encryption">—</span>
                 </td>
                 <td class="py-4 px-4 text-center">
                   <span class="text-muted-foreground/50 text-base" title="No">—</span>
                 </td>
                 <td class="py-4 px-4 text-center">
-                  <span class="text-amber-500 text-base" title="Partial — ZK proofs for on-chain identity">~</span>
+                  <span class="text-muted-foreground/50 text-base" title="No">—</span>
                 </td>
                 <td class="py-4 px-4 text-center">
                   <span class="text-muted-foreground/50 text-base" title="No">—</span>
@@ -369,25 +369,25 @@ import { Navbar } from "@/components/blocks/navbar";
                   <span class="text-muted-foreground/50 text-base" title="No">—</span>
                 </td>
                 <td class="py-4 px-4 text-center">
-                  <span class="text-muted-foreground/50 text-base" title="No — ZK unlinkability prevents cross-app aggregation">—</span>
+                  <span class="text-amber-500 text-base" title="Partial — AgentBook resolves an agent wallet to the same anonymous human ID on every site; no behavioral history">~</span>
                 </td>
                 <td class="py-4 px-4 text-center">
                   <span class="text-amber-500 text-base" title="Partial — cross-org identity federation (external JWKS, ADR-0007); no shared behavioral history">~</span>
                 </td>
                 <td class="py-4 px-4 text-center">
-                  <span class="text-amber-500 text-base" title="Partial — chain-scoped, not org-to-org">~</span>
+                  <span class="text-amber-500 text-base" title="Partial — anyone can post feedback to the Reputation Registry; registries are deployed per chain">~</span>
                 </td>
                 <td class="py-4 px-4 text-center">
-                  <span class="text-muted-foreground/50 text-base" title="No — single-org only">—</span>
+                  <span class="text-amber-500 text-base" title="Partial — accepts tokens from external IdPs and zero-registration CIMD clients; no shared behavioral history">~</span>
                 </td>
                 <td class="py-4 px-4 text-center">
-                  <span class="text-amber-500 text-base" title="Partial — open standard, no observed behavior">~</span>
+                  <span class="text-amber-500 text-base" title="Partial — open credential standard any org can verify; no history across sessions">~</span>
                 </td>
                 <td class="py-4 px-4 text-center">
                   <span class="text-amber-500 text-base" title="Partial — declarative tiers, certified not observed">~</span>
                 </td>
                 <td class="py-4 px-4 text-center">
-                  <span class="text-amber-500 text-base" title="Partial — commerce-only, Visa+Experian network">~</span>
+                  <span class="text-amber-500 text-base" title="Partial — commerce only, across the Experian partner network (Visa, Cloudflare, Akamai and others)">~</span>
                 </td>
               </tr>
 
@@ -410,19 +410,19 @@ import { Navbar } from "@/components/blocks/navbar";
                   <span class="text-amber-500 text-base" title="Partial — single-org behavioral scoring only">~</span>
                 </td>
                 <td class="py-4 px-4 text-center">
-                  <span class="text-muted-foreground/50 text-base" title="No">—</span>
+                  <span class="text-amber-500 text-base" title="Partial — client feedback and optional validator re-execution; no telemetry stream">~</span>
                 </td>
                 <td class="py-4 px-4 text-center">
                   <span class="text-muted-foreground/50 text-base" title="No">—</span>
                 </td>
                 <td class="py-4 px-4 text-center">
-                  <span class="text-muted-foreground/50 text-base" title="No">—</span>
+                  <span class="text-amber-500 text-base" title="Partial — signed, hash-chained per-session action log (TEAL); no cross-session scoring">~</span>
                 </td>
                 <td class="py-4 px-4 text-center">
-                  <span class="text-muted-foreground/50 text-base" title="No">—</span>
+                  <span class="text-amber-500 text-base" title="Partial — the receiving service signs a receipt per operation; no scoring">~</span>
                 </td>
                 <td class="py-4 px-4 text-center">
-                  <span class="text-muted-foreground/50 text-base" title="No — fraud scoring is not execution monitoring">—</span>
+                  <span class="text-amber-500 text-base" title="Partial — Agent Registry adjusts a trust score over time from behavioral signals in commerce transactions; not tool-call logs">~</span>
                 </td>
               </tr>
 
@@ -430,7 +430,7 @@ import { Navbar } from "@/components/blocks/navbar";
               <tr class="hover:bg-muted/20 transition-colors">
                 <td class="py-4 px-5 font-medium">ZK Privacy</td>
                 <td class="py-4 px-4 text-center">
-                  <span class="text-green-500 text-base" title="Yes — roadmap">✓</span>
+                  <span class="text-muted-foreground/50 text-base" title="Not shipped — on our roadmap">—</span>
                 </td>
                 <td class="py-4 px-4 text-center">
                   <span class="text-muted-foreground/50 text-base" title="No">—</span>
@@ -445,7 +445,7 @@ import { Navbar } from "@/components/blocks/navbar";
                   <span class="text-muted-foreground/50 text-base" title="No">—</span>
                 </td>
                 <td class="py-4 px-4 text-center">
-                  <span class="text-green-500 text-base" title="Yes — ZK proofs for on-chain identity">✓</span>
+                  <span class="text-amber-500 text-base" title="Partial — zkML is one optional validation model; the identity itself is a public ERC-721 token">~</span>
                 </td>
                 <td class="py-4 px-4 text-center">
                   <span class="text-muted-foreground/50 text-base" title="No">—</span>
@@ -535,7 +535,7 @@ import { Navbar } from "@/components/blocks/navbar";
               <span class="text-xs font-medium text-muted-foreground border rounded-full px-3 py-1 whitespace-nowrap shrink-0">L1–L2 Identity</span>
             </div>
             <p class="text-muted-foreground leading-relaxed">
-              Launched April 2026, Cloudflare's Email for Agents SDK is well-engineered: native Workers integration, Durable Objects for state, a free tier, and deep platform synergy if you're already on Cloudflare. It solves email for agents as well as anyone. What it doesn't do is leave the Cloudflare perimeter — there's no encrypted credential vault, no trust badges, no behavioral telemetry, and no cross-org trust scoring. It's a strong L1–L2 building block for Cloudflare-native deployments, and a natural complement to infrastructure that lives elsewhere.
+              Launched April 2026, Cloudflare Email Service sends and receives mail for agents, with a native Workers binding and Durable Objects for state. An earlier version of this page said it didn't leave the Cloudflare perimeter and had no MCP server or credential store. When we re-read <a href="https://blog.cloudflare.com/email-for-agents/" rel="nofollow" class="underline underline-offset-2">their launch post</a> on 2026-11-09, all three were wrong: there is a REST API with TypeScript, Python and Go SDKs for agents running anywhere, the email endpoints are in the Cloudflare MCP server, and <a href="https://developers.cloudflare.com/secrets-store/" rel="nofollow" class="underline underline-offset-2">Secrets Store</a> keeps encrypted secrets at account level for Workers. That last one is not a vault each agent owns. We found no trust badges, behavioral telemetry or cross-org scoring. If your agents already run on Cloudflare, it is the obvious choice for email.
             </p>
           </div>
 
@@ -553,11 +553,11 @@ import { Navbar } from "@/components/blocks/navbar";
           <!-- World ID -->
           <div class="border rounded-xl p-6">
             <div class="flex items-start justify-between gap-4 mb-3">
-              <h3 class="text-lg font-semibold">World ID 4.0 "Lift Off"</h3>
+              <h3 class="text-lg font-semibold">World ID 4.0 and AgentKit</h3>
               <span class="text-xs font-medium text-muted-foreground border rounded-full px-3 py-1 whitespace-nowrap shrink-0">L1 Identity</span>
             </div>
             <p class="text-muted-foreground leading-relaxed">
-              World ID 4.0 solves a genuinely hard problem: proving that an AI agent is operating under the supervision of a real human, using ZK proofs. AgentBook on World Chain is novel and the privacy story is strong. The constraint is architectural — ZK unlinkability, which makes the proofs trustworthy, also prevents cross-app behavioral aggregation. An agent can prove it has a human principal; it can't accumulate a portable behavioral history across environments. World ID is solving L1 (human-principal attestation) and doing it with rigor. It doesn't extend to L2–L5.
+              World ID proves that a real, unique human stands behind an agent, using ZK proofs. <a href="https://docs.world.org/agents/agent-kit/integrate.md" rel="nofollow" class="underline underline-offset-2">AgentKit</a> (beta) registers an agent's wallet in AgentBook on World Chain, and any site can then resolve that wallet to an anonymous human identifier, for example to give human-backed agents free calls before x402 payment kicks in. A <a href="https://docs.world.org/agents/human-in-the-loop/integrate.md" rel="nofollow" class="underline underline-offset-2">human-in-the-loop</a> SDK lets an agent pause until a verified human approves an action. This page used to say ZK unlinkability stops anything from following an agent across apps. For AgentBook that is wrong: every site sees the same anonymous human ID for the same wallet (re-read 2026-11-09). What travels is "a human backs this", not a record of what the agent did.
             </p>
           </div>
 
@@ -575,11 +575,11 @@ import { Navbar } from "@/components/blocks/navbar";
           <!-- ERC-8004 -->
           <div class="border rounded-xl p-6">
             <div class="flex items-start justify-between gap-4 mb-3">
-              <h3 class="text-lg font-semibold">ERC-8004 "Know Your Agent"</h3>
+              <h3 class="text-lg font-semibold">ERC-8004 "Trustless Agents"</h3>
               <span class="text-xs font-medium text-muted-foreground border rounded-full px-3 py-1 whitespace-nowrap shrink-0">L1–L3 (chain-scoped)</span>
             </div>
             <p class="text-muted-foreground leading-relaxed">
-              ERC-8004 had 129,000 agents enrolled when we counted in May 2026; we have not re-counted. NFT-based agent identity plus ZK proofs plus reputation staking is an interesting combination, and the on-chain anchoring gives it verifiability. The scope limitation is that "cross-org" here means "cross-org on the same chain" — it doesn't cover agents operating in off-chain environments, and the financial staking model means trust is priced rather than observed. Staking skin in the game is valuable; it doesn't detect behavioral anomalies in real time. For blockchain-native agent deployments, ERC-8004 is a serious option; for general-purpose agent infrastructure, the scope is constrained.
+              <a href="https://github.com/ethereum/ERCs/blob/master/ERCS/erc-8004.md" rel="nofollow" class="underline underline-offset-2">ERC-8004</a> (draft) defines three on-chain registries: identity as an ERC-721 token, a reputation registry where clients post feedback about an agent, and a validation registry where independent validators record checks such as stake-secured re-execution, zkML proofs or TEE attestations. We previously called it "Know Your Agent", gave it ZK identity proofs, and said trust is priced by staking rather than observed. The spec does not say that: ZK is one optional validation model, and the reputation registry is feedback from the agent's clients, so it is observed. Registries are deployed per chain, and aggregation is left to off-chain services (re-read 2026-11-09). We dropped the May enrollment count because we have not re-counted. For agents that live on-chain it is the most open reputation design here; it carries what clients report, not a telemetry stream.
             </p>
           </div>
 
@@ -590,7 +590,7 @@ import { Navbar } from "@/components/blocks/navbar";
               <span class="text-xs font-medium text-muted-foreground border rounded-full px-3 py-1 whitespace-nowrap shrink-0">L3 (single-org)</span>
             </div>
             <p class="text-muted-foreground leading-relaxed">
-              ZeroID (Apache OSS, April 2026) brings solid engineering to agent identity: OAuth 2.1 + SPIFFE + RFC 8693 delegation chains, with Python, TypeScript, and Rust SDKs. The standards choices are correct and the implementation quality is high. Like most identity-only solutions, the gap is behavioral — ZeroID handles who-is-this reliably but doesn't address what-did-it-do-across-orgs. It's single-org scoped and has no telemetry or trust scoring layer. Good open-source foundation for teams that want to own their identity infrastructure; doesn't include the behavioral trust layer.
+              <a href="https://github.com/highflame-ai/zeroid" rel="nofollow" class="underline underline-offset-2">ZeroID</a> (Apache-2.0, April 2026) issues agent identities on OAuth 2.1, WIMSE/SPIFFE and RFC 8693 delegation, with Python and TypeScript SDKs. It caps delegation depth, revokes a whole chain in real time when Shared Signals risk events fire, and sets a trust level from attestation. We called it single-org only. That was wrong: it accepts tokens from external identity providers and lets an agent onboard with no pre-registration by using a URL as its client ID (re-read 2026-11-09). What it does not keep is a behavioral history or score that follows an agent between deployments. A strong open-source base if you want to run agent identity yourself.
             </p>
           </div>
 
@@ -605,10 +605,10 @@ import { Navbar } from "@/components/blocks/navbar";
             The solutions above solve real problems — each one. The gap they share is the space between organizations: when Agent A from Company A calls Agent B from Company B, no current system answers the question that matters: <em>based on everything this agent has done, across every environment it has operated in, should I trust what it does next?</em>
           </p>
           <p class="text-muted-foreground leading-relaxed mb-4">
-            AgentLair provides the full stack: persistent identity (email, vault, calendar, MCP), verifiable trust signals (badges, behavioral telemetry), and — uniquely — cross-organizational trust scoring that travels with the agent. The model is FICO for agents: behavioral, portable, third-party verified.
+            AgentLair provides persistent identity (email, vault, calendar, MCP), verifiable trust signals (badges, behavioral telemetry), and trust scoring built from what the agent did across organizations, not only in one session, one chain or one commerce network. The model is FICO for agents: behavioral, portable, third-party verified.
           </p>
           <p class="text-muted-foreground leading-relaxed">
-            If you're building single-org governance, Microsoft AGT is excellent. If you need email-only, AgentMail or Cloudflare work well. If you need an agent that can operate credibly across organizational boundaries — with a behavioral reputation that persists, accumulates, and is cryptographically verifiable — that's what AgentLair is for.
+            If you're building single-org governance, Microsoft AGT is excellent. If you need email, AgentMail or Cloudflare work well. If you need an agent that can operate credibly across organizational boundaries — with a behavioral reputation that persists, accumulates, and is cryptographically verifiable — that's what AgentLair is for.
           </p>
         </div>
       </section>
@@ -617,7 +617,7 @@ import { Navbar } from "@/components/blocks/navbar";
       <section class="mx-auto max-w-4xl px-4 pb-16">
         <h2 class="text-2xl font-bold tracking-tight mb-4">The identity-protocol wave (May 2026)</h2>
         <p class="text-muted-foreground leading-relaxed mb-8">
-          May 2026 saw three independent entrants form "agent trust" as a recognized category in two weeks. Each tackles a slice of L1–L3; none of them touches behavioral runtime.
+          May 2026 saw three independent entrants form "agent trust" as a recognized category in two weeks. Each started at L1–L3. Since then, Lyrie and ARIA have added signed action records and Experian scores behavior inside commerce.
         </p>
 
         <div class="space-y-6">
@@ -629,7 +629,7 @@ import { Navbar } from "@/components/blocks/navbar";
               <span class="text-xs font-medium text-muted-foreground border rounded-full px-3 py-1 whitespace-nowrap shrink-0">L1–L3 Agent Credential</span>
             </div>
             <p class="text-muted-foreground leading-relaxed">
-              Lyrie.ai (<a href="https://github.com/OTT-Cybersecurity-LLC/lyrie-ai" rel="nofollow" class="underline underline-offset-2">OTT Cybersecurity LLC</a>) exited stealth May 11, 2026, with a $2M pre-seed and a seat in Anthropic's inaugural Cyber Verification Program — the most significant credibility signal from any new entrant this year. ATP defines five primitives: Identity, Scope, Attestation, Delegation, and Revocation, all signed with Ed25519. The reference implementation is MIT-licensed on GitHub, with an IETF submission planned. That makes Lyrie the strongest open credential standard in this wave. What ATP doesn't do is watch what happens after issuance: five primitives, zero behavioral evidence. The TOCTOU gap — was this agent authorized versus did this agent honor its authorization — is untouched by design. An ATP-credentialed agent entering a behavioral trust system is exactly what AgentLair is built for.
+              Lyrie.ai (<a href="https://github.com/OTT-Cybersecurity-LLC/lyrie-ai" rel="nofollow" class="underline underline-offset-2">OTT Cybersecurity LLC</a>) exited stealth May 11, 2026, announcing a $2M pre-seed and acceptance into Anthropic's Cyber Verification Program. Lyrie itself is an autonomous security agent; <a href="https://atp.lyrie.ai" rel="nofollow" class="underline underline-offset-2">ATP</a> is the MIT-licensed identity standard that ships with it, signed with Ed25519. We wrote that ATP has "zero behavioral evidence". That was wrong. Its Tamper-Evident Action Log signs every tool call, API request and model call into a hash-linked chain per session, and a runtime attestation block flags a modified prompt or toolset. The CLI also prints a compliance badge, and <code>@lyrie/mcp</code> runs as an MCP server (re-read 2026-11-09). The log is scoped to one session. Nothing in ATP turns many sessions across organizations into a score. An ATP-credentialed agent with TEAL logs would be good input to exactly that.
             </p>
           </div>
 
@@ -640,7 +640,7 @@ import { Navbar } from "@/components/blocks/navbar";
               <span class="text-xs font-medium text-muted-foreground border rounded-full px-3 py-1 whitespace-nowrap shrink-0">L0–L3 Credential Tier</span>
             </div>
             <p class="text-muted-foreground leading-relaxed">
-              <a href="https://aria.bar" rel="nofollow" class="underline underline-offset-2">TrustLayer Foundation A.C.</a>, an independent nonprofit established March 20, 2026 in Mexico City, runs ARIA as an open credentialing framework. The technical design is forward-looking: W3C Verifiable Credentials anchored to DNS, with post-quantum ML-DSA-65 composite signatures alongside Ed25519. Four trust levels span the range from self-service agent registration (L0) to government-backed sovereign attestation (L3). The cleanliness of the model is genuine — it maps naturally to existing compliance frameworks. The limit is that every level is declarative: an L3 ARIA credential certifies who the holder is via organizational attestation, not what the agent has done. Observed behavior and certified identity are different things, and ARIA covers the second.
+              <a href="https://aria.bar" rel="nofollow" class="underline underline-offset-2">TrustLayer Foundation A.C.</a>, an independent nonprofit established March 20, 2026 in Mexico City, runs ARIA as an open credentialing framework. The technical design is forward-looking: W3C Verifiable Credentials anchored to DNS, with post-quantum ML-DSA-65 composite signatures alongside Ed25519. Four trust levels run from self-service keys (L0) to a legal entity backed by someone with the power to bind it, with keys in certified hardware (L3); DNS anchoring starts at L1. The cleanliness of the model is genuine — it maps naturally to existing compliance frameworks. The limit is that every level is declarative: an L3 ARIA credential certifies who the holder is via organizational attestation, not what the agent has done. Its ARIA AP layer does record what happens: the receiving service signs a receipt for each operation (re-read 2026-11-09). Those receipts are not turned into a score.
             </p>
           </div>
 
@@ -651,7 +651,7 @@ import { Navbar } from "@/components/blocks/navbar";
               <span class="text-xs font-medium text-muted-foreground border rounded-full px-3 py-1 whitespace-nowrap shrink-0">L1–L2 Commerce Identity</span>
             </div>
             <p class="text-muted-foreground leading-relaxed">
-              <a href="https://www.experianplc.com" rel="nofollow" class="underline underline-offset-2">Experian plc</a> (NYSE: EXPGY, ~$7B revenue) announced Agent Trust on April 30, 2026. The architecture layers Skyfire's Known Your Agent (KYA) JWT framework as the identity layer, Experian's 1.4B-consumer profile database for risk scoring, and Visa TAP for merchant verification. The output is an Agent Trust Token that binds a verified human identity to an authorized agent, with a real-time fraud risk score attached. Distribution moat is real — if Human-to-Agent Binding becomes the default for agentic commerce, it matters enormously who runs it. The gap Experian leaves open is execution monitoring: their behavioral signals are consumer identity and transaction patterns, the same fraud-scoring competency they apply to credit. That is not cross-org execution monitoring, not tool-call log analysis, not behavioral drift detection across organizations. The TOCTOU gap between "this agent was authorized at registration" and "this agent honored that authorization at runtime" is exactly where AgentLair operates. The two systems are complementary layers, not substitutes.
+              Experian announced Agent Trust on April 30, 2026, with Skyfire's Know Your Agent tokens as the identity layer, Visa, Cloudflare and Akamai among the partners, and Human-to-Agent Binding that links a verified person, their device and the agents they authorize. The output is an Agent Trust Token carrying a real-time fraud risk score. This page said Experian does not watch agent behavior after registration. That understated it. According to <a href="https://skyfire.xyz/skyfires-kya-protocol-is-now-the-identity-layer-for-experians-know-your-agent-framework/" rel="nofollow" class="underline underline-offset-2">Skyfire's launch post</a> and <a href="https://ppc.land/experian-launches-agent-trust-to-verify-humans-behind-ai-shopping/" rel="nofollow" class="underline underline-offset-2">coverage of the announcement</a>, an Agent Registry adjusts each agent's trust score over time from behavioral signals, so a merchant sees a history, not one transaction (re-read 2026-11-09; Experian's own pages refused our declared AI user agent). That is the closest thing here to what AgentLair does. The difference is scope: Experian's signals come from commerce, its partner network and its consumer identity data. They are not tool-call logs, and an agent doing non-commerce work across organizations falls outside it.
             </p>
           </div>
 
@@ -660,7 +660,7 @@ import { Navbar } from "@/components/blocks/navbar";
         <!-- Closing paragraph -->
         <div class="mt-8 border-t pt-8">
           <p class="text-muted-foreground leading-relaxed">
-            Behavioral runtime is the layer none of these touch. Six months from now, several may be widely deployed — and the question that follows authorization will still be open: did the agent honor it? Lyrie ATP tells you who the agent was and what it was permitted to do at credential issuance. ARIA tells you what organizational tier certified it. Experian tells you it was bound to a verified human and passed fraud scoring at registration. AgentLair's bet is that when agents start operating across organizations at scale, the time-of-check-to-time-of-use problem becomes the dominant failure mode — and the trust primitive that matters is a portable, observed record of what the agent actually did.
+            Most of these now touch behavior somewhere: a session log, per-operation receipts, a commerce risk score. Six months from now, several may be widely deployed — and the question that follows authorization will still be open: did the agent honor it? Lyrie ATP tells you who the agent was, what it was permitted to do, and what it logged in one session. ARIA tells you what tier certified it and gives receipts per operation. Experian scores agents over time, inside commerce. AgentLair's bet is that when agents start operating across organizations at scale, the time-of-check-to-time-of-use problem becomes the dominant failure mode — and the trust primitive that matters is a portable, observed record of what the agent actually did.
           </p>
         </div>
       </section>
