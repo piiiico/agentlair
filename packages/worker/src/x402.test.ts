@@ -181,3 +181,78 @@ describe('generateCdpBearerToken', () => {
     ).rejects.toThrow('not yet supported');
   });
 });
+
+// ─── pipeline x402-bazaar-method-20261108 ─────────────────────────────────────
+import { Hono } from 'hono';
+import { make402Response, make402ResponseBody, getPaymentRequirements } from './x402.js';
+import { x402V2Wire } from './middleware/x402-v2-wire.js';
+
+/** Minimal check of info.input against the extension's own schema.properties.input. */
+function inputSchemaErrors(ext: any): string[] {
+  const info = ext.bazaar.info.input;
+  const schema = ext.bazaar.schema.properties.input;
+  const errs: string[] = [];
+  for (const k of schema.required) if (!(k in info)) errs.push(`missing ${k}`);
+  for (const k of Object.keys(info)) if (!(k in schema.properties)) errs.push(`extra ${k}`);
+  const m = schema.properties.method;
+  if ('method' in info && !m.enum.includes(info.method)) errs.push(`method ${info.method} not in ${m.enum}`);
+  return errs;
+}
+
+describe('bazaar discovery info.input.method', () => {
+  test('GET discovery (audit_lookup) declares method GET inside its schema enum', () => {
+    const ext = make402ResponseBody(SERVICE_PRICES.audit_lookup).extensions as any;
+    expect(ext.bazaar.info.input.method).toBe('GET');
+    expect(inputSchemaErrors(ext)).toEqual([]);
+  });
+
+  test('POST discovery (email_send) declares method POST inside its schema enum', () => {
+    const ext = make402ResponseBody(SERVICE_PRICES.email_send).extensions as any;
+    expect(ext.bazaar.info.input.method).toBe('POST');
+    expect(inputSchemaErrors(ext)).toEqual([]);
+  });
+
+  test('vault_write declares PUT (route is PUT /v1/vault/{key})', () => {
+    const ext = make402ResponseBody(SERVICE_PRICES.vault_write).extensions as any;
+    expect(ext.bazaar.info.input.method).toBe('PUT');
+    expect(inputSchemaErrors(ext)).toEqual([]);
+  });
+
+  test('every service with discovery yields a schema-valid info.input', () => {
+    const withDiscovery = Object.entries(SERVICE_PRICES).filter(([, s]) => s.discovery);
+    expect(withDiscovery.length).toBeGreaterThanOrEqual(10);
+    for (const [name, s] of withDiscovery) {
+      const ext = make402ResponseBody(s).extensions as any;
+      expect({ name, errs: inputSchemaErrors(ext) }).toEqual({ name, errs: [] });
+    }
+  });
+});
+
+describe('payment requirements EIP-712 domain name', () => {
+  test("extra.name is 'USD Coin' (Base USDC name())", () => {
+    expect(getPaymentRequirements(SERVICE_PRICES.audit_lookup).extra.name).toBe('USD Coin');
+  });
+
+  test('402 body and decoded PAYMENT-REQUIRED header both carry USD Coin', async () => {
+    const app = new Hono();
+    app.use('*', x402V2Wire());
+    app.get('/x', () => make402Response(SERVICE_PRICES.audit_lookup));
+    const res = await app.request('/x');
+    expect(res.status).toBe(402);
+    const body = (await res.json()) as any;
+    expect(body.accepts[0].extra.name).toBe('USD Coin');
+    const hdr = res.headers.get('PAYMENT-REQUIRED');
+    expect(hdr).toBeTruthy();
+    const decoded = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(hdr!), (ch) => ch.charCodeAt(0))));
+    expect(decoded.accepts[0].extra.name).toBe('USD Coin');
+  });
+});
+
+describe('memory_trust description', () => {
+  test('claims cadence regularity, not memory handled well', () => {
+    const d = SERVICE_PRICES.memory_trust.description;
+    expect(d.length).toBeLessThanOrEqual(500);
+    expect(d).toContain('how regular its access cadence is');
+    expect(d).not.toContain('behaved consistently');
+  });
+});

@@ -40,6 +40,8 @@ export interface ServicePaymentConfig {
 
 export interface BazaarDiscovery {
   bodyType?: 'json' | 'form-data' | 'text';
+  /** HTTP verb override; defaults to POST when bodyType is set, else GET. */
+  method?: 'GET' | 'HEAD' | 'DELETE' | 'POST' | 'PUT' | 'PATCH';
   input?: Record<string, unknown>;
   inputSchema?: {
     properties: Record<string, { type: string; description?: string; enum?: string[]; required?: boolean; default?: unknown }>;
@@ -52,13 +54,14 @@ export interface BazaarDiscovery {
 function buildBazaarExtension(discovery: BazaarDiscovery) {
   const isPost = !!discovery.bodyType;
 
-  const inputInfo: Record<string, unknown> = { type: 'http' };
+  const methods = isPost ? ['POST', 'PUT', 'PATCH'] : ['GET', 'HEAD', 'DELETE'];
+  const method = discovery.method ?? (isPost ? 'POST' : 'GET');
+  if (!methods.includes(method)) throw new Error(`bazaar: method ${method} outside ${methods.join('/')}`);
+
+  const inputInfo: Record<string, unknown> = { type: 'http', method };
   const inputSchemaProps: Record<string, unknown> = {
     type: { type: 'string', const: 'http' },
-    method: {
-      type: 'string',
-      enum: isPost ? ['POST', 'PUT', 'PATCH'] : ['GET', 'HEAD', 'DELETE'],
-    },
+    method: { type: 'string', enum: methods },
   };
   const inputSchemaRequired: string[] = ['type', 'method'];
 
@@ -146,6 +149,7 @@ export const SERVICE_PRICES: Record<string, ServicePaymentConfig> = {
     mimeType: 'application/json',
     discovery: {
       bodyType: 'json',
+      method: 'PUT', // PUT /v1/vault/{key} (routes/vault.ts)
       input: { key: 'my-secret', value: 'encrypted-data' },
       inputSchema: {
         properties: {
@@ -343,7 +347,7 @@ export const SERVICE_PRICES: Record<string, ServicePaymentConfig> = {
   memory_trust: {
     amount: '10000', // 0.01 USDC
     resource: 'https://agentlair.dev/v1/agents/{id}/memory-trust',
-    description: 'AgentLair memory trust query — 0.01 USDC per lookup. Returns how an AgentLair agent has used memory: read and write counts, read/write ratio, access pattern and a consistency score, verified by agentlair.dev. Answers whether an agent that will share or hand over memory has behaved consistently with it so far.',
+    description: 'AgentLair memory trust query — 0.01 USDC per lookup. Returns how an AgentLair agent has used memory: read and write counts, read/write ratio, access pattern, and a score for how regular its access cadence is, verified by agentlair.dev. Answers how an agent has used memory before memory is shared with or handed to it.',
     mimeType: 'application/json',
     discovery: {
       input: { agent_id: 'acc_abc123' },
@@ -474,7 +478,7 @@ export function getPaymentRequirements(service: ServicePaymentConfig) {
     asset: X402_CONFIG.asset,
     payTo: X402_CONFIG.payTo,
     maxTimeoutSeconds: X402_CONFIG.maxTimeoutSeconds,
-    extra: { name: 'USDC', version: '2' },
+    extra: { name: 'USD Coin', version: '2' }, // EIP-712 domain name = Base USDC name(); 'USDC' breaks stock v2 clients
   };
 }
 
