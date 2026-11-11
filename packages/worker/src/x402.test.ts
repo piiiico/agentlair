@@ -256,3 +256,34 @@ describe('memory_trust description', () => {
     expect(d).not.toContain('behaved consistently');
   });
 });
+
+// ─── Bazaar discovery schemas: real JSON Schema 2020-12 engine ───────────────
+// Pipeline x402-anon-schema-20261111: event_submit_anon carried a property-level
+// `required: true` (ajv strict refuses to compile it) and typed `events` as
+// string while its own example body is an array. Compile every service's
+// extensions.bazaar.schema with ajv 2020 (meta-schema validation + strictSchema; strictTypes off
+// because buildBazaarExtension emits the body/queryParams sub-schemas without
+// type:"object" there) and validate the
+// service's own bazaar.info against it.
+import Ajv2020 from 'ajv/dist/2020';
+import { make402ResponseBody } from './x402.js';
+
+describe('bazaar discovery: schema compiles (ajv 2020 strict) and own info validates', () => {
+  const services = Object.entries(SERVICE_PRICES).filter(([, s]) => (s as { discovery?: unknown }).discovery);
+
+  test('floor: at least 14 discovery services found', () => {
+    expect(services.length).toBeGreaterThanOrEqual(14);
+  });
+
+  for (const [name, svc] of services) {
+    test(name, () => {
+      const ajv = new Ajv2020({ strict: true, strictTypes: false, allErrors: true });
+      const bazaar = (make402ResponseBody(svc as never) as { extensions?: { bazaar?: { schema: object; info: unknown } } }).extensions?.bazaar;
+      expect(bazaar).toBeDefined();
+      const validate = ajv.compile(bazaar!.schema);
+      const ok = validate(bazaar!.info);
+      expect(validate.errors ?? []).toEqual([]);
+      expect(ok).toBe(true);
+    });
+  }
+});

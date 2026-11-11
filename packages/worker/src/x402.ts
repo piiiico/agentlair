@@ -44,7 +44,8 @@ export interface BazaarDiscovery {
   method?: 'GET' | 'HEAD' | 'DELETE' | 'POST' | 'PUT' | 'PATCH';
   input?: Record<string, unknown>;
   inputSchema?: {
-    properties: Record<string, { type: string; description?: string; enum?: string[]; required?: boolean; default?: unknown }>;
+    /** JSON Schema 2020-12 property — requiredness lives in the parent's `required[]`, never on the property. */
+    properties: Record<string, { type: string; description?: string; enum?: string[]; default?: unknown; items?: Record<string, unknown>; minItems?: number; required?: never }>;
     required?: string[];
   };
   output?: { example: Record<string, unknown> };
@@ -441,8 +442,8 @@ export const SERVICE_PRICES: Record<string, ServicePaymentConfig> = {
       },
       inputSchema: {
         properties: {
-          agent_id: { type: 'string', description: 'Agent account ID (acc_...) — required for anonymous submission', required: true },
-          events: { type: 'string', description: 'Array of behavioral event objects' },
+          agent_id: { type: 'string', description: 'Agent account ID (acc_...) — required for anonymous submission' },
+          events: { type: 'array', items: { type: 'object' }, minItems: 1, description: 'Non-empty array of behavioral event objects (event_id, timestamp, category, action, result)' },
         },
         required: ['agent_id', 'events'],
       },
