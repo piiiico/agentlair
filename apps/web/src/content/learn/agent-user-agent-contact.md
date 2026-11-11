@@ -2,7 +2,7 @@
 title: "What contact should my AI agent put in its User-Agent?"
 description: "Some sites ask scripts for a contact in the User-Agent header. Give them a contact for the agent, never the human's login email. The options, what Wikimedia and the SEC ask for, what six sites' filters actually let through, and what to do about Claude Code's email leak."
 pubDate: 2026-11-06
-updatedDate: 2026-11-07
+updatedDate: 2026-11-11
 schemaType: "TechArticle"
 ---
 
@@ -20,7 +20,7 @@ An agent that reads these pages, or has seen them in training, will try to compl
 
 ## What sites actually check
 
-On November 7, 2026 we sent the same request to six endpoints whose owners ask scripts to identify themselves, with four User-Agents, three times each, from one server. Every run gave the same result:
+On November 7, 2026 we sent the same request to six endpoints whose owners ask scripts to identify themselves, with four User-Agents, three times each, from one server. Every run gave the same result. We ran it again on November 11 and every cell held; MusicBrainz also answered 4 of 24 requests with 503, its rate-limit reply, under three of the four User-Agents.
 
 | Endpoint (what it asks for) | `python-requests/2.31.0` | `Pico/1.0` | `Pico/1.0 (+https://agentlair.dev)` | `Pico/1.0 user@example.com` |
 |---|---|---|---|---|
@@ -61,12 +61,13 @@ What has changed so far, from the [CHANGELOG](https://github.com/anthropics/clau
 
 - 2.1.234: "Claude is now told to use your account email only to identify you, and not to send it to unrelated services unless you ask"
 - 2.1.317: "Added a check that asks before a web or shell tool call sends your account email address to the network"
+- 2.1.321 (November 9): "Changed the account email check to refuse only a shell command that holds your email and names a User-Agent, without asking, so other commands and scheduled runs no longer stop at its prompt"
 
-Then, on November 6, a Claude Code engineer [wrote on HN](https://news.ycombinator.com/item?id=50388176): "We're removing the account email address from the context Claude Code gives the model. This update will hit Claude Code users in the next release, which should arrive early next week."
+On November 6, a Claude Code engineer [wrote on HN](https://news.ycombinator.com/item?id=50388176): "We're removing the account email address from the context Claude Code gives the model. This update will hit Claude Code users in the next release, which should arrive early next week." As of November 11, no release lists that change; the newest, 2.1.322 from November 10, does not.
 
 Until that ships:
 
-1. Update to 2.1.317 or later. Two users on the issue reported that the check did not refuse their test (macOS on 2.1.317 and 2.1.318, Windows on 2.1.318), so don't treat it as complete.
+1. Update to 2.1.321 or later. Users on the issue reported that the earlier check did not refuse their test (macOS on 2.1.317, 2.1.318 and 2.1.319, Windows on 2.1.318), and by its own wording 2.1.321 refuses only a shell command that holds your email and names a User-Agent. A script the agent writes to a file and then runs is not that.
 2. Tell the agent which contact to use. A line in `CLAUDE.md` such as "When a site asks for a User-Agent contact, use `+https://acme.example/bot`. Never use my email." gives it something to put there instead.
 3. Check your git config. One commenter said the address the agent sent came from their `.gitconfig`, not the account.
 4. Search your own transcripts for your address next to `User-Agent`. Two commenters on the issue did this and found calls they had not noticed; one counted 53.
