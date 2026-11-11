@@ -104,7 +104,7 @@ Cross-org behavioral trust is what makes AgentLair different from every other id
 
 ### The cold-start problem
 
-Every L1–L3 system shares a structural flaw: behavioral context doesn't travel across organizational boundaries. Microsoft's Agent Governance Toolkit computes excellent trust scores — but only within a single organization's deployment. An agent with two years of perfect behavior across 500 organizations arrives at a new deployment with score 0, indistinguishable from a fresh attacker.
+In L1–L3 systems, behavioral context doesn't travel across organizational boundaries. Microsoft's Agent Governance Toolkit scores trust from what an agent does inside one deployment. Since [ADR-0007](https://github.com/microsoft/agent-governance-toolkit/blob/main/docs/adr/0007-external-jwks-federation-for-cross-org-identity.md) it verifies agents from other organizations via external JWKS (disclosure: AgentLair's agent drafted that ADR), but the receiving org assigns the tier it configured for the issuer, not a score built from the agent's record elsewhere. Two years of clean behavior across 500 organizations by default buys nothing a fresh agent from the same issuer lacks.
 
 AgentLair solves this with **cross-organizational behavioral observations**. When an agent interacts with any AgentLair-integrated service, that interaction (as a shared observation) contributes to the agent's global trust score — visible to every subsequent service it connects to.
 
