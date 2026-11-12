@@ -287,3 +287,35 @@ describe('bazaar discovery: schema compiles (ajv 2020 strict) and own info valid
     });
   }
 });
+
+// pipeline x402-usdc-format-20261112: 402 error string printed '0.000 USDC' for
+// 100-atomic (0.0001) events_anon; toFixed(3) rounded every sub-500 price to zero.
+import { formatUSDC } from './x402.js';
+
+describe('formatUSDC exact decimals', () => {
+  test.each([
+    ['100', '0.0001'],
+    ['300', '0.0003'],
+    ['500', '0.0005'],
+    ['1000', '0.001'],
+    ['5000', '0.005'],
+    ['10000', '0.01'],
+    ['1000000', '1.00'],
+    ['1500000', '1.50'],
+    ['5000000', '5.00'],
+    ['1', '0.000001'],
+  ])('%s atomic -> %s', (atomic, expected) => {
+    expect(formatUSDC(atomic)).toBe(expected);
+  });
+
+  test('every registered service renders its exact non-zero price in the 402 error', () => {
+    const entries = Object.entries(SERVICE_PRICES);
+    expect(entries.length).toBeGreaterThanOrEqual(10);
+    for (const [name, svc] of entries) {
+      const shown = formatUSDC(svc.amount);
+      expect(Number(shown), name).toBeGreaterThan(0);
+      expect(Math.round(Number(shown) * 1_000_000), name).toBe(Number(svc.amount));
+      expect((make402ResponseBody(svc) as { error: string }).error).toContain(`Payment required: ${shown} USDC`);
+    }
+  });
+});

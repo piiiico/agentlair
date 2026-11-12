@@ -483,10 +483,11 @@ export function getPaymentRequirements(service: ServicePaymentConfig) {
   };
 }
 
-/** Format atomic USDC amount to human-readable string. */
-function formatUSDC(atomicAmount: string): string {
-  const n = parseInt(atomicAmount);
-  return (n / 1_000_000).toFixed(n % 10000 === 0 ? 2 : 3);
+/** Format atomic USDC (6 decimals) exactly: trailing zeros stripped, min 2 decimals. Never rounds a nonzero price to 0. */
+export function formatUSDC(atomicAmount: string): string {
+  const digits = BigInt(atomicAmount).toString().padStart(7, '0');
+  const frac = digits.slice(-6).replace(/0+$/, '').padEnd(2, '0');
+  return `${digits.slice(0, -6)}.${frac}`;
 }
 
 /** Build a full 402 response body for a given service. */
