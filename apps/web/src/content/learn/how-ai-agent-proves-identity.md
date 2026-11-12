@@ -23,7 +23,7 @@ schemaType: "TechArticle"
 | [Web Bot Auth](/web-bot-auth) (HTTP Message Signatures) | The agent's operator, key published at a well-known URL | Agents calling public websites and CDNs |
 | A signed agent token (AgentLair AAT, others) | A third-party issuer the service already trusts | Agents calling services *outside* the agent's own organization |
 
-If both sides are inside one company, use what that company already has: workload identity or SPIFFE. A separate agent identity service only earns its place when the agent calls someone who doesn't share your identity provider.
+If both sides are inside one company, use what that company already has: workload identity or SPIFFE. For a list of services that issue these credentials, see [which services give agents verifiable credentials](/learn/agent-identity-credential-services). A separate agent identity service only earns its place when the agent calls someone who doesn't share your identity provider.
 
 ## Try it: issue and verify an AgentLair token
 
