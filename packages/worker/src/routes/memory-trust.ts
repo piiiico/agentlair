@@ -16,7 +16,8 @@
 import { Hono } from 'hono';
 import { json, err } from '../utils.js';
 import type { HonoEnv } from '../types.js';
-import { verifyX402Payment, settleX402Payment, trackX402Spend, make402Response, SERVICE_PRICES } from '../x402.js';
+import { verifyX402Only, settleOnDelivery, SERVICE_PRICES } from '../x402.js';
+import { DEMO_AGENT_ID, demoMemoryTrustRecord } from '../demo-records.js';
 
 export const memoryTrustRoutes = new Hono<HonoEnv>();
 
@@ -52,32 +53,17 @@ memoryTrustRoutes.get('/:id/memory-trust', async (c) => {
     return err('Invalid agent ID format. Expected: acc_<alphanumeric>.', 400, 'invalid_agent_id');
   }
 
-  // ── x402 payment required ────────────────────────────────────────────────────
-  const xPayment = c.req.header('X-PAYMENT');
-  if (!xPayment) {
-    return make402Response(SERVICE_PRICES.memory_trust);
-  }
+  // ── x402 payment: verify now, settle only on delivery (a miss never charges) ─
+  const paid = await verifyX402Only(c.req.header('X-PAYMENT'), SERVICE_PRICES.memory_trust, 'memory_trust');
+  if (paid instanceof Response) return paid;
+  const deliver = (res: Response) => settleOnDelivery(c.env, (p) => c.executionCtx.waitUntil(p), paid, res);
 
-  const verification = await verifyX402Payment(xPayment, SERVICE_PRICES.memory_trust);
-  if (!verification.valid) {
-    return make402Response(SERVICE_PRICES.memory_trust, { payment_error: verification.error });
-  }
+  if (agentId === DEMO_AGENT_ID) return deliver(json(demoMemoryTrustRecord()));
 
-  const settlement = await settleX402Payment(xPayment, SERVICE_PRICES.memory_trust);
-  if (!settlement.settled) {
-    return make402Response(SERVICE_PRICES.memory_trust, { payment_error: settlement.error });
+  // ── Unknown agent = 404, unsettled ──────────────────────────────────────────
+  if (!(await c.env.KEYS.get('account:' + agentId))) {
+    return err('Agent not found. You were not charged.', 404, 'agent_not_found');
   }
-
-  if (settlement.receipt) {
-    c.header('X-Payment-Response', settlement.receipt);
-  }
-
-  c.executionCtx.waitUntil(
-    trackX402Spend(c.env, 'anonymous', SERVICE_PRICES.memory_trust.amount, {
-      payer: verification.payer,
-      service: 'memory_trust',
-    }).catch(() => {}),
-  );
 
   // ── Query audit trail for memory events ─────────────────────────────────────
   const db = c.env.AUDIT;
@@ -182,7 +168,7 @@ memoryTrustRoutes.get('/:id/memory-trust', async (c) => {
     behavioralSummary = `Agent issued ${totalTokens} memory-scoped AATs${span}. Pattern: ${accessPattern}, access cadence: ${consistency}. Consistency score: ${(consistencyScore * 100).toFixed(0)}%.`;
   }
 
-  return json({
+  return deliver(json({
     agent_id: agentId,
     memory_behavior: {
       total_memory_tokens: totalTokens,
@@ -200,5 +186,5 @@ memoryTrustRoutes.get('/:id/memory-trust', async (c) => {
     jwks_uri: 'https://agentlair.dev/.well-known/jwks.json',
     audit_source: `https://agentlair.dev/v1/audit?account=${agentId}&category=memory`,
     generated_at: new Date().toISOString(),
-  });
+  }));
 });

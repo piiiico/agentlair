@@ -397,8 +397,11 @@ describe('A2A Audit Run Routes', () => {
   });
 
   // 19. Post-settle audit_failed returns settlement receipt in body and header
-  test('post-settle audit_failed returns settlement receipt in body and header', async () => {
+  // Pipeline x402-paid-404-20261113: the audit now runs BEFORE settle, so a failed audit
+  // is never charged (replaces the old post-settle receipt + manual-refund contract).
+  test('audit_failed returns 502 without settling (charged: false, no receipt)', async () => {
     let auditFetchCount = 0;
+    let settleCount = 0;
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url;
       const method = ((init?.method) ?? 'GET').toUpperCase();
@@ -408,6 +411,7 @@ describe('A2A Audit Run Routes', () => {
         });
       }
       if (url.includes('facilitator') && url.includes('/settle')) {
+        settleCount++;
         return new Response(JSON.stringify({ success: true, txHash: '0xdeadbeef' }), {
           status: 200, headers: { 'Content-Type': 'application/json' },
         });
@@ -418,7 +422,7 @@ describe('A2A Audit Run Routes', () => {
       }
       // GET (audit fetch) — simulate unreachable / bad JSON to trigger auditCardUrl throw
       auditFetchCount++;
-      throw new Error('simulated fetch failure after settlement');
+      throw new Error('simulated fetch failure after reachability');
     }) as typeof fetch;
 
     const app = makeApp();
@@ -431,11 +435,10 @@ describe('A2A Audit Run Routes', () => {
     expect(res.status).toBe(502);
     const data = await res.json() as any;
     expect(data.error).toBe('audit_failed');
-    // payment_receipt = btoa(JSON.stringify({ success: true, txHash: '0xdeadbeef' }))
-    expect(data.payment_receipt).toBeDefined();
-    expect(data.settlement_tx).toBe('0xdeadbeef');
-    expect(data.refund_note).toContain('api@agentlair.dev');
-    expect(res.headers.get('X-Payment-Response')).toBeTruthy();
+    expect(data.charged).toBe(false);
+    expect(auditFetchCount).toBeGreaterThan(0);
+    expect(settleCount).toBe(0);
+    expect(res.headers.get('X-Payment-Response')).toBeNull();
   });
 
   // A2A-F2-1: api.agentlair.dev target returns 200 demo audit (isSelfUrl covers subdomain)

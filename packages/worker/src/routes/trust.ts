@@ -21,7 +21,7 @@ import { resolveAccountTier } from '../types.js';
 import type { ATFLevel } from '../trust-engine.js';
 import { computeTrustScore, checkTrustGate } from '../trust-engine.js';
 import { authenticateAny } from '../middleware/auth.js';
-import { verifyX402Payment, settleX402Payment, trackX402Spend, make402Response, SERVICE_PRICES } from '../x402.js';
+import { verifyX402Only, settleOnDelivery, SERVICE_PRICES, type VerifiedX402 } from '../x402.js';
 import { tealSourcesHandler } from './teal-sources.js';
 
 export const trustRoutes = new Hono<HonoEnv>();
@@ -153,36 +153,27 @@ trustRoutes.get('/:agentId/check', async (c) => {
 
 export const publicTrustRoutes = new Hono<HonoEnv>();
 
-async function handleX402TrustPayment(c: Context<HonoEnv>) {
-  const xPayment = c.req.header('X-PAYMENT');
-  if (!xPayment) {
-    return make402Response(SERVICE_PRICES.trust_query);
-  }
+// Verify only — settlement happens in deliver() and only for a delivered (status < 400) response,
+// so a bad body, missing backend or failed computation never charges (pipeline x402-paid-404-20261113).
+async function verifyTrustPayment(c: Context<HonoEnv>): Promise<VerifiedX402 | Response> {
   const cdpCreds = (c.env.CDP_API_KEY_ID && c.env.CDP_API_KEY_SECRET)
     ? { keyId: c.env.CDP_API_KEY_ID, keySecret: c.env.CDP_API_KEY_SECRET }
     : undefined;
-  const verification = await verifyX402Payment(xPayment, SERVICE_PRICES.trust_query, cdpCreds);
-  if (!verification.valid) {
-    return make402Response(SERVICE_PRICES.trust_query, {
-      payment_error: verification.error,
-    });
-  }
-  const settlement = await settleX402Payment(xPayment, SERVICE_PRICES.trust_query, verification.facilitatorUrl, cdpCreds);
-  if (!settlement.settled) {
-    return make402Response(SERVICE_PRICES.trust_query, {
-      payment_error: settlement.error,
-    });
-  }
-  if (settlement.receipt) {
-    c.header('X-Payment-Response', settlement.receipt);
-  }
-  c.executionCtx.waitUntil(
-    trackX402Spend(c.env, 'anonymous', SERVICE_PRICES.trust_query.amount, {
-      payer: verification.payer,
-      service: 'trust_query',
-    }).catch(() => {}),
-  );
-  return null; // null = payment OK, proceed
+  return verifyX402Only(c.req.header('X-PAYMENT'), SERVICE_PRICES.trust_query, 'trust_query', {
+    cdpCreds,
+    settleOnVerifiedFacilitator: true,
+  });
+}
+
+/** Anonymous callers: verify payment, return a deliver() that settles on success. Authenticated: pass-through. */
+async function trustPaymentGate(
+  c: Context<HonoEnv>,
+  account: unknown,
+): Promise<Response | ((res: Response) => Promise<Response>)> {
+  if (account) return async (res: Response) => res;
+  const paid = await verifyTrustPayment(c);
+  if (paid instanceof Response) return paid;
+  return (res: Response) => settleOnDelivery(c.env, (p) => c.executionCtx.waitUntil(p), paid, res);
 }
 
 // ─── GET /v1/trust/score ──────────────────────────────────────────────────────
@@ -191,7 +182,7 @@ async function handleX402TrustPayment(c: Context<HonoEnv>) {
 // query parameter instead of a path parameter. Registered BEFORE /:agentId to
 // prevent "/score" being captured as an agentId.
 //
-// Example: GET /v1/trust/score?agent_id=acc_abc123
+// Example: GET /v1/trust/score?agent_id=acc_demoid12345
 
 publicTrustRoutes.get('/score', async (c) => {
   const account = await authenticateAny(c.req.raw, c.env);
@@ -209,15 +200,13 @@ publicTrustRoutes.get('/score', async (c) => {
     );
   }
 
-  if (!account) {
-    const paymentErr = await handleX402TrustPayment(c);
-    if (paymentErr) return paymentErr;
-  }
+  const deliver = await trustPaymentGate(c, account);
+  if (deliver instanceof Response) return deliver;
 
   try {
     const tier = account ? resolveAccountTier(account) : 'free';
     const profile = await computeTrustScore(db, agentId, tier);
-    return json(profile);
+    return deliver(json(profile));
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     if (msg.includes('no such table') || msg.includes('SQLITE_ERROR')) {
@@ -346,10 +335,8 @@ const BATCH_LIMIT = 50;
 publicTrustRoutes.post('/batch', async (c) => {
   const account = await authenticateAny(c.req.raw, c.env);
 
-  if (!account) {
-    const paymentErr = await handleX402TrustPayment(c);
-    if (paymentErr) return paymentErr;
-  }
+  const deliver = await trustPaymentGate(c, account);
+  if (deliver instanceof Response) return deliver;
 
   let body: unknown;
   try {
@@ -420,12 +407,12 @@ publicTrustRoutes.post('/batch', async (c) => {
     }
   }
 
-  return json({
+  return deliver(json({
     profiles,
     requested: raw.length,
     computed: profiles.length,
     errors,
-  });
+  }));
 });
 
 // ─── GET /v1/trust/:agentId/teal-sources ─────────────────────────────────────
@@ -456,16 +443,13 @@ publicTrustRoutes.get('/:agentId', async (c) => {
     );
   }
 
-  if (!account) {
-    // Anonymous: require x402 payment
-    const paymentErr = await handleX402TrustPayment(c);
-    if (paymentErr) return paymentErr;
-  }
+  const deliver = await trustPaymentGate(c, account);
+  if (deliver instanceof Response) return deliver;
 
   try {
     const tier = account ? resolveAccountTier(account) : 'free';
     const profile = await computeTrustScore(db, agentId, tier);
-    return json(profile);
+    return deliver(json(profile));
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     if (msg.includes('no such table') || msg.includes('SQLITE_ERROR')) {
@@ -497,16 +481,13 @@ publicTrustRoutes.get('/:agentId/check', async (c) => {
     );
   }
 
-  if (!account) {
-    // Anonymous: require x402 payment
-    const paymentErr = await handleX402TrustPayment(c);
-    if (paymentErr) return paymentErr;
-  }
+  const deliver = await trustPaymentGate(c, account);
+  if (deliver instanceof Response) return deliver;
 
   try {
     const tier = account ? resolveAccountTier(account) : 'free';
     const result = await checkTrustGate(db, agentId, minLevel, tier);
-    return json(result);
+    return deliver(json(result));
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     if (msg.includes('no such table') || msg.includes('SQLITE_ERROR')) {

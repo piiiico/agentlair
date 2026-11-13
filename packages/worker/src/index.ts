@@ -25,7 +25,8 @@ import { adminStatsRoutes } from './routes/admin-stats.js';
 import { auditMiddleware } from './middleware/audit.js';
 import { budgetMiddleware } from './middleware/budget.js';
 import { encryptEmailField, encryptEmailE2E } from './platform-crypto.js';
-import { make402Response, SERVICE_PRICES, X402_CONFIG, getPaymentRequirements, verifyX402Payment, settleX402Payment, trackX402Spend, autoUpgradeIfThreshold, getGlobalRevenue, checkSpendingCap, getBillingAnomalies } from './x402.js';
+import { make402Response, SERVICE_PRICES, X402_CONFIG, getPaymentRequirements, verifyX402Payment, settleX402Payment, trackX402Spend, autoUpgradeIfThreshold, getGlobalRevenue, checkSpendingCap, getBillingAnomalies, verifyX402Only, settleOnDelivery } from './x402.js';
+import { DEMO_AAT_JTI, DEMO_AGENT_ID } from './demo-records.js';
 import type { ServicePaymentConfig } from './x402.js';
 
 // ─── Route modules ─────────────────────────────────────────────────────────────
@@ -493,8 +494,8 @@ app.get('/.well-known/x402', (c) => {
     protocol: 'x402',
     version: 2,
     resources: [
-      'https://agentlair.dev/v1/audit/aat_demo1234567890ab',
-      'https://agentlair.dev/v1/agents/acc_demoid12345/memory-trust',
+      `https://agentlair.dev/v1/audit/${DEMO_AAT_JTI}`,
+      `https://agentlair.dev/v1/agents/${DEMO_AGENT_ID}/memory-trust`,
     ],
     openapi: 'https://agentlair.dev/api',
     bazaar: 'https://agentlair.dev/.well-known/bazaar.json',
@@ -1196,30 +1197,9 @@ app.get('/agents/:name', async (c) => {
     });
   }
 
-  // API path: require x402 payment for JSON response
-  const xPayment = c.req.header('X-PAYMENT');
-  if (!xPayment) {
-    return make402Response(SERVICE_PRICES.agent_lookup);
-  }
-
-  const verification = await verifyX402Payment(xPayment, SERVICE_PRICES.agent_lookup);
-  if (!verification.valid) {
-    return make402Response(SERVICE_PRICES.agent_lookup, { payment_error: verification.error });
-  }
-
-  const settlement = await settleX402Payment(xPayment, SERVICE_PRICES.agent_lookup, verification.facilitatorUrl);
-  if (!settlement.settled) {
-    return make402Response(SERVICE_PRICES.agent_lookup, { payment_error: settlement.error });
-  }
-
-  if (settlement.receipt) c.header('X-Payment-Response', settlement.receipt);
-
-  c.executionCtx.waitUntil(
-    trackX402Spend(c.env, 'anonymous', SERVICE_PRICES.agent_lookup.amount, {
-      payer: verification.payer,
-      service: 'agent_lookup',
-    }).catch(() => {})
-  );
+  // API path: x402 for JSON — verify now, settle only on delivery (a miss never charges)
+  const paid = await verifyX402Only(c.req.header('X-PAYMENT'), SERVICE_PRICES.agent_lookup, 'agent_lookup', { settleOnVerifiedFacilitator: true });
+  if (paid instanceof Response) return paid;
 
   // Resolve agent by name via email address index
   const agent = await lookupAgentByHandle(c.env, name);
@@ -1227,7 +1207,7 @@ app.get('/agents/:name', async (c) => {
     return err('Agent not found.', 404, 'agent_not_found');
   }
 
-  return json({
+  return settleOnDelivery(c.env, (p) => c.executionCtx.waitUntil(p), paid, json({
     id: agent.id,
     name: agent.name,
     email: agent.email,
@@ -1235,7 +1215,7 @@ app.get('/agents/:name', async (c) => {
     ...(agent.jwks_url ? { jwks_url: agent.jwks_url } : {}),
     registered_at: agent.registered_at,
     verified: agent.verified,
-  });
+  }));
 });
 
 // DID Web document endpoint: did:web:agentlair.dev:agents:acc_xxx → /agents/acc_xxx/did.json

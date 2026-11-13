@@ -5,6 +5,7 @@
 
 import type { Env, X402VerifyResult, X402SettleResult } from './types.js';
 import { verifyAATFromX402Extensions, type X402PaymentPayload } from './x402-identity.js';
+import { DEMO_AAT_JTI, DEMO_AGENT_ID, DEMO_AGENT_NAME } from './demo-records.js';
 
 export const X402_CONFIG = {
   network: 'eip155:8453',
@@ -327,7 +328,7 @@ export const SERVICE_PRICES: Record<string, ServicePaymentConfig> = {
     description: 'AgentLair trust score query — 0.01 USDC per lookup. Returns a behavioural trust score, ATF level, confidence and observation count for an AgentLair agent ID (acc_...), computed from events observed across its sessions. Answers whether an unfamiliar agent has a track record before a request, payment or delegated task from it is accepted. One payment covers /v1/trust/{agentId}, /v1/trust/{agentId}/check, /v1/trust/score and /v1/trust/batch (product resource = /v1/trust).',
     mimeType: 'application/json',
     discovery: {
-      input: { agent_id: 'acc_abc123' },
+      input: { agent_id: DEMO_AGENT_ID },
       inputSchema: {
         properties: {
           agent_id: { type: 'string', description: 'Agent ID to query trust score for (acc_...)' },
@@ -335,12 +336,14 @@ export const SERVICE_PRICES: Record<string, ServicePaymentConfig> = {
         required: ['agent_id'],
       },
       output: {
+        // Keys mirror the delivered TrustProfile (trust-engine.ts), not a separate listing vocabulary.
         example: {
-          agent_id: 'acc_abc123',
+          agentId: DEMO_AGENT_ID,
           score: 78.4,
-          atf_level: 'junior',
           confidence: 0.82,
-          observations: 142,
+          atfLevel: 'junior',
+          observationCount: 142,
+          computedAt: '2026-11-13T00:00:00Z',
         },
       },
     },
@@ -351,7 +354,7 @@ export const SERVICE_PRICES: Record<string, ServicePaymentConfig> = {
     description: 'AgentLair memory trust query — 0.01 USDC per lookup. Returns how an AgentLair agent has used memory: read and write counts, read/write ratio, access pattern, and a score for how regular its access cadence is, verified by agentlair.dev. Answers how an agent has used memory before memory is shared with or handed to it.',
     mimeType: 'application/json',
     discovery: {
-      input: { agent_id: 'acc_abc123' },
+      input: { agent_id: DEMO_AGENT_ID },
       inputSchema: {
         properties: {
           agent_id: { type: 'string', description: 'Agent ID to query memory behavior for (acc_...)' },
@@ -360,7 +363,7 @@ export const SERVICE_PRICES: Record<string, ServicePaymentConfig> = {
       },
       output: {
         example: {
-          agent_id: 'acc_abc123',
+          agent_id: DEMO_AGENT_ID,
           memory_behavior: {
             total_memory_tokens: 47,
             memory_read_count: 38,
@@ -380,7 +383,7 @@ export const SERVICE_PRICES: Record<string, ServicePaymentConfig> = {
     description: 'AgentLair agent discovery lookup — 0.005 USDC per lookup. Resolves an agent handle, @agentlair.dev email or account ID to its identity record: account ID, DID, JWKS URL for verifying its signed tokens, and registration date. Answers who is behind an agent address before its messages or tokens are trusted.',
     mimeType: 'application/json',
     discovery: {
-      input: { handle: 'research-agent' },
+      input: { id: DEMO_AGENT_ID },
       inputSchema: {
         properties: {
           handle: { type: 'string', description: 'Agent handle (name part of @agentlair.dev email)' },
@@ -390,11 +393,11 @@ export const SERVICE_PRICES: Record<string, ServicePaymentConfig> = {
       },
       output: {
         example: {
-          id: 'acc_abc123',
-          name: 'research-agent',
-          email: 'research-agent@agentlair.dev',
-          did: 'did:web:agentlair.dev:agents:acc_abc123',
-          jwks_url: 'https://agentlair.dev/agents/acc_abc123/.well-known/jwks.json',
+          id: DEMO_AGENT_ID,
+          name: DEMO_AGENT_NAME,
+          email: `${DEMO_AGENT_NAME}@agentlair.dev`,
+          did: `did:web:agentlair.dev:agents:${DEMO_AGENT_ID}`,
+          jwks_url: 'https://agentlair.dev/.well-known/jwks.json',
           registered_at: '2026-03-15T10:00:00Z',
           verified: true,
         },
@@ -407,7 +410,7 @@ export const SERVICE_PRICES: Record<string, ServicePaymentConfig> = {
     description: 'AgentLair token audit lookup — 0.001 USDC per query. Returns the metadata of one Agent Authentication Token by its JTI (aat_...): issue and expiry time, audience, scopes, and whether and why it was revoked. Answers whether a token an agent presented is still active and was issued for this audience.',
     mimeType: 'application/json',
     discovery: {
-      input: { jti: 'aat_AbCdEfGhIjKlMn01' },
+      input: { jti: DEMO_AAT_JTI },
       inputSchema: {
         properties: {
           jti: { type: 'string', description: 'Agent Authentication Token ID (aat_[A-Za-z0-9]{16}) — used as path segment: /v1/audit/{jti}' },
@@ -416,7 +419,7 @@ export const SERVICE_PRICES: Record<string, ServicePaymentConfig> = {
       },
       output: {
         example: {
-          jti: 'aat_AbCdEfGhIjKlMn01',
+          jti: DEMO_AAT_JTI,
           issued_at: '2026-04-25T00:00:00Z',
           expires_at: '2026-04-26T00:00:00Z',
           audience: 'example.com',
@@ -437,7 +440,7 @@ export const SERVICE_PRICES: Record<string, ServicePaymentConfig> = {
     discovery: {
       bodyType: 'json',
       input: {
-        agent_id: 'acc_abc123',
+        agent_id: DEMO_AGENT_ID,
         events: [{ event_id: 'evt_001', timestamp: '2026-04-21T00:00:00Z', category: 'tool', action: 'tool.call', result: 'success' }],
       },
       inputSchema: {
@@ -1340,4 +1343,68 @@ export async function getBillingAnomalies(
   } catch {
     return [];
   }
+}
+
+// ─── Settle-on-delivery (never charge for a miss) ─────────────────────────────
+// Paid reads keyed on an id: verify the payment up front, build the response,
+// and settle ONLY when that response is a delivery (status < 400). A 4xx/5xx
+// (unknown id, bad input, backend down) returns without settling — the signed
+// EIP-3009 authorization is never executed, so the caller is not charged.
+// Pipeline x402-paid-404-20261113: Settled's scout paid $0.001 and got a 404.
+
+export interface VerifiedX402 {
+  xPayment: string;
+  service: ServicePaymentConfig;
+  serviceName: string;
+  payer?: string;
+  /** Settle on this facilitator (undefined = primary, the pre-pipeline behaviour of the caller). */
+  facilitatorUrl?: string;
+  cdpCreds?: { keyId: string; keySecret: string };
+}
+
+/** Verify an X-PAYMENT header without settling. Returns the 402 Response on missing/invalid payment. */
+export async function verifyX402Only(
+  xPayment: string | undefined | null,
+  service: ServicePaymentConfig,
+  serviceName: string,
+  opts: { cdpCreds?: { keyId: string; keySecret: string }; settleOnVerifiedFacilitator?: boolean } = {},
+): Promise<VerifiedX402 | Response> {
+  if (!xPayment) return make402Response(service);
+  const verification = await verifyX402Payment(xPayment, service, opts.cdpCreds);
+  if (!verification.valid) return make402Response(service, { payment_error: verification.error });
+  return {
+    xPayment,
+    service,
+    serviceName,
+    payer: verification.payer,
+    facilitatorUrl: opts.settleOnVerifiedFacilitator ? verification.facilitatorUrl : undefined,
+    cdpCreds: opts.cdpCreds,
+  };
+}
+
+/**
+ * Settle a verified payment only if `res` is a delivery (status < 400).
+ * Non-delivery responses pass through untouched and unsettled.
+ */
+export async function settleOnDelivery(
+  env: Env,
+  waitUntil: (p: Promise<unknown>) => void,
+  paid: VerifiedX402,
+  res: Response,
+): Promise<Response> {
+  if (res.status >= 400) return res;
+  const settlement = await settleX402Payment(
+    paid.xPayment,
+    paid.service,
+    paid.facilitatorUrl ?? X402_CONFIG.facilitator,
+    paid.cdpCreds,
+  );
+  if (!settlement.settled) return make402Response(paid.service, { payment_error: settlement.error });
+  waitUntil(
+    trackX402Spend(env, 'anonymous', paid.service.amount, { payer: paid.payer, service: paid.serviceName }).catch(() => {}),
+  );
+  if (!settlement.receipt) return res;
+  const out = new Response(res.body, res);
+  out.headers.set('X-Payment-Response', settlement.receipt);
+  return out;
 }

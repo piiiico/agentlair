@@ -212,7 +212,7 @@ export const OPENAPI_SPEC = {
         "properties": {
           "id": {
             "type": "string",
-            "example": "acc_k7x9m2p4abcd1234"
+            "example": "acc_demoid12345"
           },
           "key_prefix": {
             "type": "string",
@@ -5213,7 +5213,7 @@ export const OPENAPI_SPEC = {
             "schema": {
               "type": "string",
               "pattern": "^acc_[A-Za-z0-9_-]{1,64}$",
-              "example": "acc_k7x9m2p4abcd1234"
+              "example": "acc_demoid12345"
             }
           }
         ],
@@ -5225,7 +5225,7 @@ export const OPENAPI_SPEC = {
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "agentId": { "type": "string", "example": "acc_k7x9m2p4abcd1234" },
+                    "agentId": { "type": "string", "example": "acc_demoid12345" },
                     "score": { "type": "integer", "minimum": 0, "maximum": 1000, "description": "Composite trust score (0-1000)", "example": 750 },
                     "tier": { "type": "string", "enum": ["untrusted", "provisional", "trusted", "verified"], "example": "trusted" },
                     "breakdown": {
@@ -5305,7 +5305,7 @@ export const OPENAPI_SPEC = {
             "schema": {
               "type": "string",
               "pattern": "^acc_[A-Za-z0-9_-]{1,64}$",
-              "example": "acc_k7x9m2p4abcd1234"
+              "example": "acc_demoid12345"
             }
           },
           {
@@ -5324,7 +5324,7 @@ export const OPENAPI_SPEC = {
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "agentId": { "type": "string", "example": "acc_k7x9m2p4abcd1234" },
+                    "agentId": { "type": "string", "example": "acc_demoid12345" },
                     "meetsMinimum": { "type": "boolean", "description": "Whether agent meets the requested minimum level" },
                     "score": { "type": "integer", "description": "Current trust score (0-1000)" },
                     "tier": { "type": "string", "enum": ["untrusted", "provisional", "trusted", "verified"] }
@@ -5698,7 +5698,7 @@ export const OPENAPI_SPEC = {
                   "properties": {
                     "jti": { "type": "string", "example": "finding_aBcDeFgHiJkLmNoPqRsTu" },
                     "outcome": { "type": "string", "enum": ["accepted", "rejected"] },
-                    "agent_id": { "type": "string", "example": "acc_k7x9m2p4abcd1234" },
+                    "agent_id": { "type": "string", "example": "acc_demoid12345" },
                     "track_record": {
                       "type": "object",
                       "properties": {

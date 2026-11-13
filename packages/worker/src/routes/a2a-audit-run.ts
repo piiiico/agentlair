@@ -589,13 +589,8 @@ a2aAuditRunRoutes.post('/run', async (c) => {
     }
   }
 
-  // 8c. x402 settle — only runs on reachable targets
-  const settlement = await settleX402Payment(xPayment, SERVICE_PRICES.a2a_audit_run, verification.facilitatorUrl, cdpCreds);
-  if (!settlement.settled) {
-    return make402Response(SERVICE_PRICES.a2a_audit_run, { payment_error: settlement.error });
-  }
-
-  // 9. Audit (or read from cache)
+  // 9. Audit (or read from cache) BEFORE settling — a failed audit never charges
+  //    (pipeline x402-paid-404-20261113: settle only on delivery).
   let audit: unknown;
   if (cachedAudit) {
     audit = cachedAudit;
@@ -611,31 +606,17 @@ a2aAuditRunRoutes.post('/run', async (c) => {
         return c.json({
           error: 'cf_inside_zone_limit',
           message: 'CF inside-zone fetch: this audit worker cannot fetch targets on the same Cloudflare zone (agentlair.dev subdomains). Audit from an external origin or use the free demo for agentlair.dev.',
-          payment_receipt: settlement.receipt ?? null,
-        }, 400, settlement.receipt ? { 'X-Payment-Response': settlement.receipt } : {});
+          charged: false,
+        }, 400);
       }
-      // Change B: post-settle audit failure — include settlement receipt so buyer has in-band proof.
-      // Decode txHash from receipt (receipt = btoa(JSON.stringify(facilitator response))).
-      let settlement_tx: string | null = null;
-      try {
-        if (settlement.receipt) {
-          const decoded = JSON.parse(atob(settlement.receipt)) as Record<string, unknown>;
-          if (typeof decoded.txHash === 'string') settlement_tx = decoded.txHash;
-        }
-      } catch { /* receipt decode failure — omit tx */ }
-      return c.json(
-        {
-          error: 'audit_failed',
-          message,
-          payment_receipt: settlement.receipt ?? null,
-          settlement_tx,
-          refund_note:
-            'Payment settled on-chain before fetch failure. Contact api@agentlair.dev with tx hash for manual refund; auto-refund flow tracked in F1-followup.',
-        },
-        502,
-        settlement.receipt ? { 'X-Payment-Response': settlement.receipt } : {},
-      );
+      return c.json({ error: 'audit_failed', message, charged: false }, 502);
     }
+  }
+
+  // 8c. x402 settle — only after a successful audit
+  const settlement = await settleX402Payment(xPayment, SERVICE_PRICES.a2a_audit_run, verification.facilitatorUrl, cdpCreds);
+  if (!settlement.settled) {
+    return make402Response(SERVICE_PRICES.a2a_audit_run, { payment_error: settlement.error });
   }
 
   // 10. Cache put (only on fresh audit — don't re-cache cached result)

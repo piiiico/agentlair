@@ -17,7 +17,8 @@
 import { Hono } from 'hono';
 import { json, err } from '../utils.js';
 import type { HonoEnv } from '../types.js';
-import { verifyX402Payment, settleX402Payment, trackX402Spend, make402Response, SERVICE_PRICES } from '../x402.js';
+import { verifyX402Only, settleOnDelivery, SERVICE_PRICES } from '../x402.js';
+import { DEMO_AGENT_ID, demoAgentLookupRecord } from '../demo-records.js';
 
 export const discoveryRoutes = new Hono<HonoEnv>();
 
@@ -42,31 +43,10 @@ interface AccountRecord {
 // ─── GET /v1/agents/lookup ────────────────────────────────────────────────────
 
 discoveryRoutes.get('/lookup', async (c) => {
-  // ── x402 payment required ────────────────────────────────────────────────────
-  const xPayment = c.req.header('X-PAYMENT');
-  if (!xPayment) {
-    return make402Response(SERVICE_PRICES.agent_lookup);
-  }
-
-  const verification = await verifyX402Payment(xPayment, SERVICE_PRICES.agent_lookup);
-  if (!verification.valid) {
-    return make402Response(SERVICE_PRICES.agent_lookup, { payment_error: verification.error });
-  }
-
-  const settlement = await settleX402Payment(xPayment, SERVICE_PRICES.agent_lookup);
-  if (!settlement.settled) {
-    return make402Response(SERVICE_PRICES.agent_lookup, { payment_error: settlement.error });
-  }
-
-  if (settlement.receipt) c.header('X-Payment-Response', settlement.receipt);
-
-  // Track spend (fire-and-forget)
-  c.executionCtx.waitUntil(
-    trackX402Spend(c.env, 'anonymous', SERVICE_PRICES.agent_lookup.amount, {
-      payer: verification.payer,
-      service: 'agent_lookup',
-    }).catch(() => {}),
-  );
+  // ── x402 payment: verify now, settle only on delivery (a miss never charges) ─
+  const paid = await verifyX402Only(c.req.header('X-PAYMENT'), SERVICE_PRICES.agent_lookup, 'agent_lookup');
+  if (paid instanceof Response) return paid;
+  const deliver = (res: Response) => settleOnDelivery(c.env, (p) => c.executionCtx.waitUntil(p), paid, res);
 
   // ── Resolve agent ID from query params ────────────────────────────────────────
   const handle = c.req.query('handle');
@@ -89,6 +69,8 @@ discoveryRoutes.get('/lookup', async (c) => {
       'ambiguous_query',
     );
   }
+
+  if (id === DEMO_AGENT_ID) return deliver(json(demoAgentLookupRecord()));
 
   let resolvedAccountId: string | null = null;
 
@@ -183,5 +165,5 @@ discoveryRoutes.get('/lookup', async (c) => {
   if (registeredAt) response.registered_at = registeredAt;
   response.verified = verified;
 
-  return json(response);
+  return deliver(json(response));
 });

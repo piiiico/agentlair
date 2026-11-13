@@ -22,7 +22,8 @@ import {
 } from '../middleware/audit.js';
 import { auditEntryToCAF } from '../caf.js';
 import { cafToSignedStatement } from '../caf-scitt.js';
-import { verifyX402Payment, settleX402Payment, trackX402Spend, make402Response, SERVICE_PRICES } from '../x402.js';
+import { verifyX402Only, settleOnDelivery, SERVICE_PRICES } from '../x402.js';
+import { DEMO_AAT_JTI, demoAuditRecord } from '../demo-records.js';
 
 export const auditRoutes = new Hono<HonoEnv>();
 
@@ -417,33 +418,18 @@ publicAuditRoutes.get('/:jti', async (c) => {
     return c.json({ error: 'invalid_jti', message: 'Token ID must match format aat_[A-Za-z0-9]{16} or aal3_[A-Za-z0-9]{16}' }, 400);
   }
 
-  // x402 payment gate — 0.001 USDC per lookup (unauthenticated callers; payment IS authentication)
-  const xPayment = c.req.header('X-PAYMENT');
-  if (!xPayment) {
-    return make402Response(SERVICE_PRICES.audit_lookup);
-  }
-  const verification = await verifyX402Payment(xPayment, SERVICE_PRICES.audit_lookup);
-  if (!verification.valid) {
-    return make402Response(SERVICE_PRICES.audit_lookup, { payment_error: verification.error });
-  }
-  const settlement = await settleX402Payment(xPayment, SERVICE_PRICES.audit_lookup);
-  if (!settlement.settled) {
-    return make402Response(SERVICE_PRICES.audit_lookup, { payment_error: settlement.error });
-  }
-  if (settlement.receipt) {
-    c.header('X-Payment-Response', settlement.receipt);
-  }
-  c.executionCtx.waitUntil(
-    trackX402Spend(c.env, 'anonymous', SERVICE_PRICES.audit_lookup.amount, {
-      payer: verification.payer,
-      service: 'audit_lookup',
-    }).catch(() => {}),
-  );
+  // x402 payment gate — 0.001 USDC per lookup (unauthenticated callers; payment IS authentication).
+  // Verify now, settle only on delivery: a miss (404) never charges.
+  const paid = await verifyX402Only(c.req.header('X-PAYMENT'), SERVICE_PRICES.audit_lookup, 'audit_lookup');
+  if (paid instanceof Response) return paid;
+  const deliver = (res: Response) => settleOnDelivery(c.env, (p) => c.executionCtx.waitUntil(p), paid, res);
+
+  if (jti === DEMO_AAT_JTI) return deliver(c.json(demoAuditRecord(), 200));
 
   // Look up token metadata from KV
   const metaRaw = await c.env.KEYS.get(`aat-meta:${jti}`);
   if (!metaRaw) {
-    return c.json({ error: 'not_found', message: 'Token not found. Tokens are only auditable while valid and up to 5 minutes after expiry.' }, 404);
+    return c.json({ error: 'not_found', message: 'Token not found. Tokens are only auditable while valid and up to 5 minutes after expiry. You were not charged.' }, 404);
   }
   const meta = JSON.parse(metaRaw);
 
@@ -451,7 +437,7 @@ publicAuditRoutes.get('/:jti', async (c) => {
   const revocationRaw = await c.env.KEYS.get(`revoked:${jti}`);
   const revocation = revocationRaw ? JSON.parse(revocationRaw) : null;
 
-  return c.json({
+  return deliver(c.json({
     jti,
     issued_at: meta.issued_at,
     expires_at: meta.expires_at,
@@ -461,5 +447,5 @@ publicAuditRoutes.get('/:jti', async (c) => {
     revoked_at: revocation?.revoked_at ?? null,
     revocation_reason: revocation?.reason ?? null,
     audit_log_url: `https://agentlair.dev/v1/audit/log?action=auth.token_issue`,
-  }, 200);
+  }, 200));
 });
