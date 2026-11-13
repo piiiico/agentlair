@@ -25,7 +25,7 @@ import { adminStatsRoutes } from './routes/admin-stats.js';
 import { auditMiddleware } from './middleware/audit.js';
 import { budgetMiddleware } from './middleware/budget.js';
 import { encryptEmailField, encryptEmailE2E } from './platform-crypto.js';
-import { make402Response, SERVICE_PRICES, X402_CONFIG, getPaymentRequirements, verifyX402Payment, settleX402Payment, trackX402Spend, autoUpgradeIfThreshold, getGlobalRevenue, checkSpendingCap, getBillingAnomalies, verifyX402Only, settleOnDelivery } from './x402.js';
+import { make402Response, SERVICE_PRICES, X402_CONFIG, getPaymentRequirements, verifyX402Payment, settleX402Payment, trackX402Spend, autoUpgradeIfThreshold, getGlobalRevenue, checkSpendingCap, getBillingAnomalies, verifyX402Only, settleOnDelivery, TRUST_BATCH_DISCOVERY } from './x402.js';
 import { DEMO_AAT_JTI, DEMO_AGENT_ID } from './demo-records.js';
 import type { ServicePaymentConfig } from './x402.js';
 
@@ -701,7 +701,7 @@ app.get('/.well-known/bazaar.json', (_c) => {
       endpoint: '/v1/trust/batch',
       method: 'POST',
       requirements: getPaymentRequirements(SERVICE_PRICES.trust_query),
-      discovery: SERVICE_PRICES.trust_query.discovery,
+      discovery: TRUST_BATCH_DISCOVERY,
     },
     {
       name: 'Agent Discovery Lookup',

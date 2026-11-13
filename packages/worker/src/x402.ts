@@ -7,6 +7,9 @@ import type { Env, X402VerifyResult, X402SettleResult } from './types.js';
 import { verifyAATFromX402Extensions, type X402PaymentPayload } from './x402-identity.js';
 import { DEMO_AAT_JTI, DEMO_AGENT_ID, DEMO_AGENT_NAME } from './demo-records.js';
 
+/** Listing example for POST /v1/auth/verify: JWT-shaped, not signed by agentlair.dev → 200 {active:false}. */
+export const DEMO_VERIFY_TOKEN = 'eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhY2NfZGVtb2lkMTIzNDUifQ.ZGVtbw';
+
 export const X402_CONFIG = {
   network: 'eip155:8453',
   asset: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', // USDC on Base
@@ -226,14 +229,30 @@ export const SERVICE_PRICES: Record<string, ServicePaymentConfig> = {
     mimeType: 'application/json',
     discovery: {
       bodyType: 'json',
-      input: { token: 'aat_...' },
+      // Any string delivers a verdict (200). A token not signed by agentlair.dev →
+      // {active:false}; a live AAT → the claim set in output.example.
+      input: { token: DEMO_VERIFY_TOKEN },
       inputSchema: {
         properties: {
           token: { type: 'string', description: 'Agent Authentication Token (AAT) to verify' },
         },
         required: ['token'],
       },
-      output: { example: { valid: true, agent_id: 'agent_123', issuer: 'agentlair.dev', expires_at: '2026-05-01T00:00:00Z' } },
+      // Keys mirror the delivered POST /v1/auth/verify body for a live AAT (routes/auth.ts).
+      output: {
+        example: {
+          active: true,
+          sub: DEMO_AGENT_ID,
+          iss: 'https://agentlair.dev',
+          aud: 'https://example.com',
+          exp: 1794528000,
+          iat: 1794524400,
+          jti: DEMO_AAT_JTI,
+          scope: 'email',
+          al_scopes: ['email'],
+          al_audit_url: `https://agentlair.dev/v1/audit/${DEMO_AAT_JTI}`,
+        },
+      },
     },
   },
   agent_provision: {
@@ -469,6 +488,31 @@ export const EMAIL_PAYMENT_REQUIRED_RESPONSE = {
   ...(SERVICE_PRICES.email_send.discovery
     ? { extensions: buildBazaarExtension(SERVICE_PRICES.email_send.discovery) }
     : {}),
+};
+
+/**
+ * Bazaar discovery for POST /v1/trust/batch. Shares trust_query's price/resource but
+ * NOT its discovery: the route reads body {agentIds:[...]} (routes/trust.ts), so the
+ * single-id {agent_id} example would 400 missing_agent_ids.
+ */
+export const TRUST_BATCH_DISCOVERY = {
+  bodyType: 'json',
+  input: { agentIds: [DEMO_AGENT_ID] },
+  inputSchema: {
+    properties: {
+      agentIds: { type: 'array', items: { type: 'string' }, description: 'AgentLair agent IDs (acc_...) to score in one call' },
+    },
+    required: ['agentIds'],
+  },
+  output: {
+    // Keys mirror the delivered /v1/trust/batch body; profiles[] are TrustProfiles.
+    example: {
+      profiles: [(SERVICE_PRICES.trust_query.discovery as { output: { example: unknown } }).output.example],
+      requested: 1,
+      computed: 1,
+      errors: [],
+    },
+  },
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

@@ -14,6 +14,7 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import worker from './index.js';
 import { SERVICE_PRICES, settleOnDelivery } from './x402.js';
+import { createJWT } from './jwt.js';
 import { DEMO_AAT_JTI, DEMO_AGENT_ID } from './demo-records.js';
 import { Hono } from 'hono';
 import type { HonoEnv } from './types.js';
@@ -270,6 +271,40 @@ describe('Rule B — every advertised example resolves', () => {
       else throw new Error(`unmapped bazaar GET service ${s.endpoint}`);
       stubFacilitator();
       await expectDelivered(await get(path), outputKeys(service));
+    }
+  });
+
+  test('bazaar.json POST services: discovery input → paid 200 with output keys', async () => {
+    const bz = await (await get('/.well-known/bazaar.json', false)).json() as {
+      services: Array<{ endpoint: string; method: string; discovery?: { input?: Record<string, unknown>; output?: { example?: Record<string, unknown> } } }>;
+    };
+    const posts = bz.services.filter((s) => s.method === 'POST');
+    expect(posts.length).toBeGreaterThanOrEqual(2);
+    for (const s of posts) {
+      const input = s.discovery?.input;
+      const keys = Object.keys(s.discovery?.output?.example ?? {});
+      stubFacilitator();
+      const res = await post(s.endpoint, input);
+      if (s.endpoint === '/v1/trust/batch') {
+        const body = await expectDelivered(res, keys);
+        expect(body.computed).toBe(1);
+        expect((body.errors as unknown[]).length).toBe(0);
+      } else if (s.endpoint === '/v1/auth/verify') {
+        // Example token is not ours → a delivered verdict {active:false}; the listed
+        // keys are checked against a live AAT below.
+        const body = await expectDelivered(res, ['active']);
+        expect(body.active).toBe(false);
+        const now = Math.floor(Date.now() / 1000);
+        const aat = createJWT({
+          iss: 'https://agentlair.dev', sub: 'acc_demoid12345', aud: 'https://example.com',
+          exp: now + 600, iat: now, jti: 'aat_demo1234567890ab',
+          al_scopes: ['email'], al_audit_url: 'https://agentlair.dev/v1/audit/aat_demo1234567890ab',
+        }, makeEnv().AUDIT_SIGNING_KEY, 'k1');
+        stubFacilitator();
+        const live = await expectDelivered(await post(s.endpoint, { token: aat }), keys);
+        expect(live.active).toBe(true);
+        expect(Object.keys(live).sort()).toEqual([...keys].sort()); // no undocumented keys either
+      } else throw new Error(`unmapped bazaar POST service ${s.endpoint}`);
     }
   });
 
