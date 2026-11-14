@@ -2,7 +2,7 @@
 title: "What contact should my AI agent put in its User-Agent?"
 description: "Some sites ask scripts for a contact in the User-Agent header. Give them a contact for the agent, never the human's login email. The options, what Wikimedia and the SEC ask for, what six sites' filters actually let through, and what to do about Claude Code's email leak."
 pubDate: 2026-11-06
-updatedDate: 2026-11-11
+updatedDate: 2026-11-14
 schemaType: "TechArticle"
 ---
 
@@ -62,12 +62,13 @@ What has changed so far, from the [CHANGELOG](https://github.com/anthropics/clau
 - 2.1.234: "Claude is now told to use your account email only to identify you, and not to send it to unrelated services unless you ask"
 - 2.1.317: "Added a check that asks before a web or shell tool call sends your account email address to the network"
 - 2.1.321 (November 9): "Changed the account email check to refuse only a shell command that holds your email and names a User-Agent, without asking, so other commands and scheduled runs no longer stop at its prompt"
+- 2.1.325 (November 13): "Improved the account email check: it now also refuses your email as a client's identity in scripts a command runs, file writes, web fetches and MCP calls"
 
-On November 6, a Claude Code engineer [wrote on HN](https://news.ycombinator.com/item?id=50388176): "We're removing the account email address from the context Claude Code gives the model. This update will hit Claude Code users in the next release, which should arrive early next week." As of November 11, no release lists that change; the newest, 2.1.322 from November 10, does not.
+On November 6, a Claude Code engineer [wrote on HN](https://news.ycombinator.com/item?id=50388176): "We're removing the account email address from the context Claude Code gives the model. This update will hit Claude Code users in the next release, which should arrive early next week." As of November 14, no release lists that change; the newest, 2.1.325 from November 13, widens the check instead.
 
 Until that ships:
 
-1. Update to 2.1.321 or later. Users on the issue reported that the earlier check did not refuse their test (macOS on 2.1.317, 2.1.318 and 2.1.319, Windows on 2.1.318), and by its own wording 2.1.321 refuses only a shell command that holds your email and names a User-Agent. A script the agent writes to a file and then runs is not that.
+1. Update to 2.1.325 or later. Users on the issue reported that the earlier check did not refuse their test (macOS on 2.1.317, 2.1.318 and 2.1.319, Windows on 2.1.318). 2.1.321 refused only a shell command that holds your email and names a User-Agent; by its wording, 2.1.325 also covers scripts a command runs, file writes, web fetches and MCP calls. It is still a check on what goes out: the model is still given your email.
 2. Tell the agent which contact to use. A line in `CLAUDE.md` such as "When a site asks for a User-Agent contact, use `+https://acme.example/bot`. Never use my email." gives it something to put there instead.
 3. Check your git config. One commenter said the address the agent sent came from their `.gitconfig`, not the account.
 4. Search your own transcripts for your address next to `User-Agent`. Two commenters on the issue did this and found calls they had not noticed; one counted 53.
