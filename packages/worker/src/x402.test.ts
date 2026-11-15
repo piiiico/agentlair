@@ -271,8 +271,13 @@ import { make402ResponseBody } from './x402.js';
 describe('bazaar discovery: schema compiles (ajv 2020 strict) and own info validates', () => {
   const services = Object.entries(SERVICE_PRICES).filter(([, s]) => (s as { discovery?: unknown }).discovery);
 
-  test('floor: at least 14 discovery services found', () => {
-    expect(services.length).toBeGreaterThanOrEqual(14);
+  test('floor: at least 13 discovery services found', () => {
+    expect(services.length).toBeGreaterThanOrEqual(13);
+  });
+
+  test('event_submit_free carries no bazaar listing (authed /v1/events needs an events array; anon sibling lists it)', () => {
+    const body = make402ResponseBody(SERVICE_PRICES.event_submit_free as never) as { extensions?: { bazaar?: unknown } };
+    expect(body.extensions?.bazaar).toBeUndefined();
   });
 
   for (const [name, svc] of services) {

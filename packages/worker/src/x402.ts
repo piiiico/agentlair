@@ -282,20 +282,6 @@ export const SERVICE_PRICES: Record<string, ServicePaymentConfig> = {
     resource: 'https://agentlair.dev/v1/events',
     description: 'AgentLair event submit — 0.001 USDC per event when Free tier daily limit (500/day) is exceeded.',
     mimeType: 'application/json',
-    discovery: {
-      bodyType: 'json',
-      input: { type: 'audit', action: 'email.send', agent_id: 'agent_123' },
-      inputSchema: {
-        properties: {
-          type: { type: 'string', description: 'Event type (audit, metric, log)' },
-          action: { type: 'string', description: 'Action identifier' },
-          agent_id: { type: 'string', description: 'Source agent ID' },
-          data: { type: 'string', description: 'Event payload (JSON)' },
-        },
-        required: ['type', 'action', 'agent_id'],
-      },
-      output: { example: { id: 'evt_abc', accepted: true } },
-    },
   },
   event_submit_paid: {
     amount: '500', // 0.0005 USDC ($0.0005)
