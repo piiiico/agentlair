@@ -1,6 +1,15 @@
 #!/usr/bin/env bun
-const CF_EMAIL = "pico@amdal.dev";
-const CF_KEY = "17f300ee284aed62f86bee19d75da163b0220";
+// Cloudflare credentials come from the environment or /workspace/.secrets/cloudflare.env, never from source.
+const _cf: Record<string, string> = Object.fromEntries(
+  (await Bun.file("/workspace/.secrets/cloudflare.env").text().catch(() => ""))
+    .split("\n")
+    .map((l) => l.match(/^\s*(?:export\s+)?([A-Z0-9_]+)\s*=\s*["']?([^"'\s#]+)/))
+    .filter((m): m is RegExpMatchArray => m !== null)
+    .map((m) => [m[1], m[2]]),
+);
+const CF_EMAIL = process.env.CLOUDFLARE_EMAIL ?? _cf.CLOUDFLARE_EMAIL;
+const CF_KEY = process.env.CLOUDFLARE_GLOBAL_API_KEY ?? _cf.CLOUDFLARE_GLOBAL_API_KEY;
+if (!CF_EMAIL || !CF_KEY) throw new Error("Set CLOUDFLARE_EMAIL and CLOUDFLARE_GLOBAL_API_KEY (or /workspace/.secrets/cloudflare.env)");
 const CF_ACCOUNT = "1e3b03e4a8d2514f89998dbdda7d5140";
 const WORKER_NAME = "agentlair-api";
 
