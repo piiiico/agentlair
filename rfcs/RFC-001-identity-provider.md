@@ -17,7 +17,7 @@ This RFC specifies how AgentLair acts as an Identity Provider (IdP) for MCP agen
 
 ### 1.1 The Identity Gap in MCP
 
-MCP (Model Context Protocol) governs agent-to-tool communication but explicitly excludes identity and authentication from its specification. AAIF (AI Agent Interoperability Forum) governs the protocol spec only -- identity remains ungoverned. At 10,000+ MCP servers, there is no institutionalized answer to "who is this agent?"
+MCP (Model Context Protocol) governs agent-to-tool communication but explicitly excludes identity and authentication from its specification. AAIF (Agentic AI Foundation) governs the protocol spec only -- identity remains ungoverned. At 10,000+ MCP servers, there is no institutionalized answer to "who is this agent?"
 
 ### 1.2 MCP-I Conformance Levels
 

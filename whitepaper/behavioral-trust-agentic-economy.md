@@ -131,7 +131,7 @@ Cross-organizational behavioral trust is the infrastructure layer that closes al
 
 ### From Implementation Bugs to Architectural Failure
 
-The Model Context Protocol has become the de facto standard for agent-to-tool connectivity. Anthropic donated it to the Linux Foundation's AAIF (AI Agent Interoperability Forum) in March 2026, with over 10,000 servers deployed. Its OAuth 2.1 authentication spec is technically sound.
+The Model Context Protocol has become the de facto standard for agent-to-tool connectivity. Anthropic donated it to the Linux Foundation's AAIF (Agentic AI Foundation) in December 2025, with over 10,000 servers deployed. Its OAuth 2.1 authentication spec is technically sound.
 
 None of this has prevented catastrophic security failures.
 
